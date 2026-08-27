@@ -67,6 +67,18 @@ public class InverseExchangeRateTimeSeries implements ExchangeRateTimeSeries
     {
         Optional<ExchangeRate> answer = source.lookupRate(requestedTime);
 
+        return invert(answer);
+    }
+
+    @Override
+    public Optional<ExchangeRate> lookupRateIfAvailable(LocalDate requestedTime)
+    {
+        return invert(source.lookupRateIfAvailable(requestedTime));
+    }
+
+    private Optional<ExchangeRate> invert(Optional<ExchangeRate> answer)
+    {
+
         if (answer.isPresent())
         {
             BigDecimal reverse = BigDecimal.ONE.divide(answer.get().getValue(), 10, RoundingMode.HALF_DOWN);

@@ -18,6 +18,16 @@ public interface ExchangeRateTimeSeries
 
     Optional<ExchangeRate> lookupRate(LocalDate requestedTime);
 
+    /**
+     * Looks up a rate only if the series contains data on or before the
+     * requested date. In contrast to {@link #lookupRate(LocalDate)}, this must
+     * not use a future rate for dates before the start of the series.
+     */
+    default Optional<ExchangeRate> lookupRateIfAvailable(LocalDate requestedTime)
+    {
+        return lookupRate(requestedTime).filter(rate -> !rate.getTime().isAfter(requestedTime));
+    }
+
     default Optional<ExchangeRate> lookupRate(LocalDateTime requestedTime)
     {
         return lookupRate(requestedTime.toLocalDate());

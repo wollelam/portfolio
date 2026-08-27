@@ -45,7 +45,7 @@ public class SecurityPriceSeriesTest
             }
         };
 
-        List<SecurityPrice> converted = SecurityPriceSeries.convert(prices, "USD", converter);
+        List<SecurityPrice> converted = SecurityPriceSeries.convert(prices, "USD", converter).orElseThrow();
 
         assertThat(converted.get(0).getValue(), is(Values.Quote.factorize(20)));
         assertThat(converted.get(1).getValue(), is(Values.Quote.factorize(30)));
@@ -82,7 +82,7 @@ public class SecurityPriceSeriesTest
             }
         };
 
-        assertThat(SecurityPriceSeries.convert(prices, "EUR", converter), is(prices));
-        assertThat(SecurityPriceSeries.convert(prices, null, converter), is(prices));
+        assertThat(SecurityPriceSeries.convert(prices, "EUR", converter).orElseThrow(), is(prices));
+        assertThat(SecurityPriceSeries.convert(prices, null, converter).orElseThrow(), is(prices));
     }
 }
