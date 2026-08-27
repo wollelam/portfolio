@@ -32,6 +32,7 @@ import org.eclipse.swtchart.ILineSeries.PlotSymbolType;
 
 import com.google.common.collect.Lists;
 
+import name.abuchen.portfolio.money.MonetaryException;
 import name.abuchen.portfolio.snapshot.PerformanceIndex;
 import name.abuchen.portfolio.ui.Images;
 import name.abuchen.portfolio.ui.Messages;
@@ -40,6 +41,8 @@ import name.abuchen.portfolio.ui.util.Colors;
 import name.abuchen.portfolio.ui.util.DropDown;
 import name.abuchen.portfolio.ui.util.LabelOnly;
 import name.abuchen.portfolio.ui.util.SimpleAction;
+import name.abuchen.portfolio.ui.util.chart.ChartCurrencyDropDown;
+import name.abuchen.portfolio.ui.util.chart.ChartCurrencySelection;
 import name.abuchen.portfolio.ui.util.chart.ScatterChart;
 import name.abuchen.portfolio.ui.util.chart.ScatterChartCSVExporter;
 import name.abuchen.portfolio.ui.util.format.AxisTickPercentNumberFormat;
@@ -87,10 +90,12 @@ public class ReturnsVolatilityChartView extends AbstractHistoricView
     private static final String KEY_RISK_METRIC = ReturnsVolatilityChartView.class.getSimpleName() + "-risk-metric"; //$NON-NLS-1$
     private static final String KEY_DISPLAY_UNIT_RISK_LINE = ReturnsVolatilityChartView.class.getSimpleName()
                     + "display-unit-risk-line"; //$NON-NLS-1$
+    private static final String KEY_CURRENCY = ReturnsVolatilityChartView.class.getSimpleName() + "-currency"; //$NON-NLS-1$
 
     private boolean useIRR = false;
     private RiskMetric riskMetric = RiskMetric.VOLATILITY;
     private boolean displayUnitRiskLine = false;
+    private String chartCurrencySelection = ChartCurrencySelection.PORTFOLIO;
 
     private ScatterChart chart;
     private LocalResourceManager resources;
@@ -117,6 +122,8 @@ public class ReturnsVolatilityChartView extends AbstractHistoricView
         }
 
         this.displayUnitRiskLine = getPreferenceStore().getBoolean(KEY_DISPLAY_UNIT_RISK_LINE);
+        this.chartCurrencySelection = ChartCurrencySelection.restore(getPreferenceStore().getString(KEY_CURRENCY),
+                        ChartCurrencySelection.PORTFOLIO);
     }
 
     @PreDestroy
@@ -137,6 +144,11 @@ public class ReturnsVolatilityChartView extends AbstractHistoricView
     protected void addButtons(ToolBarManager toolBar)
     {
         super.addButtons(toolBar);
+        toolBar.add(new ChartCurrencyDropDown(getClient(), chartCurrencySelection, selection -> {
+            chartCurrencySelection = selection;
+            getPreferenceStore().setValue(KEY_CURRENCY, selection);
+            reportingPeriodUpdated();
+        }));
         toolBar.add(new ExportDropDown());
         toolBar.add(new DropDown(Messages.MenuConfigureChart, Images.CONFIG, SWT.NONE, manager -> {
 
@@ -293,31 +305,44 @@ public class ReturnsVolatilityChartView extends AbstractHistoricView
 
     private void setChartSeries()
     {
-        Interval interval = getReportingPeriod().toInterval(LocalDate.now());
+        chart.getTitle().setVisible(false);
 
-        Lists.reverse(configurator.getSelectedDataSeries()).forEach(series -> {
+        try
+        {
+            Interval interval = getReportingPeriod().toInterval(LocalDate.now());
 
-            if (!series.isVisible())
-                return;
+            Lists.reverse(configurator.getSelectedDataSeries()).forEach(series -> {
 
-            PerformanceIndex index = cache.lookup(series, interval);
+                if (!series.isVisible())
+                    return;
 
-            double risk = this.riskMetric.getRisk(index);
-            double retrn = this.useIRR ? index.getPerformanceIRR() : index.getFinalAccumulatedPercentage();
+                PerformanceIndex index = cache.lookup(series, interval, chartCurrencySelection);
 
-            if (Double.isInfinite(risk) || Double.isInfinite(retrn))
-                return;
+                double risk = this.riskMetric.getRisk(index);
+                double retrn = this.useIRR ? index.getPerformanceIRR() : index.getFinalAccumulatedPercentage();
 
-            var lineSeries = chart.addScatterSeries(series.getUUID(), new double[] { risk }, new double[] { retrn },
-                            series.getLabel());
+                if (Double.isInfinite(risk) || Double.isInfinite(retrn))
+                    return;
 
-            Color color = resources.createColor(series.getColor());
-            lineSeries.setLineColor(color);
-            lineSeries.setSymbolColor(color);
-            lineSeries.setSymbolType(series.isBenchmark() ? PlotSymbolType.DIAMOND : PlotSymbolType.CIRCLE);
-            lineSeries.enableArea(series.isShowArea());
-            lineSeries.setLineStyle(series.getLineStyle());
-        });
+                var lineSeries = chart.addScatterSeries(series.getUUID(), new double[] { risk }, new double[] { retrn },
+                                series.getLabel());
+
+                Color color = resources.createColor(series.getColor());
+                lineSeries.setLineColor(color);
+                lineSeries.setSymbolColor(color);
+                lineSeries.setSymbolType(series.isBenchmark() ? PlotSymbolType.DIAMOND : PlotSymbolType.CIRCLE);
+                lineSeries.enableArea(series.isShowArea());
+                lineSeries.setLineStyle(series.getLineStyle());
+            });
+        }
+        catch (MonetaryException e)
+        {
+            for (var series : chart.getSeriesSet().getSeries())
+                chart.getSeriesSet().deleteSeries(series.getId());
+
+            chart.getTitle().setText(e.getMessage());
+            chart.getTitle().setVisible(true);
+        }
     }
 
     private void prepareUnitRiskLine()
@@ -392,7 +417,8 @@ public class ReturnsVolatilityChartView extends AbstractHistoricView
                 @Override
                 protected void writeToFile(File file) throws IOException
                 {
-                    PerformanceIndex index = cache.lookup(series, getReportingPeriod().toInterval(LocalDate.now()));
+                    PerformanceIndex index = cache.lookup(series, getReportingPeriod().toInterval(LocalDate.now()),
+                                    chartCurrencySelection);
                     index.exportVolatilityData(file);
                 }
 
