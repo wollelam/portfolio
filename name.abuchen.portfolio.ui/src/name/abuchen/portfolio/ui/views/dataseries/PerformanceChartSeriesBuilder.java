@@ -8,6 +8,7 @@ import name.abuchen.portfolio.snapshot.Aggregation;
 import name.abuchen.portfolio.snapshot.PerformanceIndex;
 import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.util.Colors;
+import name.abuchen.portfolio.ui.util.chart.ChartCurrencySelection;
 import name.abuchen.portfolio.ui.util.chart.TimelineChart;
 import name.abuchen.portfolio.ui.views.dataseries.DataSeries.ClientDataSeries;
 import name.abuchen.portfolio.util.Interval;
@@ -21,10 +22,17 @@ public class PerformanceChartSeriesBuilder extends AbstractChartSeriesBuilder
 
     public void build(DataSeries series, Interval reportingPeriod, Aggregation.Period aggregationPeriod)
     {
+        build(series, reportingPeriod, aggregationPeriod,
+                        ChartCurrencySelection.PORTFOLIO);
+    }
+
+    public void build(DataSeries series, Interval reportingPeriod, Aggregation.Period aggregationPeriod,
+                    String currencySelection)
+    {
         if (!series.isVisible())
             return;
 
-        PerformanceIndex index = getCache().lookup(series, reportingPeriod);
+        PerformanceIndex index = getCache().lookup(series, reportingPeriod, currencySelection);
 
         if (series.getType() == DataSeries.Type.CLIENT)
         {
