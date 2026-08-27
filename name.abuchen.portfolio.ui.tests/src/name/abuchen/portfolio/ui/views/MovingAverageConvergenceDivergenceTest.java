@@ -80,6 +80,25 @@ public class MovingAverageConvergenceDivergenceTest
     }
 
     @Test
+    public void testPreparedPrices()
+    {
+        LocalDate date = LocalDate.of(2016, 1, 1);
+        Security security = new Security();
+        for (int i = 0; i < 80; i++)
+        {
+            security.addPrice(new SecurityPrice(date, Values.Quote.factorize(10)));
+            date = date.plusDays(1);
+        }
+
+        ChartInterval interval = new ChartInterval(LocalDate.of(2016, 1, 1), LocalDate.of(2016, 3, 20));
+        MovingAverageConvergenceDivergence macd = MovingAverageConvergenceDivergence
+                        .fromPrices(security.getPricesIncludingLatest(), interval);
+
+        assertThat(macd.getMacdLine().isPresent(), is(true));
+        assertThat(macd.getSignalLine().isPresent(), is(true));
+    }
+
+    @Test
     public void testIntervalBeforeSecurityPrices()
     {
         Security security = new Security();

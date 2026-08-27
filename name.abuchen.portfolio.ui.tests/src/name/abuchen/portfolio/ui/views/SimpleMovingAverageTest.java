@@ -5,6 +5,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Locale;
 
 import org.hamcrest.core.IsNull;
@@ -83,6 +84,19 @@ public class SimpleMovingAverageTest
         assertThat(sma, is(IsNull.notNullValue()));
         assertThat(sma.getValues().length, is(1));
         assertThat(sma.getValues()[0], is((1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10) / Values.Quote.divider() / 10));
+    }
+
+    @Test
+    public void testCorrectSMAEntriesFromPreparedPrices()
+    {
+        List<SecurityPrice> prices = List.of( //
+                        new SecurityPrice(LocalDate.parse("2017-01-01"), Values.Quote.factorize(10)),
+                        new SecurityPrice(LocalDate.parse("2017-01-02"), Values.Quote.factorize(30)));
+        ChartInterval interval = new ChartInterval(LocalDate.parse("2017-01-01"), LocalDate.parse("2017-01-02"));
+
+        ChartLineSeriesAxes sma = SimpleMovingAverage.fromPrices(2, prices, interval).getSMA();
+
+        assertThat(sma.getValues(), is(new double[] { 20d }));
     }
 
     @Test

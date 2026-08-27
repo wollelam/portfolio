@@ -975,6 +975,7 @@ public class Messages extends NLS
     public static String LabelUseNoTaxonomy;
     public static String LabelUser;
     public static String LabelUseSecurityCurrency;
+    public static String LabelUsePortfolioCurrency;
     public static String LabelUsingDashboardDefaultReportingPeriod;
     public static String LabelValueInboundDelivery;
     public static String LabelValueOutboundDelivery;
