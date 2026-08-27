@@ -16,7 +16,6 @@ import name.abuchen.portfolio.model.Adaptor;
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
-import name.abuchen.portfolio.money.CurrencyUnit;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.UIConstants;
@@ -25,6 +24,7 @@ import name.abuchen.portfolio.ui.util.SWTHelper;
 import name.abuchen.portfolio.ui.util.swt.SashLayout;
 import name.abuchen.portfolio.ui.util.swt.SashLayoutData;
 import name.abuchen.portfolio.ui.views.SecuritiesChart;
+import name.abuchen.portfolio.ui.util.chart.ChartCurrencySelection;
 import name.abuchen.portfolio.ui.views.SecuritiesChart.IntervalOption;
 import name.abuchen.portfolio.ui.views.SecurityDetailsViewer;
 
@@ -78,10 +78,9 @@ public class SecurityPriceChartPane implements InformationPanePage
             }
         }
 
-        String currencyCode = preferences.getString(PREF_CURRENCY);
-        if (SecuritiesChart.USE_PORTFOLIO_CURRENCY.equals(currencyCode)
-                        || CurrencyUnit.containsCurrencyCode(currencyCode))
-            chart.setChartCurrencySelection(currencyCode);
+        String currencyCode = ChartCurrencySelection.restore(preferences.getString(PREF_CURRENCY),
+                        SecuritiesChart.USE_SECURITY_CURRENCY);
+        chart.setChartCurrencySelection(currencyCode);
 
         chart.getControl().addDisposeListener(e -> {
             preferences.setValue(PREF_INTERVAL, chart.getIntervalOption().name());

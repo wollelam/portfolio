@@ -70,6 +70,10 @@ public class ExchangeRateTimeSeriesImplTest
         assertThat(series.lookupRate(LocalDate.parse("2014-12-02")).get().getValue(), is(BigDecimal.valueOf(1)));
         assertThat(series.lookupRate(LocalDate.parse("2014-12-03")).get().getValue(), is(BigDecimal.valueOf(3)));
         assertThat(series.lookupRate(LocalDate.parse("2014-12-04")).get().getValue(), is(BigDecimal.valueOf(3)));
+
+        assertThat(series.lookupRateIfAvailable(LocalDate.parse("2014-11-30")).isPresent(), is(false));
+        assertThat(series.lookupRateIfAvailable(LocalDate.parse("2014-12-02")).get().getValue(),
+                        is(BigDecimal.valueOf(1)));
     }
 
     @Test

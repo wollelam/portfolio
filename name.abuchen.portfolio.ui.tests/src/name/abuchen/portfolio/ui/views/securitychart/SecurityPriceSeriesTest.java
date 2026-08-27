@@ -6,6 +6,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.Test;
 
@@ -84,5 +85,41 @@ public class SecurityPriceSeriesTest
 
         assertThat(SecurityPriceSeries.convert(prices, "EUR", converter).orElseThrow(), is(prices));
         assertThat(SecurityPriceSeries.convert(prices, null, converter).orElseThrow(), is(prices));
+    }
+
+    @Test
+    public void testMissingRateDoesNotProduceOneToOnePrices()
+    {
+        List<SecurityPrice> prices = List.of(
+                        new SecurityPrice(LocalDate.parse("2025-01-02"), Values.Quote.factorize(10)));
+
+        CurrencyConverter converter = new CurrencyConverter()
+        {
+            @Override
+            public String getTermCurrency()
+            {
+                return "EUR";
+            }
+
+            @Override
+            public ExchangeRate getRate(LocalDate date, String currencyCode)
+            {
+                return new ExchangeRate(date, BigDecimal.ONE);
+            }
+
+            @Override
+            public Optional<ExchangeRate> getRateIfAvailable(LocalDate date, String currencyCode)
+            {
+                return Optional.empty();
+            }
+
+            @Override
+            public CurrencyConverter with(String currencyCode)
+            {
+                throw new UnsupportedOperationException();
+            }
+        };
+
+        assertThat(SecurityPriceSeries.convert(prices, "USD", converter).isEmpty(), is(true));
     }
 }
