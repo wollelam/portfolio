@@ -126,7 +126,7 @@ public class DataSeriesCache
                 case SECURITY_BENCHMARK:
                     return PerformanceIndex.forSecurity(
                                     lookup(new DataSeries(DataSeries.Type.CLIENT, null, null, null), reportingPeriod,
-                                                    currencySelection, strict),
+                                                    calculationConverter.getTermCurrency(), strict),
                                     (Security) series.getInstance());
 
                 case PORTFOLIO:
