@@ -1139,7 +1139,18 @@ public class SecuritiesChart
                 List<SecurityPrice> prices = security.getPricesIncludingLatest();
                 CurrencyConverter chartCurrencyConverter = getChartCurrencyConverter(security);
                 if (chartCurrencyConverter != null)
-                    prices = SecurityPriceSeries.convert(prices, security.getCurrencyCode(), chartCurrencyConverter);
+                {
+                    Optional<List<SecurityPrice>> converted = SecurityPriceSeries.convert(prices,
+                                    security.getCurrencyCode(), chartCurrencyConverter);
+                    if (converted.isEmpty())
+                    {
+                        messagePainter.setMessage(MessageFormat.format(
+                                        Messages.SecuritiesChart_NoDataMessage_NoExchangeRate,
+                                        security.getCurrencyCode(), chartCurrencyConverter.getTermCurrency()));
+                        return;
+                    }
+                    prices = converted.get();
+                }
                 if (isSingleSecurityMode && prices.isEmpty())
                 {
                     messagePainter.setMessage(Messages.SecuritiesChart_NoDataMessage_NoPrices);

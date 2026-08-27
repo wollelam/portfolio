@@ -53,6 +53,12 @@ public class EmptyExchangeRateTimeSeries implements ExchangeRateTimeSeries
     }
 
     @Override
+    public Optional<ExchangeRate> lookupRateIfAvailable(LocalDate requestedTime)
+    {
+        return Optional.empty();
+    }
+
+    @Override
     public int getWeight()
     {
         return 1;

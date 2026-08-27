@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 public interface CurrencyConverter
 {
@@ -41,6 +42,23 @@ public interface CurrencyConverter
         return Quote.of(termCurrency, converted.longValue());
     }
 
+    default Optional<Quote> convertIfAvailable(LocalDate date, Quote quote)
+    {
+        String termCurrency = getTermCurrency();
+
+        if (termCurrency.equals(quote.getCurrencyCode()))
+            return Optional.of(quote);
+
+        if (quote.isZero())
+            return Optional.of(Quote.of(termCurrency, 0));
+
+        return getRateIfAvailable(date, quote.getCurrencyCode()).map(rate -> {
+            BigDecimal converted = rate.getValue().multiply(BigDecimal.valueOf(quote.getAmount())).setScale(0,
+                            RoundingMode.HALF_DOWN);
+            return Quote.of(termCurrency, converted.longValue());
+        });
+    }
+
     default Money convert(LocalDateTime date, Money amount)
     {
         return convert(date.toLocalDate(), amount);
@@ -62,6 +80,11 @@ public interface CurrencyConverter
     }
     
     ExchangeRate getRate(LocalDate date, String currencyCode);
+
+    default Optional<ExchangeRate> getRateIfAvailable(LocalDate date, String currencyCode)
+    {
+        return Optional.of(getRate(date, currencyCode));
+    }
 
     /**
      * Returns a CurrencyConverter with the provided term currency
