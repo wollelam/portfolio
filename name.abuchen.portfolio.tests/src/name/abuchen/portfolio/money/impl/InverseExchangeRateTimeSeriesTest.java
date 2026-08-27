@@ -30,6 +30,9 @@ public class InverseExchangeRateTimeSeriesTest
                         is(new BigDecimal(0.500).setScale(10)));
         assertThat(inverse.lookupRate(LocalDate.parse("2014-12-03")).get().getValue(), is(BigDecimal.valueOf(0.3333333333)));
         assertThat(inverse.lookupRate(LocalDate.parse("2014-12-04")).get().getValue(), is(BigDecimal.valueOf(0.3333333333)));
+        assertThat(inverse.lookupRateIfAvailable(LocalDate.parse("2014-11-30")).isPresent(), is(false));
+        assertThat(inverse.lookupRateIfAvailable(LocalDate.parse("2014-12-02")).get().getValue(),
+                        is(new BigDecimal(0.500).setScale(10)));
 
         assertThat(inverse.getBaseCurrency(), is(source.getTermCurrency()));
         assertThat(inverse.getTermCurrency(), is(source.getBaseCurrency()));

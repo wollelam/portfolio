@@ -78,6 +78,7 @@ import name.abuchen.portfolio.ui.util.Colors;
 import name.abuchen.portfolio.ui.util.DropDown;
 import name.abuchen.portfolio.ui.util.SimpleAction;
 import name.abuchen.portfolio.ui.util.chart.ChartColorWheel;
+import name.abuchen.portfolio.ui.util.chart.ChartCurrencySelection;
 import name.abuchen.portfolio.ui.util.chart.ChartLineWidth;
 import name.abuchen.portfolio.ui.util.chart.TimelineChartToolTip;
 import name.abuchen.portfolio.ui.util.chart.TimelineSeriesModel;
@@ -397,8 +398,8 @@ public class SecuritiesChart
 
     private static final String PREF_KEY = "security-chart-details"; //$NON-NLS-1$
 
-    public static final String USE_SECURITY_CURRENCY = "SECURITY"; //$NON-NLS-1$
-    public static final String USE_PORTFOLIO_CURRENCY = "PORTFOLIO"; //$NON-NLS-1$
+    public static final String USE_SECURITY_CURRENCY = ChartCurrencySelection.SECURITY;
+    public static final String USE_PORTFOLIO_CURRENCY = ChartCurrencySelection.PORTFOLIO;
 
     private static final int MAX_SECURITIES_BENCHMARK = 10;
 
@@ -1054,14 +1055,7 @@ public class SecuritiesChart
 
     private CurrencyConverter getChartCurrencyConverter(Security security)
     {
-        String targetCurrency;
-        if (USE_SECURITY_CURRENCY.equals(chartCurrencySelection))
-            targetCurrency = security.getCurrencyCode();
-        else if (USE_PORTFOLIO_CURRENCY.equals(chartCurrencySelection))
-            targetCurrency = client.getBaseCurrency();
-        else
-            targetCurrency = chartCurrencySelection;
-
+        String targetCurrency = ChartCurrencySelection.resolve(chartCurrencySelection, client, security);
         return targetCurrency != null ? converter.with(targetCurrency) : null;
     }
 
