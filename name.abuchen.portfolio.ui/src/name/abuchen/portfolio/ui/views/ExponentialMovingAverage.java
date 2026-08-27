@@ -17,20 +17,33 @@ public class ExponentialMovingAverage
 {
     private int rangeEMA;
     private double smoothingFactor;
-    private Security security;
+    private List<SecurityPrice> prices;
     private ChartInterval interval;
     private ChartLineSeriesAxes result;
 
     public ExponentialMovingAverage(int rangeEMA, Security security, ChartInterval interval)
     {
+        this(rangeEMA, interval);
+        this.prices = security != null ? security.getPricesIncludingLatest() : null;
+        calculateEMA();
+    }
+
+    public static ExponentialMovingAverage fromPrices(int rangeEMA, List<SecurityPrice> prices,
+                    ChartInterval interval)
+    {
+        ExponentialMovingAverage answer = new ExponentialMovingAverage(rangeEMA, interval);
+        answer.prices = Objects.requireNonNull(prices);
+        answer.calculateEMA();
+        return answer;
+    }
+
+    private ExponentialMovingAverage(int rangeEMA, ChartInterval interval)
+    {
         this.rangeEMA = rangeEMA;
         this.smoothingFactor = 2.0 / (this.rangeEMA + 1);
-        this.security = security;
         this.interval = Objects.requireNonNull(interval);
 
         this.result = new ChartLineSeriesAxes();
-
-        calculateEMA();
     }
 
     /**
@@ -67,10 +80,6 @@ public class ExponentialMovingAverage
      */
     private void calculateEMA()
     {
-        if (security == null)
-            return;
-
-        List<SecurityPrice> prices = security.getPricesIncludingLatest();
         if (prices == null)
             return;
 

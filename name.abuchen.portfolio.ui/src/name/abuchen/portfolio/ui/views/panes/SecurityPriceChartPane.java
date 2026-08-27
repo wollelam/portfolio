@@ -16,6 +16,7 @@ import name.abuchen.portfolio.model.Adaptor;
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
+import name.abuchen.portfolio.money.CurrencyUnit;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.UIConstants;
@@ -29,6 +30,9 @@ import name.abuchen.portfolio.ui.views.SecurityDetailsViewer;
 
 public class SecurityPriceChartPane implements InformationPanePage
 {
+    private static final String PREF_INTERVAL = SecurityPriceChartPane.class.getSimpleName();
+    private static final String PREF_CURRENCY = PREF_INTERVAL + "-currency"; //$NON-NLS-1$
+
     @Inject
     @Named(UIConstants.Context.ACTIVE_CLIENT)
     private Client client;
@@ -60,7 +64,7 @@ public class SecurityPriceChartPane implements InformationPanePage
 
         chart = new SecuritiesChart(sash, client, new CurrencyConverterImpl(factory, client.getBaseCurrency()));
 
-        String option = preferences.getString(SecurityPriceChartPane.class.getSimpleName());
+        String option = preferences.getString(PREF_INTERVAL);
         if (option != null && !option.isEmpty())
         {
             try
@@ -74,8 +78,15 @@ public class SecurityPriceChartPane implements InformationPanePage
             }
         }
 
-        chart.getControl().addDisposeListener(e -> preferences.setValue(SecurityPriceChartPane.class.getSimpleName(),
-                        chart.getIntervalOption().name()));
+        String currencyCode = preferences.getString(PREF_CURRENCY);
+        if (SecuritiesChart.USE_PORTFOLIO_CURRENCY.equals(currencyCode)
+                        || CurrencyUnit.containsCurrencyCode(currencyCode))
+            chart.setChartCurrencySelection(currencyCode);
+
+        chart.getControl().addDisposeListener(e -> {
+            preferences.setValue(PREF_INTERVAL, chart.getIntervalOption().name());
+            preferences.setValue(PREF_CURRENCY, chart.getChartCurrencySelection());
+        });
 
         stylingEngine.style(chart.getControl());
         stylingEngine.style(chart);
