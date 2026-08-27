@@ -3,6 +3,7 @@ package name.abuchen.portfolio.ui.views;
 import java.time.LocalDate;
 import java.util.List;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 
@@ -20,12 +21,15 @@ import org.eclipse.swt.widgets.Menu;
 
 import com.google.common.collect.Lists;
 
+import name.abuchen.portfolio.money.MonetaryException;
 import name.abuchen.portfolio.ui.Images;
 import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.util.Colors;
 import name.abuchen.portfolio.ui.util.DropDown;
 import name.abuchen.portfolio.ui.util.SimpleAction;
+import name.abuchen.portfolio.ui.util.chart.ChartCurrencyDropDown;
+import name.abuchen.portfolio.ui.util.chart.ChartCurrencySelection;
 import name.abuchen.portfolio.ui.util.chart.TimelineChart;
 import name.abuchen.portfolio.ui.util.chart.TimelineChartCSVExporter;
 import name.abuchen.portfolio.ui.util.format.AmountNumberFormat;
@@ -45,10 +49,20 @@ import name.abuchen.portfolio.util.Interval;
 
 public class StatementOfAssetsHistoryView extends AbstractHistoricView
 {
+    private static final String KEY_CURRENCY = StatementOfAssetsHistoryView.class.getSimpleName() + "-currency"; //$NON-NLS-1$
+
     private TimelineChart chart;
     private DataSeriesConfigurator configurator;
     private StatementOfAssetsSeriesBuilder seriesBuilder;
     private ChartViewConfig chartViewConfig;
+    private String chartCurrencySelection = ChartCurrencySelection.PORTFOLIO;
+
+    @PostConstruct
+    public void setup()
+    {
+        chartCurrencySelection = ChartCurrencySelection.restore(getPreferenceStore().getString(KEY_CURRENCY),
+                        ChartCurrencySelection.PORTFOLIO);
+    }
 
     @Inject
     @Optional
@@ -75,6 +89,11 @@ public class StatementOfAssetsHistoryView extends AbstractHistoricView
     protected void addButtons(ToolBarManager toolBar)
     {
         super.addButtons(toolBar);
+        toolBar.add(new ChartCurrencyDropDown(getClient(), chartCurrencySelection, selection -> {
+            chartCurrencySelection = selection;
+            getPreferenceStore().setValue(KEY_CURRENCY, selection);
+            reportingPeriodUpdated();
+        }));
         addExportButton(toolBar);
         toolBar.add(new DropDown(Messages.MenuConfigureChart, Images.CONFIG, SWT.NONE,
                         manager -> configurator.configMenuAboutToShow(manager)));
@@ -152,8 +171,7 @@ public class StatementOfAssetsHistoryView extends AbstractHistoricView
         GridDataFactory.fillDefaults().grab(true, true).applyTo(chart);
         GridDataFactory.fillDefaults().grab(true, false).align(SWT.CENTER, SWT.FILL).applyTo(legend);
 
-        Interval interval = getReportingPeriod().toInterval(LocalDate.now());
-        Lists.reverse(configurator.getSelectedDataSeries()).forEach(series -> seriesBuilder.build(series, interval));
+        setChartSeries();
 
         return composite;
     }
@@ -209,9 +227,7 @@ public class StatementOfAssetsHistoryView extends AbstractHistoricView
             for (var s : chart.getSeriesSet().getSeries())
                 chart.getSeriesSet().deleteSeries(s.getId());
 
-            Interval interval = getReportingPeriod().toInterval(LocalDate.now());
-            Lists.reverse(configurator.getSelectedDataSeries())
-                            .forEach(series -> seriesBuilder.build(series, interval));
+            setChartSeries();
 
             chart.adjustRange();
         }
@@ -220,5 +236,25 @@ public class StatementOfAssetsHistoryView extends AbstractHistoricView
             chart.suspendUpdate(false);
         }
         chart.redraw();
+    }
+
+    private void setChartSeries()
+    {
+        chart.getTitle().setVisible(false);
+
+        try
+        {
+            Interval interval = getReportingPeriod().toInterval(LocalDate.now());
+            Lists.reverse(configurator.getSelectedDataSeries()).forEach(
+                            series -> seriesBuilder.build(series, interval, chartCurrencySelection));
+        }
+        catch (MonetaryException e)
+        {
+            for (var series : chart.getSeriesSet().getSeries())
+                chart.getSeriesSet().deleteSeries(series.getId());
+
+            chart.getTitle().setText(e.getMessage());
+            chart.getTitle().setVisible(true);
+        }
     }
 }
