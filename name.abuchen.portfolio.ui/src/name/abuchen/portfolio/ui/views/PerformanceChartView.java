@@ -30,6 +30,7 @@ import org.eclipse.swtchart.ISeries;
 import com.google.common.collect.Lists;
 
 import name.abuchen.portfolio.money.CurrencyUnit;
+import name.abuchen.portfolio.money.MonetaryException;
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.Aggregation;
 import name.abuchen.portfolio.snapshot.PerformanceIndex;
@@ -219,10 +220,23 @@ public class PerformanceChartView extends AbstractHistoricView
 
     private void setChartSeries()
     {
-        Interval interval = getReportingPeriod().toInterval(LocalDate.now());
-        Lists.reverse(picker.getSelectedDataSeries())
-                        .forEach(series -> seriesBuilder.build(series, interval, aggregationPeriod,
-                                        chartCurrencySelection));
+        chart.getTitle().setVisible(false);
+
+        try
+        {
+            Interval interval = getReportingPeriod().toInterval(LocalDate.now());
+            Lists.reverse(picker.getSelectedDataSeries())
+                            .forEach(series -> seriesBuilder.build(series, interval, aggregationPeriod,
+                                            chartCurrencySelection));
+        }
+        catch (MonetaryException e)
+        {
+            for (ISeries<?> series : chart.getSeriesSet().getSeries())
+                chart.getSeriesSet().deleteSeries(series.getId());
+
+            chart.getTitle().setText(e.getMessage());
+            chart.getTitle().setVisible(true);
+        }
     }
 
     private String getChartCurrencyLabel()
