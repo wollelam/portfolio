@@ -18,6 +18,7 @@ import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
+import name.abuchen.portfolio.money.StrictCurrencyConverter;
 import name.abuchen.portfolio.snapshot.PerformanceIndex;
 import name.abuchen.portfolio.snapshot.filter.ReadOnlyAccount;
 import name.abuchen.portfolio.snapshot.filter.ReadOnlyPortfolio;
@@ -56,10 +57,16 @@ public class DataSeriesCache
 
     public PerformanceIndex lookup(DataSeries series, Interval reportingPeriod)
     {
-        return lookup(series, reportingPeriod, ChartCurrencySelection.PORTFOLIO);
+        return lookup(series, reportingPeriod, ChartCurrencySelection.PORTFOLIO, false);
     }
 
     public PerformanceIndex lookup(DataSeries series, Interval reportingPeriod, String currencySelection)
+    {
+        return lookup(series, reportingPeriod, currencySelection, true);
+    }
+
+    private PerformanceIndex lookup(DataSeries series, Interval reportingPeriod, String currencySelection,
+                    boolean strict)
     {
         // Every data series is cached separately except the for the client. The
         // client data series are created out of the same PerformanceIndex
@@ -69,8 +76,10 @@ public class DataSeriesCache
         Security security = getSecurity(series);
         String targetCurrency = ChartCurrencySelection.resolve(currencySelection, client, security);
         CurrencyConverter calculationConverter = converter.with(targetCurrency);
+        if (strict)
+            calculationConverter = new StrictCurrencyConverter(calculationConverter);
 
-        CacheKey key = new CacheKey(uuid, reportingPeriod, targetCurrency);
+        CacheKey key = new CacheKey(uuid, reportingPeriod, targetCurrency, strict);
 
         // #computeIfAbsent leads to a ConcurrentMapModificdation b/c #calculate
         // might call #lookup to calculate other cache entries
@@ -78,7 +87,7 @@ public class DataSeriesCache
         if (result != null)
             return result;
 
-        result = calculate(series, reportingPeriod, currencySelection, calculationConverter);
+        result = calculate(series, reportingPeriod, currencySelection, calculationConverter, strict);
         cache.put(key, result);
 
         return result;
@@ -95,7 +104,7 @@ public class DataSeriesCache
     }
 
     private PerformanceIndex calculate(DataSeries series, Interval reportingPeriod, String currencySelection,
-                    CurrencyConverter calculationConverter)
+                    CurrencyConverter calculationConverter, boolean strict)
     {
         List<Exception> warnings = new ArrayList<>();
 
@@ -117,7 +126,7 @@ public class DataSeriesCache
                 case SECURITY_BENCHMARK:
                     return PerformanceIndex.forSecurity(
                                     lookup(new DataSeries(DataSeries.Type.CLIENT, null, null, null), reportingPeriod,
-                                                    currencySelection),
+                                                    currencySelection, strict),
                                     (Security) series.getInstance());
 
                 case PORTFOLIO:
@@ -163,7 +172,7 @@ public class DataSeriesCache
                     // redirect to the #lookup method to use the cached data, if
                     // available
                     var derivedDataSeries = (DerivedDataSeries) series.getInstance();
-                    return lookup(derivedDataSeries.getBaseDataSeries(), reportingPeriod, currencySelection);
+                    return lookup(derivedDataSeries.getBaseDataSeries(), reportingPeriod, currencySelection, strict);
 
                 default:
                     throw new IllegalArgumentException(series.getType().name());
