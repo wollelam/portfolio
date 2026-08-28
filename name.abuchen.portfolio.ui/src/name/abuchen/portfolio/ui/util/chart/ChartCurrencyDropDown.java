@@ -72,6 +72,11 @@ public class ChartCurrencyDropDown extends DropDown
         selectionListener.accept(selection);
     }
 
+    public void refreshLabel()
+    {
+        setLabel(getLabel(client, selection));
+    }
+
     private static String getLabel(Client client, String selection)
     {
         if (ChartCurrencySelection.SECURITY.equals(selection))

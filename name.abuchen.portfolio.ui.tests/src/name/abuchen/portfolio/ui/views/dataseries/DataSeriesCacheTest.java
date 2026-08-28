@@ -1,6 +1,7 @@
 package name.abuchen.portfolio.ui.views.dataseries;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.number.IsCloseTo.closeTo;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
@@ -39,6 +40,49 @@ public class DataSeriesCacheTest
 
         assertSame(eur, eurAgain);
         assertNotSame(eur, usd);
+    }
+
+    @Test
+    public void testSelectedCurrencyUsesFallbackBeforeFirstExchangeRate()
+    {
+        LocalDate start = LocalDate.parse("2025-01-02");
+        LocalDate end = LocalDate.parse("2025-01-06");
+
+        Client client = new Client();
+        client.setBaseCurrency("EUR");
+        var account = new AccountBuilder("DKK").deposit_(start.atStartOfDay(), Values.Amount.factorize(100))
+                        .addTo(client);
+
+        Security exchangeRate = new Security("Daily DKK/EUR", "DKK");
+        exchangeRate.setTargetCurrencyCode("EUR");
+        exchangeRate.addPrice(new SecurityPrice(start.plusDays(1), Values.Quote.factorize(0.80)));
+        exchangeRate.addPrice(new SecurityPrice(end, Values.Quote.factorize(1.00)));
+        client.addSecurity(exchangeRate);
+
+        DataSeriesCache cache = new DataSeriesCache(client, new ExchangeRateProviderFactory(client));
+        DataSeries series = new DataSeries(DataSeries.Type.ACCOUNT, account, "Account", null);
+
+        var index = cache.lookup(series, Interval.of(start.minusDays(1), end), "EUR");
+
+        assertThat(index.getCurrency(), is("EUR"));
+        assertThat(index.getTotals()[1], is(Values.Amount.factorize(80)));
+    }
+
+    @Test
+    public void testClearRefreshesPortfolioCurrencyAfterBaseCurrencyChange()
+    {
+        Client client = new Client();
+        client.setBaseCurrency("EUR");
+        DataSeriesCache cache = new DataSeriesCache(client, new ExchangeRateProviderFactory(client));
+        DataSeries series = new DataSeries(DataSeries.Type.CLIENT, ClientDataSeries.TOTALS, "Client", null);
+
+        var eur = cache.lookup(series, INTERVAL, ChartCurrencySelection.PORTFOLIO);
+        client.setBaseCurrency("CHF");
+        cache.clear();
+        var chf = cache.lookup(series, INTERVAL, ChartCurrencySelection.PORTFOLIO);
+
+        assertThat(eur.getCurrency(), is("EUR"));
+        assertThat(chf.getCurrency(), is("CHF"));
     }
 
     @Test
