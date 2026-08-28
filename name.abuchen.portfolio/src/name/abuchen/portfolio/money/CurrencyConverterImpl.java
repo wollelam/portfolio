@@ -30,7 +30,11 @@ public class CurrencyConverterImpl implements CurrencyConverter
     @Override
     public ExchangeRate getRate(LocalDate date, String currencyCode)
     {
-        return getRateIfAvailable(date, currencyCode).orElse(FALLBACK_EXCHANGE_RATE);
+        if (termCurrency.equals(currencyCode))
+            return new ExchangeRate(date, BigDecimal.ONE);
+
+        ExchangeRateTimeSeries series = lookupSeries(currencyCode);
+        return series.lookupRate(date).orElse(FALLBACK_EXCHANGE_RATE);
     }
 
     @Override
