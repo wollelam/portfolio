@@ -56,6 +56,7 @@ public class StatementOfAssetsHistoryView extends AbstractHistoricView
     private StatementOfAssetsSeriesBuilder seriesBuilder;
     private ChartViewConfig chartViewConfig;
     private String chartCurrencySelection = ChartCurrencySelection.PORTFOLIO;
+    private ChartCurrencyDropDown chartCurrencyDropDown;
 
     @PostConstruct
     public void setup()
@@ -89,11 +90,12 @@ public class StatementOfAssetsHistoryView extends AbstractHistoricView
     protected void addButtons(ToolBarManager toolBar)
     {
         super.addButtons(toolBar);
-        toolBar.add(new ChartCurrencyDropDown(getClient(), chartCurrencySelection, selection -> {
+        chartCurrencyDropDown = new ChartCurrencyDropDown(getClient(), chartCurrencySelection, selection -> {
             chartCurrencySelection = selection;
             getPreferenceStore().setValue(KEY_CURRENCY, selection);
             reportingPeriodUpdated();
-        }));
+        });
+        toolBar.add(chartCurrencyDropDown);
         addExportButton(toolBar);
         toolBar.add(new DropDown(Messages.MenuConfigureChart, Images.CONFIG, SWT.NONE,
                         manager -> configurator.configMenuAboutToShow(manager)));
@@ -207,6 +209,7 @@ public class StatementOfAssetsHistoryView extends AbstractHistoricView
     public void notifyModelUpdated()
     {
         seriesBuilder.getCache().clear();
+        chartCurrencyDropDown.refreshLabel();
         updateChart();
     }
 

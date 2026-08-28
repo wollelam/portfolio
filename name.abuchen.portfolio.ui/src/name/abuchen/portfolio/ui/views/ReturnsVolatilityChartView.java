@@ -96,6 +96,7 @@ public class ReturnsVolatilityChartView extends AbstractHistoricView
     private RiskMetric riskMetric = RiskMetric.VOLATILITY;
     private boolean displayUnitRiskLine = false;
     private String chartCurrencySelection = ChartCurrencySelection.PORTFOLIO;
+    private ChartCurrencyDropDown chartCurrencyDropDown;
 
     private ScatterChart chart;
     private LocalResourceManager resources;
@@ -144,11 +145,12 @@ public class ReturnsVolatilityChartView extends AbstractHistoricView
     protected void addButtons(ToolBarManager toolBar)
     {
         super.addButtons(toolBar);
-        toolBar.add(new ChartCurrencyDropDown(getClient(), chartCurrencySelection, selection -> {
+        chartCurrencyDropDown = new ChartCurrencyDropDown(getClient(), chartCurrencySelection, selection -> {
             chartCurrencySelection = selection;
             getPreferenceStore().setValue(KEY_CURRENCY, selection);
             reportingPeriodUpdated();
-        }));
+        });
+        toolBar.add(chartCurrencyDropDown);
         toolBar.add(new ExportDropDown());
         toolBar.add(new DropDown(Messages.MenuConfigureChart, Images.CONFIG, SWT.NONE, manager -> {
 
@@ -277,6 +279,7 @@ public class ReturnsVolatilityChartView extends AbstractHistoricView
     @Override
     public void notifyModelUpdated()
     {
+        chartCurrencyDropDown.refreshLabel();
         reportingPeriodUpdated();
     }
 
