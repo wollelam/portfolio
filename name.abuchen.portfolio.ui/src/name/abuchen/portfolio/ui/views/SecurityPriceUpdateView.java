@@ -46,6 +46,7 @@ import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.editor.AbstractFinanceView;
 import name.abuchen.portfolio.ui.handlers.UpdateQuotesHandler;
 import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateProgress;
+import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateMode;
 import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateSnapshot;
 import name.abuchen.portfolio.ui.jobs.priceupdate.UpdatePricesJob;
 import name.abuchen.portfolio.ui.jobs.priceupdate.UpdateStatus;
@@ -617,7 +618,10 @@ public class SecurityPriceUpdateView extends AbstractFinanceView implements Pric
         {
             manager.add(new SimpleAction(
                             MessageFormat.format(Messages.SecurityMenuUpdateQuotesMultipleSecurities, selection.size()),
-                            a -> new UpdatePricesJob(getClient(), selection.getSecurities()).schedule()));
+                            a -> new UpdatePricesJob(getClient(), selection.getSecurities(),
+                                            PriceUpdateMode.fromCode(getPreferenceStore()
+                                                            .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE)))
+                                                            .schedule()));
 
             manager.add(new SimpleAction(Messages.LabelSearchForQuoteFeeds + "...", //$NON-NLS-1$
                             a -> Display.getDefault().asyncExec(() -> {

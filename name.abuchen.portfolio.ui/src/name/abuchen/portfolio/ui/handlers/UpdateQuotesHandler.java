@@ -19,6 +19,7 @@ import name.abuchen.portfolio.snapshot.ClientSnapshot;
 import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.jobs.UpdateDividendsJob;
+import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateMode;
 import name.abuchen.portfolio.ui.jobs.priceupdate.UpdatePricesJob;
 import name.abuchen.portfolio.ui.selection.SelectionService;
 
@@ -59,17 +60,19 @@ public class UpdateQuotesHandler
     {
         MenuHelper.getActiveClientInput(part, false).ifPresent(clientInput -> {
             var client = clientInput.getClient();
+            var mode = PriceUpdateMode.fromCode(clientInput.getPreferenceStore()
+                            .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE));
 
             if (FilterType.SECURITY.name().equalsIgnoreCase(filter))
             {
                 selectionService.getSelection(client).ifPresent(s -> {
-                    new UpdatePricesJob(client, s.getSecurities()).schedule();
+                    new UpdatePricesJob(client, s.getSecurities(), mode).schedule();
                     new UpdateDividendsJob(client, s.getSecurities()).schedule(5000);
                 });
             }
             else if (FilterType.ACTIVE.name().equalsIgnoreCase(filter))
             {
-                new UpdatePricesJob(client, s -> !s.isRetired(), EnumSet.allOf(UpdatePricesJob.Target.class))
+                new UpdatePricesJob(client, s -> !s.isRetired(), EnumSet.allOf(UpdatePricesJob.Target.class), mode)
                                 .schedule();
                 new UpdateDividendsJob(client, s -> !s.isRetired()).schedule(5000);
             }
@@ -79,7 +82,7 @@ public class UpdateQuotesHandler
                                 .filter(w -> w.getName().equals(watchlist)) //
                                 .findFirst().ifPresent(w -> {
                                     var securities = w.getSecurities();
-                                    new UpdatePricesJob(client, securities).schedule();
+                                    new UpdatePricesJob(client, securities, mode).schedule();
                                     new UpdateDividendsJob(client, securities).schedule(5000);
                                 });
             }
@@ -91,12 +94,12 @@ public class UpdateQuotesHandler
                 var securities = snapshot.getJointPortfolio().getPositions().stream().map(p -> p.getSecurity())
                                 .toList();
 
-                new UpdatePricesJob(client, securities).schedule();
+                new UpdatePricesJob(client, securities, mode).schedule();
                 new UpdateDividendsJob(client, securities).schedule(5000);
             }
             else
             {
-                new UpdatePricesJob(client, EnumSet.allOf(UpdatePricesJob.Target.class)).schedule();
+                new UpdatePricesJob(client, EnumSet.allOf(UpdatePricesJob.Target.class), mode).schedule();
                 new UpdateDividendsJob(client).schedule(5000);
             }
         });

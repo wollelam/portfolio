@@ -48,7 +48,9 @@ public class PeriodicUpdatePricesJob extends Job
 
             var converter = new CurrencyConverterImpl(this.clientInput.getExchangeRateProviderFacory(),
                             client.getBaseCurrency());
-            var job = new UpdatePricesJob(client, config.getPredicate(converter, client), EnumSet.of(target));
+            var job = new UpdatePricesJob(client, config.getPredicate(converter, client), EnumSet.of(target),
+                            PriceUpdateMode.fromCode(clientInput.getPreferenceStore()
+                                            .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE)));
             job.suppressAuthenticationDialog(true);
 
             // add job listener to reschedule job only *after* the

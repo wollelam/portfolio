@@ -60,6 +60,7 @@ import name.abuchen.portfolio.snapshot.QuoteQualityMetrics;
 import name.abuchen.portfolio.snapshot.ReportingPeriod;
 import name.abuchen.portfolio.ui.Images;
 import name.abuchen.portfolio.ui.Messages;
+import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.dialogs.transactions.AccountTransactionDialog;
 import name.abuchen.portfolio.ui.dialogs.transactions.InvestmentPlanDialog;
 import name.abuchen.portfolio.ui.dialogs.transactions.OpenDialogAction;
@@ -69,6 +70,7 @@ import name.abuchen.portfolio.ui.dnd.ImportFromFileDropAdapter;
 import name.abuchen.portfolio.ui.dnd.SecurityDragListener;
 import name.abuchen.portfolio.ui.dnd.SecurityTransfer;
 import name.abuchen.portfolio.ui.editor.AbstractFinanceView;
+import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateMode;
 import name.abuchen.portfolio.ui.jobs.priceupdate.UpdatePricesJob;
 import name.abuchen.portfolio.ui.util.BookmarkMenu;
 import name.abuchen.portfolio.ui.util.Colors;
@@ -764,7 +766,9 @@ public final class SecuritiesTable implements ModificationListener
 
     public void updateQuotes(Security security)
     {
-        new UpdatePricesJob(getClient(), security).schedule();
+        new UpdatePricesJob(getClient(), security,
+                        PriceUpdateMode.fromCode(view.getPreferenceStore()
+                                        .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE))).schedule();
     }
 
     public TableViewer getTableViewer()
@@ -872,7 +876,9 @@ public final class SecuritiesTable implements ModificationListener
             manager.add(new SimpleAction(
                             MessageFormat.format(Messages.SecurityMenuUpdateQuotesMultipleSecurities, selection.size()),
                             a -> new UpdatePricesJob(getClient(),
-                                            selection.toList().stream().map(Security.class::cast).toList())
+                                            selection.toList().stream().map(Security.class::cast).toList(),
+                                            PriceUpdateMode.fromCode(view.getPreferenceStore()
+                                                            .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE)))
                                                             .schedule()));
 
             manager.add(new SimpleAction(Messages.LabelSearchForQuoteFeeds + "...", //$NON-NLS-1$

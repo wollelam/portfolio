@@ -2,8 +2,11 @@ package name.abuchen.portfolio.ui.jobs.priceupdate;
 
 import java.util.List;
 
+import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.MultiStatus;
+import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.core.runtime.Status;
 
 import name.abuchen.portfolio.model.Security;
@@ -25,9 +28,10 @@ abstract class Task
         }
 
         @Override
-        public UpdateStatus update() throws QuoteFeedException
+        public UpdateStatus update(IProgressMonitor monitor) throws QuoteFeedException
         {
             var data = feed.getHistoricalQuotes(security, false);
+            checkCanceled(monitor);
             boolean isDirty = applyHistoricalQuotes(data);
 
             if (!data.getErrors().isEmpty())
@@ -112,9 +116,10 @@ abstract class Task
         }
 
         @Override
-        public UpdateStatus update() throws QuoteFeedException
+        public UpdateStatus update(IProgressMonitor monitor) throws QuoteFeedException
         {
             var latest = feed.getLatestQuote(fetchSecurity);
+            checkCanceled(monitor);
             if (latest.isPresent())
             {
                 return security.setLatest(latest.get()) ? UpdateStatus.MODIFIED : UpdateStatus.UNMODIFIED;
@@ -139,7 +144,18 @@ abstract class Task
         this.security = security;
     }
 
-    public abstract UpdateStatus update() throws QuoteFeedException;
+    public final UpdateStatus update() throws QuoteFeedException
+    {
+        return update(new NullProgressMonitor());
+    }
+
+    public abstract UpdateStatus update(IProgressMonitor monitor) throws QuoteFeedException;
+
+    protected final void checkCanceled(IProgressMonitor monitor)
+    {
+        if (monitor.isCanceled())
+            throw new OperationCanceledException();
+    }
 
     public QuoteFeed getFeed()
     {

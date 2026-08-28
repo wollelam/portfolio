@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -19,6 +18,8 @@ import java.util.stream.Collectors;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.jobs.Job;
 import org.eclipse.core.runtime.jobs.JobGroup;
@@ -54,32 +55,52 @@ public class UpdatePricesJob extends AbstractClientJob
 
     private final Set<Target> target;
     private final Predicate<Security> filter;
+    private final PriceUpdateMode mode;
 
     private boolean suppressAuthenticationDialog = false;
 
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-
     public UpdatePricesJob(Client client, Set<Target> target)
     {
-        this(client, s -> true, target);
+        this(client, s -> true, target, PriceUpdateMode.LIVE);
     }
 
     public UpdatePricesJob(Client client, Security security)
     {
-        this(client, s -> s.equals(security), EnumSet.allOf(Target.class));
+        this(client, s -> s.equals(security), EnumSet.allOf(Target.class), PriceUpdateMode.LIVE);
     }
 
     public UpdatePricesJob(Client client, List<Security> securities)
     {
-        this(client, securities::contains, EnumSet.allOf(Target.class));
+        this(client, securities::contains, EnumSet.allOf(Target.class), PriceUpdateMode.LIVE);
     }
 
     public UpdatePricesJob(Client client, Predicate<Security> filter, Set<Target> target)
+    {
+        this(client, filter, target, PriceUpdateMode.LIVE);
+    }
+
+    public UpdatePricesJob(Client client, Predicate<Security> filter, Set<Target> target, PriceUpdateMode mode)
     {
         super(client, Messages.JobLabelUpdateQuotes);
 
         this.target = target;
         this.filter = filter;
+        this.mode = mode == null ? PriceUpdateMode.LIVE : mode;
+    }
+
+    public UpdatePricesJob(Client client, Set<Target> target, PriceUpdateMode mode)
+    {
+        this(client, s -> true, target, mode);
+    }
+
+    public UpdatePricesJob(Client client, Security security, PriceUpdateMode mode)
+    {
+        this(client, s -> s.equals(security), EnumSet.allOf(Target.class), mode);
+    }
+
+    public UpdatePricesJob(Client client, List<Security> securities, PriceUpdateMode mode)
+    {
+        this(client, securities::contains, EnumSet.allOf(Target.class), mode);
     }
 
     public void suppressAuthenticationDialog(boolean suppressAuthenticationDialog)
@@ -144,7 +165,7 @@ public class UpdatePricesJob extends AbstractClientJob
         // previous permanent errors
 
         PriceUpdateProgress.getInstance().setLatestJob(getClient(), this);
-        fireSnapshot(request);
+        fireProgress(request);
 
         // group tasks by grouping criterion and sort biggest groups first
 
@@ -155,36 +176,82 @@ public class UpdatePricesJob extends AbstractClientJob
                         .toList();
 
         // start periodic UI updates
-        ScheduledFuture<?> periodicUpdate = scheduler.scheduleAtFixedRate(() -> {
-            fireSnapshot(request);
-            if (request.getAndResetDirty())
-                request.getClient().markDirty();
-        }, 0, UI_PROGRESS_UPDATE_INTERVAL, TimeUnit.MILLISECONDS);
-
+        var scheduler = Executors.newSingleThreadScheduledExecutor();
+        ScheduledFuture<?> periodicUpdate = null;
         JobGroup jobGroup = new JobGroup(Messages.JobLabelUpdating, 10, jobs.size());
-        for (Job job : jobs)
-        {
-            job.setJobGroup(jobGroup);
-            job.schedule();
-        }
-
+        boolean cancelRequested = monitor.isCanceled();
+        boolean interrupted = false;
         try
         {
+            periodicUpdate = scheduler.scheduleAtFixedRate(() -> {
+                fireProgress(request);
+                if (request.getAndResetUnannouncedModification())
+                {
+                    if (mode == PriceUpdateMode.LIVE)
+                        request.getClient().markDirty();
+                    else
+                        request.getClient().touch();
+                }
+            }, 0, UI_PROGRESS_UPDATE_INTERVAL, TimeUnit.MILLISECONDS);
+
+            for (Job job : jobs)
+            {
+                job.setJobGroup(jobGroup);
+                job.schedule();
+            }
+
             jobGroup.join(0, monitor);
         }
-        catch (InterruptedException ignore) // NOSONAR
+        catch (InterruptedException e) // NOSONAR
         {
-            // ignore
+            cancelRequested = true;
+            interrupted = true;
+        }
+        catch (OperationCanceledException e)
+        {
+            cancelRequested = true;
         }
         finally
         {
-            periodicUpdate.cancel(false);
-            if (request.getAndResetDirty())
+            if (periodicUpdate != null)
+                periodicUpdate.cancel(false);
+            scheduler.shutdownNow();
+
+            cancelRequested |= monitor.isCanceled();
+            if (cancelRequested)
+            {
+                jobGroup.cancel();
+                interrupted |= waitForJobGroup(jobGroup);
+            }
+
+            boolean modified = mode == PriceUpdateMode.LIVE
+                            ? request.getAndResetUnannouncedModification()
+                            : request.isModified();
+            if (modified)
                 request.getClient().markDirty();
-            fireSnapshot(request);
+            fireFinished(request);
         }
 
-        return Status.OK_STATUS;
+        if (interrupted)
+            Thread.currentThread().interrupt();
+        return cancelRequested ? Status.CANCEL_STATUS : Status.OK_STATUS;
+    }
+
+    private boolean waitForJobGroup(JobGroup jobGroup)
+    {
+        boolean interrupted = false;
+        while (true)
+        {
+            try
+            {
+                jobGroup.join(0, new NullProgressMonitor());
+                return interrupted;
+            }
+            catch (InterruptedException e)
+            {
+                interrupted = true;
+            }
+        }
     }
 
     private List<Task> prepareHistoricalTasks(PriceUpdateRequest request, List<Security> securities)
@@ -257,9 +324,19 @@ public class UpdatePricesJob extends AbstractClientJob
         return tasks;
     }
 
-    private void fireSnapshot(PriceUpdateRequest request)
+    private void fireProgress(PriceUpdateRequest request)
     {
         var snapshot = request.getStatusSnapshot();
-        Display.getDefault().asyncExec(() -> PriceUpdateProgress.getInstance().notifyProgress(this, snapshot));
+        var display = Display.getDefault();
+        if (!display.isDisposed())
+            display.asyncExec(() -> PriceUpdateProgress.getInstance().notifyProgress(this, snapshot));
+    }
+
+    private void fireFinished(PriceUpdateRequest request)
+    {
+        var snapshot = request.getStatusSnapshot();
+        var display = Display.getDefault();
+        if (!display.isDisposed())
+            display.asyncExec(() -> PriceUpdateProgress.getInstance().notifyFinished(this, snapshot));
     }
 }

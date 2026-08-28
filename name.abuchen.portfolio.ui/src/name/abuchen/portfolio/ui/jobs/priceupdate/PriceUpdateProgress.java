@@ -76,13 +76,18 @@ public class PriceUpdateProgress // NOSONAR
     {
         if (!isCurrent(job))
             return;
-        Set<Listener> clientListeners = listeners.get(job.getClient());
-        if (clientListeners != null)
+        try
         {
-            for (Listener listener : clientListeners)
-                listener.onProgress(snapshot);
+            Set<Listener> clientListeners = listeners.get(job.getClient());
+            if (clientListeners != null)
+            {
+                for (Listener listener : clientListeners)
+                    listener.onProgress(snapshot);
+            }
         }
-
-        latestJobs.compute(job.getClient(), (c, currentJob) -> (job.equals(currentJob) ? null : currentJob));
+        finally
+        {
+            latestJobs.compute(job.getClient(), (c, currentJob) -> (job.equals(currentJob) ? null : currentJob));
+        }
     }
 }
