@@ -21,7 +21,8 @@ import name.abuchen.portfolio.model.Security;
 
     private final List<Security> securities;
 
-    private final AtomicBoolean isDirty = new AtomicBoolean(false);
+    private final AtomicBoolean modified = new AtomicBoolean(false);
+    private final AtomicBoolean unannouncedModification = new AtomicBoolean(false);
 
     public PriceUpdateRequest(Client client, List<Security> securities, boolean includeLatest,
                     boolean includeHistorical)
@@ -42,14 +43,20 @@ import name.abuchen.portfolio.model.Security;
         this.statuses = Collections.unmodifiableMap(map);
     }
 
-    void markDirty()
+    void markModified()
     {
-        isDirty.set(true);
+        modified.set(true);
+        unannouncedModification.set(true);
     }
-    
-    boolean getAndResetDirty()
+
+    boolean getAndResetUnannouncedModification()
     {
-        return isDirty.getAndSet(false);
+        return unannouncedModification.getAndSet(false);
+    }
+
+    boolean isModified()
+    {
+        return modified.get();
     }
 
     public Client getClient()

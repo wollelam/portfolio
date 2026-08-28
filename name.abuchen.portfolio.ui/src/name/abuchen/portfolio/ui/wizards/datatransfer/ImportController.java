@@ -21,6 +21,7 @@ import name.abuchen.portfolio.online.Factory;
 import name.abuchen.portfolio.online.impl.DivvyDiaryDividendFeed;
 import name.abuchen.portfolio.ui.PortfolioPlugin;
 import name.abuchen.portfolio.ui.jobs.ConsistencyChecksJob;
+import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateMode;
 import name.abuchen.portfolio.ui.jobs.priceupdate.UpdatePricesJob;
 import name.abuchen.portfolio.ui.util.swt.ActiveShell;
 import name.abuchen.portfolio.ui.wizards.security.FindQuoteProviderDialog;
@@ -94,7 +95,7 @@ public class ImportController
         // updated prices for newly created securities (for example crypto
         // currencies already have a working configuration)
 
-        new UpdatePricesJob(client, newSecurities).schedule();
+        new UpdatePricesJob(client, newSecurities, PriceUpdateMode.LIVE).schedule();
 
         // run async to allow the other dialog to close
 

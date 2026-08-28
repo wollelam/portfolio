@@ -56,6 +56,7 @@ import name.abuchen.portfolio.ui.jobs.CreateInvestmentPlanTxJob;
 import name.abuchen.portfolio.ui.jobs.UpdateDividendsJob;
 import name.abuchen.portfolio.ui.jobs.priceupdate.PeriodicUpdatePricesJob;
 import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateConfig;
+import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateMode;
 import name.abuchen.portfolio.ui.jobs.priceupdate.UpdatePricesJob;
 import name.abuchen.portfolio.ui.preferences.BackupMode;
 import name.abuchen.portfolio.ui.wizards.client.ClientMigrationDialog;
@@ -640,9 +641,11 @@ public class ClientInput
                             .fromCode(getPreferenceStore().getString(UIConstants.Preferences.UPDATE_QUOTES_STRATEGY));
             var converter = new CurrencyConverterImpl(getExchangeRateProviderFacory(), client.getBaseCurrency());
             var predicate = config.getPredicate(converter, client);
+            var mode = PriceUpdateMode.fromCode(PortfolioPlugin.getDefault().getPreferenceStore()
+                            .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE));
 
             Job initialQuoteUpdate = new UpdatePricesJob(client, predicate,
-                            EnumSet.of(UpdatePricesJob.Target.LATEST, UpdatePricesJob.Target.HISTORIC));
+                            EnumSet.of(UpdatePricesJob.Target.LATEST, UpdatePricesJob.Target.HISTORIC), mode);
             initialQuoteUpdate.schedule(1000);
 
             var checkInvestmentPlans = new CreateInvestmentPlanTxJob(client, exchangeRateProviderFacory);

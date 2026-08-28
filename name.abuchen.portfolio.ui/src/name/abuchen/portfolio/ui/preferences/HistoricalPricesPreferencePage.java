@@ -16,6 +16,7 @@ import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.editor.ClientInput;
 import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateConfig;
+import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateMode;
 import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateStrategy;
 
 public class HistoricalPricesPreferencePage extends FieldEditorPreferencePage
@@ -42,6 +43,14 @@ public class HistoricalPricesPreferencePage extends FieldEditorPreferencePage
         this.updateQuotesPeriodically = new BooleanFieldEditor(UIConstants.Preferences.UPDATE_QUOTES_PERIODICALLY, //
                         Messages.PrefUpdateQuotesPeriodically, getFieldEditorParent());
         addField(updateQuotesPeriodically);
+
+        var updateQuotesMode = new ComboFieldEditor(UIConstants.Preferences.UPDATE_QUOTES_MODE,
+                        Messages.PrefUpdateQuotesMode,
+                        new String[][] {
+                            { Messages.PrefUpdateQuotesModeLive, PriceUpdateMode.LIVE.getCode() },
+                            { Messages.PrefUpdateQuotesModeBatched, PriceUpdateMode.BATCHED.getCode() } },
+                        getFieldEditorParent());
+        addField(updateQuotesMode);
 
         if (clientInput.isPresent())
         {
@@ -73,7 +82,6 @@ public class HistoricalPricesPreferencePage extends FieldEditorPreferencePage
             fieldEditor.setPreferenceStore(clientInput.get().getPreferenceStore());
 
             addField(fieldEditor);
-
         }
     }
 

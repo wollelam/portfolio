@@ -63,6 +63,7 @@ import name.abuchen.portfolio.online.impl.PortfolioReportQuoteFeed;
 import name.abuchen.portfolio.ui.Images;
 import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.PortfolioPlugin;
+import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateMode;
 import name.abuchen.portfolio.ui.jobs.priceupdate.UpdatePricesJob;
 import name.abuchen.portfolio.ui.util.Colors;
 import name.abuchen.portfolio.ui.util.ContextMenu;
@@ -376,7 +377,7 @@ public class FindQuoteProviderDialog extends TitleAreaDialog
         if (!updatedSecurities.isEmpty())
         {
             client.markDirty();
-            new UpdatePricesJob(client, updatedSecurities).schedule();
+            new UpdatePricesJob(client, updatedSecurities, PriceUpdateMode.LIVE).schedule();
         }
     }
 

@@ -55,6 +55,7 @@ import name.abuchen.portfolio.ui.dialogs.ListSelectionDialog;
 import name.abuchen.portfolio.ui.editor.AbstractFinanceView;
 import name.abuchen.portfolio.ui.editor.DomainElement;
 import name.abuchen.portfolio.ui.editor.PortfolioPart;
+import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateMode;
 import name.abuchen.portfolio.ui.jobs.priceupdate.UpdatePricesJob;
 import name.abuchen.portfolio.ui.util.FormDataFactory;
 import name.abuchen.portfolio.ui.views.SecurityListView;
@@ -125,7 +126,9 @@ public class NewDomainElementHandler
         {
             view.getClient().addSecurity(newSecurity);
             view.getClient().markDirty();
-            new UpdatePricesJob(view.getClient(), newSecurity).schedule();
+            new UpdatePricesJob(view.getClient(), newSecurity,
+                            PriceUpdateMode.fromCode(PortfolioPlugin.getDefault().getPreferenceStore()
+                                            .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE))).schedule();
 
             postSecurityCreatedEvent(view.getClient(), newSecurity);
         }
@@ -225,7 +228,9 @@ public class NewDomainElementHandler
 
                 view.getClient().addSecurity(newSecurity);
                 view.getClient().markDirty();
-                new UpdatePricesJob(view.getClient(), newSecurity).schedule();
+                new UpdatePricesJob(view.getClient(), newSecurity,
+                                PriceUpdateMode.fromCode(PortfolioPlugin.getDefault().getPreferenceStore()
+                                                .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE))).schedule();
                 postSecurityCreatedEvent(view.getClient(), newSecurity);
             }
         }

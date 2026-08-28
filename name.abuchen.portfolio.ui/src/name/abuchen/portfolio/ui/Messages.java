@@ -1337,6 +1337,9 @@ public class Messages extends NLS
     public static String PrefTitleTwelveData;
     public static String PrefTwelveDataAPIKey;
     public static String PrefUpdateQuotesAfterFileOpen;
+    public static String PrefUpdateQuotesMode;
+    public static String PrefUpdateQuotesModeBatched;
+    public static String PrefUpdateQuotesModeLive;
     public static String PrefUpdateQuotesPeriodically;
     public static String PrefUpdateSite;
     public static String PrefUpdateSiteBetaChannel;
