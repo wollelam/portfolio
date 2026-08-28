@@ -6,7 +6,6 @@ import static name.abuchen.portfolio.util.ArraysUtil.toDouble;
 
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.PerformanceIndex;
-import name.abuchen.portfolio.ui.util.chart.ChartCurrencySelection;
 import name.abuchen.portfolio.ui.util.chart.TimelineChart;
 import name.abuchen.portfolio.ui.views.dataseries.DataSeries.ClientDataSeries;
 import name.abuchen.portfolio.util.Interval;
@@ -20,15 +19,10 @@ public class StatementOfAssetsSeriesBuilder extends AbstractChartSeriesBuilder
 
     public void build(DataSeries series, Interval reportingPeriod)
     {
-        build(series, reportingPeriod, ChartCurrencySelection.PORTFOLIO);
-    }
-
-    public void build(DataSeries series, Interval reportingPeriod, String currencySelection)
-    {
         if (!series.isVisible())
             return;
 
-        PerformanceIndex index = getCache().lookup(series, reportingPeriod, currencySelection);
+        PerformanceIndex index = getCache().lookup(series, reportingPeriod);
 
         if (series.getType() == DataSeries.Type.CLIENT || series.getType() == DataSeries.Type.DERIVED_DATA_SERIES)
         {
