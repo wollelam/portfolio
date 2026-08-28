@@ -33,7 +33,7 @@ public class AccountTransactionModel extends AbstractModel
     public enum Properties
     {
         security, account, date, exDate, time, shares, fxGrossAmount, dividendAmount, exchangeRate, inverseExchangeRate, grossAmount, // NOSONAR
-        fxTaxes, taxes, fxFees, fees, total, note, exchangeRateCurrencies, inverseExchangeRateCurrencies, // NOSONAR
+        fxTaxes, taxes, taxRate, fxFees, fees, total, note, exchangeRateCurrencies, inverseExchangeRateCurrencies, // NOSONAR
         accountCurrencyCode, securityCurrencyCode, fxCurrencyCode, calculationStatus; // NOSONAR
     }
 
@@ -62,6 +62,8 @@ public class AccountTransactionModel extends AbstractModel
 
     private long fxTaxes;
     private long taxes;
+    /** Tax rate as a fraction of the account-currency gross dividend amount. */
+    private BigDecimal taxRate = BigDecimal.ZERO;
     private long fxFees;
     private long fees;
     private long total;
@@ -276,6 +278,7 @@ public class AccountTransactionModel extends AbstractModel
         });
 
         this.grossAmount = calculateGrossAmount4Total();
+        this.taxRate = calculateTaxRate();
 
         // in case units have to forex gross value
         if (exchangeRate.equals(BigDecimal.ONE))
@@ -495,6 +498,7 @@ public class AccountTransactionModel extends AbstractModel
                         this.fxGrossAmount = foreignCurrencyAmount); // NOSONAR
 
         triggerGrossAmount(Math.round(exchangeRate.doubleValue() * foreignCurrencyAmount));
+        updateTaxRate();
 
         firePropertyChange(Properties.dividendAmount.name(), this.dividendAmount,
                         this.dividendAmount = calculateDividendAmount()); // NOSONAR
@@ -576,6 +580,8 @@ public class AccountTransactionModel extends AbstractModel
             firePropertyChange(Properties.inverseExchangeRate.name(), oldInverseRate, getInverseExchangeRate());
         }
 
+        updateTaxRate();
+
         firePropertyChange(Properties.calculationStatus.name(), this.calculationStatus,
                         this.calculationStatus = calculateStatus()); // NOSONAR
     }
@@ -619,6 +625,35 @@ public class AccountTransactionModel extends AbstractModel
         return taxes;
     }
 
+    /**
+     * Returns the withholding tax rate as a fraction (for example, 0.15 for
+     * 15 percent). The rate is meaningful for dividend transactions only.
+     */
+    public BigDecimal getTaxRate()
+    {
+        return taxRate;
+    }
+
+    /**
+     * Sets the withholding tax rate and recalculates the account-currency tax
+     * amount. Values are fractions, not percentage points.
+     */
+    public void setTaxRate(BigDecimal rate)
+    {
+        BigDecimal newRate = rate != null ? rate : BigDecimal.ZERO;
+        firePropertyChange(Properties.taxRate.name(), this.taxRate, this.taxRate = newRate); // NOSONAR
+
+        if (type == Type.DIVIDENDS)
+        {
+            long newTaxes = calculateTaxes(newRate);
+            firePropertyChange(Properties.taxes.name(), this.taxes, this.taxes = newTaxes); // NOSONAR
+            triggerTotal(calculateTotal());
+
+            firePropertyChange(Properties.calculationStatus.name(), this.calculationStatus,
+                            this.calculationStatus = calculateStatus()); // NOSONAR
+        }
+    }
+
     public long getFees()
     {
         return fees;
@@ -627,6 +662,7 @@ public class AccountTransactionModel extends AbstractModel
     public void setTaxes(long taxes)
     {
         firePropertyChange(Properties.taxes.name(), this.taxes, this.taxes = taxes); // NOSONAR
+        updateTaxRate();
         triggerTotal(calculateTotal());
 
         firePropertyChange(Properties.calculationStatus.name(), this.calculationStatus,
@@ -659,6 +695,8 @@ public class AccountTransactionModel extends AbstractModel
 
         firePropertyChange(Properties.dividendAmount.name(), this.dividendAmount,
                         this.dividendAmount = calculateDividendAmount()); // NOSONAR
+
+        updateTaxRate();
 
         firePropertyChange(Properties.calculationStatus.name(), this.calculationStatus,
                         this.calculationStatus = calculateStatus()); // NOSONAR
@@ -695,6 +733,26 @@ public class AccountTransactionModel extends AbstractModel
         long totalFees = fees + Math.round(exchangeRate.doubleValue() * fxFees);
         long totalTaxes = taxes + Math.round(exchangeRate.doubleValue() * fxTaxes);
         return Math.max(0, grossAmount - totalTaxes - totalFees);
+    }
+
+    private BigDecimal calculateTaxRate()
+    {
+        if (type != Type.DIVIDENDS || grossAmount == 0)
+            return BigDecimal.ZERO;
+        return BigDecimal.valueOf(taxes).divide(BigDecimal.valueOf(grossAmount), 10, RoundingMode.HALF_UP);
+    }
+
+    private long calculateTaxes(BigDecimal rate)
+    {
+        return BigDecimal.valueOf(grossAmount).multiply(rate).setScale(0, RoundingMode.HALF_UP).longValue();
+    }
+
+    private void updateTaxRate()
+    {
+        if (type != Type.DIVIDENDS)
+            return;
+        firePropertyChange(Properties.taxRate.name(), this.taxRate,
+                        this.taxRate = calculateTaxRate()); // NOSONAR
     }
 
     public String getNote()
