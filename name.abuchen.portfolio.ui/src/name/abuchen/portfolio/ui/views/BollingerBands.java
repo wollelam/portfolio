@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import com.google.common.primitives.Doubles;
@@ -21,7 +22,6 @@ public class BollingerBands
     public static final int MIN_AVERAGE_PRICES_PER_WEEK = 2;
     private int BollingerBandsDays;
     private double BollingerBandsFactor;
-    private Security security;
     private ChartInterval interval;
     private ChartLineSeriesAxes BollingerBandsLowerBand;
     private ChartLineSeriesAxes BollingerBandsMiddleBand;
@@ -36,9 +36,24 @@ public class BollingerBands
     public BollingerBands(int BollingerBandsDays, double BollingerBandsFactor, Security security,
                     ChartInterval interval)
     {
+        this(BollingerBandsDays, BollingerBandsFactor, interval);
+        this.prices = security != null ? security.getPricesIncludingLatest() : null;
+        calculateBollingerBands();
+    }
+
+    public static BollingerBands fromPrices(int BollingerBandsDays, double BollingerBandsFactor,
+                    List<SecurityPrice> prices, ChartInterval interval)
+    {
+        BollingerBands answer = new BollingerBands(BollingerBandsDays, BollingerBandsFactor, interval);
+        answer.prices = Objects.requireNonNull(prices);
+        answer.calculateBollingerBands();
+        return answer;
+    }
+
+    private BollingerBands(int BollingerBandsDays, double BollingerBandsFactor, ChartInterval interval)
+    {
         this.BollingerBandsDays = BollingerBandsDays;
         this.BollingerBandsFactor = BollingerBandsFactor;
-        this.security = security;
         this.interval = interval;
         this.BollingerBandsLowerBand = new ChartLineSeriesAxes();
         this.BollingerBandsMiddleBand = new ChartLineSeriesAxes();
@@ -48,7 +63,6 @@ public class BollingerBands
         this.valuesBollingerBandsMiddleBands = new ArrayList<>();
         this.valuesBollingerBandsUpperBands = new ArrayList<>();
         this.calculatedMinimumDays = getMinimumDaysForBollingerBands();
-        this.calculateBollingerBands();
     }
 
     /**
@@ -79,10 +93,9 @@ public class BollingerBands
      */
     private void calculateBollingerBands()
     {
-        if (security == null)
+        if (prices == null)
             return;
 
-        this.prices = security.getPricesIncludingLatest();
         int index;
 
 

@@ -24,11 +24,15 @@ import name.abuchen.portfolio.ui.util.SWTHelper;
 import name.abuchen.portfolio.ui.util.swt.SashLayout;
 import name.abuchen.portfolio.ui.util.swt.SashLayoutData;
 import name.abuchen.portfolio.ui.views.SecuritiesChart;
+import name.abuchen.portfolio.ui.util.chart.ChartCurrencySelection;
 import name.abuchen.portfolio.ui.views.SecuritiesChart.IntervalOption;
 import name.abuchen.portfolio.ui.views.SecurityDetailsViewer;
 
 public class SecurityPriceChartPane implements InformationPanePage
 {
+    private static final String PREF_INTERVAL = SecurityPriceChartPane.class.getSimpleName();
+    private static final String PREF_CURRENCY = PREF_INTERVAL + "-currency"; //$NON-NLS-1$
+
     @Inject
     @Named(UIConstants.Context.ACTIVE_CLIENT)
     private Client client;
@@ -60,7 +64,7 @@ public class SecurityPriceChartPane implements InformationPanePage
 
         chart = new SecuritiesChart(sash, client, new CurrencyConverterImpl(factory, client.getBaseCurrency()));
 
-        String option = preferences.getString(SecurityPriceChartPane.class.getSimpleName());
+        String option = preferences.getString(PREF_INTERVAL);
         if (option != null && !option.isEmpty())
         {
             try
@@ -74,8 +78,14 @@ public class SecurityPriceChartPane implements InformationPanePage
             }
         }
 
-        chart.getControl().addDisposeListener(e -> preferences.setValue(SecurityPriceChartPane.class.getSimpleName(),
-                        chart.getIntervalOption().name()));
+        String currencyCode = ChartCurrencySelection.restore(preferences.getString(PREF_CURRENCY),
+                        SecuritiesChart.USE_SECURITY_CURRENCY);
+        chart.setChartCurrencySelection(currencyCode);
+
+        chart.getControl().addDisposeListener(e -> {
+            preferences.setValue(PREF_INTERVAL, chart.getIntervalOption().name());
+            preferences.setValue(PREF_CURRENCY, chart.getChartCurrencySelection());
+        });
 
         stylingEngine.style(chart.getControl());
         stylingEngine.style(chart);

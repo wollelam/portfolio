@@ -16,19 +16,31 @@ import name.abuchen.portfolio.ui.views.SecuritiesChart.ChartInterval;
 public class SimpleMovingAverage
 {
     private int rangeSMA;
-    private Security security;
+    private List<SecurityPrice> prices;
     private ChartInterval interval;
     private ChartLineSeriesAxes result;
 
     public SimpleMovingAverage(int rangeSMA, Security security, ChartInterval interval)
     {
+        this(rangeSMA, interval);
+        this.prices = security != null ? security.getPricesIncludingLatest() : null;
+        calculateSMAInternal();
+    }
+
+    public static SimpleMovingAverage fromPrices(int rangeSMA, List<SecurityPrice> prices, ChartInterval interval)
+    {
+        SimpleMovingAverage answer = new SimpleMovingAverage(rangeSMA, interval);
+        answer.prices = Objects.requireNonNull(prices);
+        answer.calculateSMAInternal();
+        return answer;
+    }
+
+    private SimpleMovingAverage(int rangeSMA, ChartInterval interval)
+    {
         this.rangeSMA = rangeSMA;
-        this.security = security;
         this.interval = Objects.requireNonNull(interval);
 
         this.result = new ChartLineSeriesAxes();
-
-        calculateSMAInternal();
     }
 
     /**
@@ -49,11 +61,10 @@ public class SimpleMovingAverage
      */
     private void calculateSMAInternal()
     {
-        if (security == null)
+        if (prices == null)
             return;
 
-        List<SecurityPrice> prices = security.getPricesIncludingLatest();
-        if (prices == null || prices.size() < rangeSMA)
+        if (prices.size() < rangeSMA)
             return;
 
         int index = Collections.binarySearch(prices, new SecurityPrice(interval.getStart(), 0),

@@ -22,17 +22,29 @@ public class MovingAverageConvergenceDivergence
     private static final int SIGNAL_LINE_PERIOD = 9;
     private static final int MAX_MACD_PERIOD = Math.max(MACD_MINUEND_PERIOD, MACD_SUBTRAHEND_PERIOD);
     private static final int SIGNAL_LINE_START = SIGNAL_LINE_PERIOD + MAX_MACD_PERIOD - 1;
-    private Security security;
+    private List<SecurityPrice> prices;
     private ChartInterval interval;
     private ChartLineSeriesAxes macd;
     private ChartLineSeriesAxes signalLine;
 
     public MovingAverageConvergenceDivergence(Security security, ChartInterval interval)
     {
-        this.security = Objects.requireNonNull(security);
-        this.interval = Objects.requireNonNull(interval);
-
+        this(interval);
+        this.prices = Objects.requireNonNull(security).getPricesIncludingLatest();
         calculateMacd();
+    }
+
+    public static MovingAverageConvergenceDivergence fromPrices(List<SecurityPrice> prices, ChartInterval interval)
+    {
+        MovingAverageConvergenceDivergence answer = new MovingAverageConvergenceDivergence(interval);
+        answer.prices = Objects.requireNonNull(prices);
+        answer.calculateMacd();
+        return answer;
+    }
+
+    private MovingAverageConvergenceDivergence(ChartInterval interval)
+    {
+        this.interval = Objects.requireNonNull(interval);
     }
 
     public Optional<ChartLineSeriesAxes> getMacdLine()
@@ -47,7 +59,6 @@ public class MovingAverageConvergenceDivergence
 
     private void calculateMacd()
     {
-        List<SecurityPrice> prices = security.getPricesIncludingLatest();
         if (prices.isEmpty())
             return;
 

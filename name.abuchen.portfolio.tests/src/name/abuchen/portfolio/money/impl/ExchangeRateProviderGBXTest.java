@@ -34,6 +34,8 @@ public class ExchangeRateProviderGBXTest
         // GBX -> GBP
         ExchangeRateTimeSeries gbx_gbp = factory.getTimeSeries("GBX", "GBP");
         assertThat(gbx_gbp.lookupRate(LocalDate.now()).get().getValue(), comparesEqualTo(new BigDecimal("0.01")));
+        assertThat(gbx_gbp.lookupRateIfAvailable(LocalDate.now()).get().getValue(),
+                        comparesEqualTo(new BigDecimal("0.01")));
 
         // GBP -> GBX
         ExchangeRateTimeSeries gbp_gbx = factory.getTimeSeries("GBP", "GBX");

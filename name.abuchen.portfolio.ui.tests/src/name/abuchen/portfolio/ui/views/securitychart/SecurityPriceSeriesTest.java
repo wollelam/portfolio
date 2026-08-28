@@ -1,0 +1,125 @@
+package name.abuchen.portfolio.ui.views.securitychart;
+
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+
+import org.junit.Test;
+
+import name.abuchen.portfolio.model.SecurityPrice;
+import name.abuchen.portfolio.money.CurrencyConverter;
+import name.abuchen.portfolio.money.ExchangeRate;
+import name.abuchen.portfolio.money.Values;
+
+@SuppressWarnings("nls")
+public class SecurityPriceSeriesTest
+{
+    @Test
+    public void testConvertsEveryPriceWithRateForItsDate()
+    {
+        List<SecurityPrice> prices = List.of( //
+                        new SecurityPrice(LocalDate.parse("2025-01-02"), Values.Quote.factorize(10)),
+                        new SecurityPrice(LocalDate.parse("2025-01-03"), Values.Quote.factorize(10)));
+
+        CurrencyConverter converter = new CurrencyConverter()
+        {
+            @Override
+            public String getTermCurrency()
+            {
+                return "EUR";
+            }
+
+            @Override
+            public ExchangeRate getRate(LocalDate date, String currencyCode)
+            {
+                return new ExchangeRate(date, BigDecimal.valueOf(date.getDayOfMonth()));
+            }
+
+            @Override
+            public CurrencyConverter with(String currencyCode)
+            {
+                throw new UnsupportedOperationException();
+            }
+        };
+
+        List<SecurityPrice> converted = SecurityPriceSeries.convert(prices, "USD", converter).orElseThrow();
+
+        assertThat(converted.get(0).getValue(), is(Values.Quote.factorize(20)));
+        assertThat(converted.get(1).getValue(), is(Values.Quote.factorize(30)));
+
+        // Conversion is a presentation concern and must not modify stored prices.
+        assertThat(prices.get(0).getValue(), is(Values.Quote.factorize(10)));
+        assertThat(prices.get(1).getValue(), is(Values.Quote.factorize(10)));
+    }
+
+    @Test
+    public void testSameAndMissingSourceCurrencyRemainUnchanged()
+    {
+        List<SecurityPrice> prices = List.of(
+                        new SecurityPrice(LocalDate.parse("2025-01-02"), Values.Quote.factorize(10)));
+
+        CurrencyConverter converter = new CurrencyConverter()
+        {
+            @Override
+            public String getTermCurrency()
+            {
+                return "EUR";
+            }
+
+            @Override
+            public ExchangeRate getRate(LocalDate date, String currencyCode)
+            {
+                throw new AssertionError("No exchange rate should be requested");
+            }
+
+            @Override
+            public CurrencyConverter with(String currencyCode)
+            {
+                throw new UnsupportedOperationException();
+            }
+        };
+
+        assertThat(SecurityPriceSeries.convert(prices, "EUR", converter).orElseThrow(), is(prices));
+        assertThat(SecurityPriceSeries.convert(prices, null, converter).orElseThrow(), is(prices));
+    }
+
+    @Test
+    public void testMissingRateDoesNotProduceOneToOnePrices()
+    {
+        List<SecurityPrice> prices = List.of(
+                        new SecurityPrice(LocalDate.parse("2025-01-02"), Values.Quote.factorize(10)));
+
+        CurrencyConverter converter = new CurrencyConverter()
+        {
+            @Override
+            public String getTermCurrency()
+            {
+                return "EUR";
+            }
+
+            @Override
+            public ExchangeRate getRate(LocalDate date, String currencyCode)
+            {
+                return new ExchangeRate(date, BigDecimal.ONE);
+            }
+
+            @Override
+            public Optional<ExchangeRate> getRateIfAvailable(LocalDate date, String currencyCode)
+            {
+                return Optional.empty();
+            }
+
+            @Override
+            public CurrencyConverter with(String currencyCode)
+            {
+                throw new UnsupportedOperationException();
+            }
+        };
+
+        assertThat(SecurityPriceSeries.convert(prices, "USD", converter).isEmpty(), is(true));
+    }
+}
