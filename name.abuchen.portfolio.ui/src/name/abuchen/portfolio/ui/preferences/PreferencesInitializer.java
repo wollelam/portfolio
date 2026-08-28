@@ -9,6 +9,7 @@ import name.abuchen.portfolio.ui.PortfolioPlugin;
 import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.dialogs.transactions.PresetValues;
 import name.abuchen.portfolio.ui.editor.ClientInput;
+import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateMode;
 import name.abuchen.portfolio.ui.util.ValueColorScheme;
 import name.abuchen.portfolio.ui.util.chart.ChartLineWidth;
 
@@ -28,6 +29,7 @@ public class PreferencesInitializer extends AbstractPreferenceInitializer
         store.setDefault(UIConstants.Preferences.CREATE_BACKUP_BEFORE_SAVING, true);
         store.setDefault(UIConstants.Preferences.UPDATE_QUOTES_AFTER_FILE_OPEN, true);
         store.setDefault(UIConstants.Preferences.UPDATE_QUOTES_PERIODICALLY, true);
+        store.setDefault(UIConstants.Preferences.UPDATE_QUOTES_MODE, PriceUpdateMode.LIVE.getCode());
         store.setDefault(UIConstants.Preferences.AUTO_SAVE_FILE, 0);
         store.setDefault(UIConstants.Preferences.STORE_SETTINGS_NEXT_TO_FILE, false);
         store.setDefault(UIConstants.Preferences.DOUBLE_CLICK_CELL_TO_EDIT, true);

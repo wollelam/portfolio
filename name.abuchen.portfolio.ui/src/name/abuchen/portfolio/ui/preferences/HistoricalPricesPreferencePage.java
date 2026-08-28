@@ -44,6 +44,14 @@ public class HistoricalPricesPreferencePage extends FieldEditorPreferencePage
                         Messages.PrefUpdateQuotesPeriodically, getFieldEditorParent());
         addField(updateQuotesPeriodically);
 
+        var updateQuotesMode = new ComboFieldEditor(UIConstants.Preferences.UPDATE_QUOTES_MODE,
+                        Messages.PrefUpdateQuotesMode,
+                        new String[][] {
+                            { Messages.PrefUpdateQuotesModeLive, PriceUpdateMode.LIVE.getCode() },
+                            { Messages.PrefUpdateQuotesModeBatched, PriceUpdateMode.BATCHED.getCode() } },
+                        getFieldEditorParent());
+        addField(updateQuotesMode);
+
         if (clientInput.isPresent())
         {
             Label label = new Label(getFieldEditorParent(), SWT.SEPARATOR | SWT.HORIZONTAL);
@@ -74,17 +82,6 @@ public class HistoricalPricesPreferencePage extends FieldEditorPreferencePage
             fieldEditor.setPreferenceStore(clientInput.get().getPreferenceStore());
 
             addField(fieldEditor);
-
-            var updateQuotesMode = new ComboFieldEditor(UIConstants.Preferences.UPDATE_QUOTES_MODE,
-                            Messages.PrefUpdateQuotesMode,
-                            new String[][] {
-                                { Messages.PrefUpdateQuotesModeLive, PriceUpdateMode.LIVE.getCode() },
-                                { Messages.PrefUpdateQuotesModeBatched, PriceUpdateMode.BATCHED.getCode() } },
-                            getFieldEditorParent());
-            updateQuotesMode.setPreferenceStore(clientInput.get().getPreferenceStore());
-
-            addField(updateQuotesMode);
-
         }
     }
 

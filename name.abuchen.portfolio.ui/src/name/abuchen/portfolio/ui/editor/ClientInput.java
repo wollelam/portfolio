@@ -641,7 +641,7 @@ public class ClientInput
                             .fromCode(getPreferenceStore().getString(UIConstants.Preferences.UPDATE_QUOTES_STRATEGY));
             var converter = new CurrencyConverterImpl(getExchangeRateProviderFacory(), client.getBaseCurrency());
             var predicate = config.getPredicate(converter, client);
-            var mode = PriceUpdateMode.fromCode(getPreferenceStore()
+            var mode = PriceUpdateMode.fromCode(PortfolioPlugin.getDefault().getPreferenceStore()
                             .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE));
 
             Job initialQuoteUpdate = new UpdatePricesJob(client, predicate,
