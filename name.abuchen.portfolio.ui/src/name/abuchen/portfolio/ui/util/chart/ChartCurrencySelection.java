@@ -4,7 +4,6 @@ import java.util.Objects;
 
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.Security;
-import name.abuchen.portfolio.money.CurrencyUnit;
 
 public final class ChartCurrencySelection
 {
@@ -31,8 +30,7 @@ public final class ChartCurrencySelection
 
     public static String restore(String storedSelection, String defaultSelection)
     {
-        if (SECURITY.equals(storedSelection) || PORTFOLIO.equals(storedSelection)
-                        || CurrencyUnit.containsCurrencyCode(storedSelection))
+        if (SECURITY.equals(storedSelection) || PORTFOLIO.equals(storedSelection))
             return storedSelection;
 
         return defaultSelection;
