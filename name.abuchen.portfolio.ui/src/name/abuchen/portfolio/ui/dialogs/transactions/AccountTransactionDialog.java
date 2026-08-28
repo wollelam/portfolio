@@ -71,6 +71,7 @@ public class AccountTransactionDialog extends AbstractTransactionDialog // NOSON
     private boolean useIndirectQuotation = false;
 
     private Menu contextMenu;
+    private Menu taxRateMenu;
 
     @Inject
     public AccountTransactionDialog(@Named(IServiceConstants.ACTIVE_SHELL) Shell parentShell)
@@ -213,6 +214,20 @@ public class AccountTransactionDialog extends AbstractTransactionDialog // NOSON
         taxes.setVisible(model().supportsTaxUnits());
         taxes.label.setVisible(false); // will only show if no fx available
 
+        Button taxRateButton = null;
+        if (model().getType() == AccountTransaction.Type.DIVIDENDS)
+        {
+            taxRateButton = new Button(editArea, SWT.ARROW | SWT.DOWN);
+            taxRateButton.addSelectionListener(new SelectionAdapter()
+            {
+                @Override
+                public void widgetSelected(SelectionEvent e)
+                {
+                    showTaxRateMenu();
+                }
+            });
+        }
+
         // total
 
         Input total = new Input(editArea, getTotalLabel());
@@ -343,7 +358,15 @@ public class AccountTransactionDialog extends AbstractTransactionDialog // NOSON
         // forexTaxes - taxes
         if (model().supportsTaxUnits())
         {
-            forms.thenBelow(taxes.value).width(amountWidth).label(taxes.label).suffix(taxes.currency);
+            if (taxRateButton == null)
+            {
+                forms.thenBelow(taxes.value).width(amountWidth).label(taxes.label).suffix(taxes.currency);
+            }
+            else
+            {
+                forms.thenBelow(taxes.value).width(amountWidth).label(taxes.label).thenRight(taxes.currency)
+                                .width(currencyWidth).thenRight(taxRateButton, 5);
+            }
 
             startingWith(taxes.value).thenLeft(plusForexTaxes).thenLeft(forexTaxes.currency).width(currencyWidth)
                             .thenLeft(forexTaxes.value).width(amountWidth).thenLeft(forexTaxes.label);
@@ -539,6 +562,38 @@ public class AccountTransactionDialog extends AbstractTransactionDialog // NOSON
     {
         if (contextMenu != null && !contextMenu.isDisposed())
             contextMenu.dispose();
+        if (taxRateMenu != null && !taxRateMenu.isDisposed())
+            taxRateMenu.dispose();
+    }
+
+    private void showTaxRateMenu()
+    {
+        if (taxRateMenu == null)
+        {
+            MenuManager menuMgr = new MenuManager("#PopupMenu"); //$NON-NLS-1$
+            menuMgr.setRemoveAllWhenShown(true);
+            menuMgr.addMenuListener(manager -> {
+                manager.add(new Action("15%") //$NON-NLS-1$
+                {
+                    @Override
+                    public void run()
+                    {
+                        model().setTaxRate(BigDecimal.valueOf(15, 2));
+                    }
+                });
+                manager.add(new Action("35%") //$NON-NLS-1$
+                {
+                    @Override
+                    public void run()
+                    {
+                        model().setTaxRate(BigDecimal.valueOf(35, 2));
+                    }
+                });
+            });
+            taxRateMenu = menuMgr.createContextMenu(getShell());
+        }
+
+        taxRateMenu.setVisible(true);
     }
 
     private String getTotalLabel() // NOSONAR
