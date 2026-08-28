@@ -26,14 +26,22 @@ public class ChartCurrencySelectionTest
     }
 
     @Test
-    public void testRestoresValidPersistedSelections()
+    public void testRestoresSupportedPersistedSelections()
     {
         assertThat(ChartCurrencySelection.restore(ChartCurrencySelection.SECURITY, "EUR"),
                         is(ChartCurrencySelection.SECURITY));
         assertThat(ChartCurrencySelection.restore(ChartCurrencySelection.PORTFOLIO, "EUR"),
                         is(ChartCurrencySelection.PORTFOLIO));
-        assertThat(ChartCurrencySelection.restore("USD", "EUR"), is("USD"));
         assertThat(ChartCurrencySelection.restore("invalid", ChartCurrencySelection.SECURITY),
+                        is(ChartCurrencySelection.SECURITY));
+    }
+
+    @Test
+    public void testRestoresLegacyCurrencyCodeToSuppliedDefault()
+    {
+        assertThat(ChartCurrencySelection.restore("USD", ChartCurrencySelection.PORTFOLIO),
+                        is(ChartCurrencySelection.PORTFOLIO));
+        assertThat(ChartCurrencySelection.restore("EUR", ChartCurrencySelection.SECURITY),
                         is(ChartCurrencySelection.SECURITY));
     }
 }

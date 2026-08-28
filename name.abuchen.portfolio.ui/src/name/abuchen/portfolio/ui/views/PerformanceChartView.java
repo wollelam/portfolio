@@ -6,8 +6,6 @@ import java.text.DecimalFormat;
 import java.text.MessageFormat;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Objects;
-import java.util.function.Function;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.inject.Inject;
@@ -17,7 +15,6 @@ import org.eclipse.e4.core.di.annotations.Optional;
 import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.IMenuListener;
 import org.eclipse.jface.action.IMenuManager;
-import org.eclipse.jface.action.MenuManager;
 import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.action.ToolBarManager;
 import org.eclipse.jface.layout.GridDataFactory;
@@ -29,7 +26,6 @@ import org.eclipse.swtchart.ISeries;
 
 import com.google.common.collect.Lists;
 
-import name.abuchen.portfolio.money.CurrencyUnit;
 import name.abuchen.portfolio.money.MonetaryException;
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.Aggregation;
@@ -42,6 +38,7 @@ import name.abuchen.portfolio.ui.util.AbstractCSVExporter;
 import name.abuchen.portfolio.ui.util.Colors;
 import name.abuchen.portfolio.ui.util.DropDown;
 import name.abuchen.portfolio.ui.util.SimpleAction;
+import name.abuchen.portfolio.ui.util.chart.ChartCurrencyAction;
 import name.abuchen.portfolio.ui.util.chart.ChartCurrencySelection;
 import name.abuchen.portfolio.ui.util.chart.TimelineChart;
 import name.abuchen.portfolio.ui.util.chart.TimelineChartCSVExporter;
@@ -58,7 +55,6 @@ import name.abuchen.portfolio.ui.views.panes.SecurityPriceChartPane;
 import name.abuchen.portfolio.ui.views.panes.TradesPane;
 import name.abuchen.portfolio.ui.views.panes.TransactionsPane;
 import name.abuchen.portfolio.util.Interval;
-import name.abuchen.portfolio.util.Pair;
 
 public class PerformanceChartView extends AbstractHistoricView
 {
@@ -71,7 +67,7 @@ public class PerformanceChartView extends AbstractHistoricView
 
     private Aggregation.Period aggregationPeriod;
     private String chartCurrencySelection = ChartCurrencySelection.PORTFOLIO;
-    private CurrencyDropDown currencyDropDown;
+    private ChartCurrencyAction currencyAction;
 
     private PerformanceChartSeriesBuilder seriesBuilder;
 
@@ -114,8 +110,12 @@ public class PerformanceChartView extends AbstractHistoricView
     {
         super.addButtons(toolBar);
         toolBar.add(new AggregationPeriodDropDown());
-        currencyDropDown = new CurrencyDropDown();
-        toolBar.add(currencyDropDown);
+        currencyAction = new ChartCurrencyAction(getClient(), chartCurrencySelection, selection -> {
+            chartCurrencySelection = selection;
+            getPreferenceStore().setValue(KEY_CURRENCY, selection);
+            updateChart();
+        });
+        toolBar.add(currencyAction);
         toolBar.add(new ExportDropDown());
         toolBar.add(new DropDown(Messages.MenuConfigureChart, Images.CONFIG, SWT.NONE,
                         manager -> picker.configMenuAboutToShow(manager)));
@@ -192,8 +192,8 @@ public class PerformanceChartView extends AbstractHistoricView
     public void notifyModelUpdated()
     {
         seriesBuilder.getCache().clear();
-        if (currencyDropDown != null)
-            currencyDropDown.setLabel(getChartCurrencyLabel());
+        if (currencyAction != null)
+            currencyAction.refreshLabel();
         updateChart();
     }
 
@@ -240,65 +240,6 @@ public class PerformanceChartView extends AbstractHistoricView
 
             chart.getTitle().setText(e.getMessage());
             chart.getTitle().setVisible(true);
-        }
-    }
-
-    private String getChartCurrencyLabel()
-    {
-        if (ChartCurrencySelection.SECURITY.equals(chartCurrencySelection))
-            return Messages.LabelUseSecurityCurrency;
-        else if (ChartCurrencySelection.PORTFOLIO.equals(chartCurrencySelection))
-            return getClient().getBaseCurrency();
-        else
-            return chartCurrencySelection;
-    }
-
-    private final class CurrencyDropDown extends DropDown implements IMenuListener
-    {
-        private CurrencyDropDown()
-        {
-            super(PerformanceChartView.this.getChartCurrencyLabel());
-            setMenuListener(this);
-        }
-
-        @Override
-        public void menuAboutToShow(IMenuManager manager)
-        {
-            Action portfolioCurrency = new SimpleAction(MessageFormat.format(Messages.LabelUsePortfolioCurrency,
-                            getClient().getBaseCurrency()), a -> select(ChartCurrencySelection.PORTFOLIO));
-            portfolioCurrency.setChecked(ChartCurrencySelection.PORTFOLIO.equals(chartCurrencySelection));
-            manager.add(portfolioCurrency);
-
-            Action securityCurrency = new SimpleAction(Messages.LabelUseSecurityCurrency,
-                            a -> select(ChartCurrencySelection.SECURITY));
-            securityCurrency.setChecked(ChartCurrencySelection.SECURITY.equals(chartCurrencySelection));
-            manager.add(securityCurrency);
-            manager.add(new Separator());
-
-            Function<CurrencyUnit, Action> asAction = unit -> {
-                Action action = new SimpleAction(unit.getLabel(), a -> select(unit.getCurrencyCode()));
-                action.setChecked(Objects.equals(chartCurrencySelection, unit.getCurrencyCode()));
-                return action;
-            };
-
-            getClient().getUsedCurrencies().forEach(unit -> manager.add(asAction.apply(unit)));
-            manager.add(new Separator());
-
-            List<Pair<String, List<CurrencyUnit>>> available = CurrencyUnit.getAvailableCurrencyUnitsGrouped();
-            for (Pair<String, List<CurrencyUnit>> pair : available)
-            {
-                MenuManager submenu = new MenuManager(pair.getLeft());
-                manager.add(submenu);
-                pair.getRight().forEach(unit -> submenu.add(asAction.apply(unit)));
-            }
-        }
-
-        private void select(String selection)
-        {
-            chartCurrencySelection = selection;
-            getPreferenceStore().setValue(KEY_CURRENCY, selection);
-            setLabel(getChartCurrencyLabel());
-            updateChart();
         }
     }
 

@@ -41,7 +41,7 @@ import name.abuchen.portfolio.ui.util.Colors;
 import name.abuchen.portfolio.ui.util.DropDown;
 import name.abuchen.portfolio.ui.util.LabelOnly;
 import name.abuchen.portfolio.ui.util.SimpleAction;
-import name.abuchen.portfolio.ui.util.chart.ChartCurrencyDropDown;
+import name.abuchen.portfolio.ui.util.chart.ChartCurrencyAction;
 import name.abuchen.portfolio.ui.util.chart.ChartCurrencySelection;
 import name.abuchen.portfolio.ui.util.chart.ScatterChart;
 import name.abuchen.portfolio.ui.util.chart.ScatterChartCSVExporter;
@@ -96,7 +96,7 @@ public class ReturnsVolatilityChartView extends AbstractHistoricView
     private RiskMetric riskMetric = RiskMetric.VOLATILITY;
     private boolean displayUnitRiskLine = false;
     private String chartCurrencySelection = ChartCurrencySelection.PORTFOLIO;
-    private ChartCurrencyDropDown chartCurrencyDropDown;
+    private ChartCurrencyAction chartCurrencyAction;
 
     private ScatterChart chart;
     private LocalResourceManager resources;
@@ -145,12 +145,12 @@ public class ReturnsVolatilityChartView extends AbstractHistoricView
     protected void addButtons(ToolBarManager toolBar)
     {
         super.addButtons(toolBar);
-        chartCurrencyDropDown = new ChartCurrencyDropDown(getClient(), chartCurrencySelection, selection -> {
+        chartCurrencyAction = new ChartCurrencyAction(getClient(), chartCurrencySelection, selection -> {
             chartCurrencySelection = selection;
             getPreferenceStore().setValue(KEY_CURRENCY, selection);
             reportingPeriodUpdated();
         });
-        toolBar.add(chartCurrencyDropDown);
+        toolBar.add(chartCurrencyAction);
         toolBar.add(new ExportDropDown());
         toolBar.add(new DropDown(Messages.MenuConfigureChart, Images.CONFIG, SWT.NONE, manager -> {
 
@@ -279,7 +279,7 @@ public class ReturnsVolatilityChartView extends AbstractHistoricView
     @Override
     public void notifyModelUpdated()
     {
-        chartCurrencyDropDown.refreshLabel();
+        chartCurrencyAction.refreshLabel();
         reportingPeriodUpdated();
     }
 

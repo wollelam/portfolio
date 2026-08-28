@@ -14,7 +14,6 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -64,7 +63,6 @@ import name.abuchen.portfolio.model.Transaction;
 import name.abuchen.portfolio.model.Transaction.Unit;
 import name.abuchen.portfolio.model.TransactionPair;
 import name.abuchen.portfolio.money.CurrencyConverter;
-import name.abuchen.portfolio.money.CurrencyUnit;
 import name.abuchen.portfolio.money.Money;
 import name.abuchen.portfolio.money.Quote;
 import name.abuchen.portfolio.money.Values;
@@ -78,6 +76,7 @@ import name.abuchen.portfolio.ui.util.Colors;
 import name.abuchen.portfolio.ui.util.DropDown;
 import name.abuchen.portfolio.ui.util.SimpleAction;
 import name.abuchen.portfolio.ui.util.chart.ChartColorWheel;
+import name.abuchen.portfolio.ui.util.chart.ChartCurrencyAction;
 import name.abuchen.portfolio.ui.util.chart.ChartCurrencySelection;
 import name.abuchen.portfolio.ui.util.chart.ChartLineWidth;
 import name.abuchen.portfolio.ui.util.chart.TimelineChartToolTip;
@@ -90,7 +89,6 @@ import name.abuchen.portfolio.util.ExchangeRateGapClassifier;
 import name.abuchen.portfolio.util.ExchangeRateGapClassifier.Status;
 import name.abuchen.portfolio.util.FormatHelper;
 import name.abuchen.portfolio.util.Interval;
-import name.abuchen.portfolio.util.Pair;
 import name.abuchen.portfolio.util.TradeCalendar;
 import name.abuchen.portfolio.util.TradeCalendarManager;
 
@@ -415,7 +413,7 @@ public class SecuritiesChart
     private Security[] securities = new Security[0];
 
     private PriceTimelineChart chart;
-    private DropDown currencyDropDown;
+    private ChartCurrencyAction currencyAction;
 
     /**
      * Calculates dynamically for each security the interval of security prices
@@ -830,42 +828,9 @@ public class SecuritiesChart
 
         toolBar.add(new Separator());
 
-        currencyDropDown = new DropDown(getChartCurrencyLabel());
-        Function<CurrencyUnit, Action> asCurrencyAction = unit -> {
-            Action action = new SimpleAction(unit.getLabel(), a -> {
-                setChartCurrencySelection(unit.getCurrencyCode());
-            });
-            action.setChecked(Objects.equals(chartCurrencySelection, unit.getCurrencyCode()));
-            return action;
-        };
-
-        currencyDropDown.setMenuListener(manager -> {
-            Action portfolioCurrency = new SimpleAction(MessageFormat.format(Messages.LabelUsePortfolioCurrency,
-                            client.getBaseCurrency()), a -> {
-                                setChartCurrencySelection(USE_PORTFOLIO_CURRENCY);
-                            });
-            portfolioCurrency.setChecked(USE_PORTFOLIO_CURRENCY.equals(chartCurrencySelection));
-            manager.add(portfolioCurrency);
-
-            Action securityCurrency = new SimpleAction(Messages.LabelUseSecurityCurrency, a -> {
-                setChartCurrencySelection(USE_SECURITY_CURRENCY);
-            });
-            securityCurrency.setChecked(USE_SECURITY_CURRENCY.equals(chartCurrencySelection));
-            manager.add(securityCurrency);
-            manager.add(new Separator());
-
-            client.getUsedCurrencies().forEach(unit -> manager.add(asCurrencyAction.apply(unit)));
-            manager.add(new Separator());
-
-            List<Pair<String, List<CurrencyUnit>>> available = CurrencyUnit.getAvailableCurrencyUnitsGrouped();
-            for (Pair<String, List<CurrencyUnit>> pair : available)
-            {
-                MenuManager submenu = new MenuManager(pair.getLeft());
-                manager.add(submenu);
-                pair.getRight().forEach(unit -> submenu.add(asCurrencyAction.apply(unit)));
-            }
-        });
-        toolBar.add(currencyDropDown);
+        currencyAction = new ChartCurrencyAction(client, chartCurrencySelection,
+                        this::setChartCurrencySelection);
+        toolBar.add(currencyAction);
 
         toolBar.add(new Separator());
 
@@ -1019,6 +984,9 @@ public class SecuritiesChart
         this.client = client;
         this.securities = securities;
 
+        if (currencyAction != null)
+            currencyAction.refreshLabel();
+
         // update the tooltip format: for single security we show quotes, for
         // multiple securities we show percentages
         chart.getToolTip().setDefaultValueFormat(securities.length <= 1 ? new DecimalFormat(Values.Quote.pattern())
@@ -1040,19 +1008,9 @@ public class SecuritiesChart
     public void setChartCurrencySelection(String chartCurrencySelection)
     {
         this.chartCurrencySelection = Objects.requireNonNull(chartCurrencySelection);
-        if (currencyDropDown != null)
-            currencyDropDown.setLabel(getChartCurrencyLabel());
+        if (currencyAction != null)
+            currencyAction.setSelection(this.chartCurrencySelection);
         updateChart();
-    }
-
-    private String getChartCurrencyLabel()
-    {
-        if (USE_SECURITY_CURRENCY.equals(chartCurrencySelection))
-            return Messages.LabelUseSecurityCurrency;
-        else if (USE_PORTFOLIO_CURRENCY.equals(chartCurrencySelection))
-            return client.getBaseCurrency();
-        else
-            return chartCurrencySelection;
     }
 
     private CurrencyConverter getChartCurrencyConverter(Security security)

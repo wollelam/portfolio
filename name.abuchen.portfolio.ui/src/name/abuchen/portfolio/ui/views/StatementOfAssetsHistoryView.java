@@ -3,7 +3,6 @@ package name.abuchen.portfolio.ui.views;
 import java.time.LocalDate;
 import java.util.List;
 
-import jakarta.annotation.PostConstruct;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 
@@ -28,8 +27,6 @@ import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.util.Colors;
 import name.abuchen.portfolio.ui.util.DropDown;
 import name.abuchen.portfolio.ui.util.SimpleAction;
-import name.abuchen.portfolio.ui.util.chart.ChartCurrencyDropDown;
-import name.abuchen.portfolio.ui.util.chart.ChartCurrencySelection;
 import name.abuchen.portfolio.ui.util.chart.TimelineChart;
 import name.abuchen.portfolio.ui.util.chart.TimelineChartCSVExporter;
 import name.abuchen.portfolio.ui.util.format.AmountNumberFormat;
@@ -49,22 +46,10 @@ import name.abuchen.portfolio.util.Interval;
 
 public class StatementOfAssetsHistoryView extends AbstractHistoricView
 {
-    private static final String KEY_CURRENCY = StatementOfAssetsHistoryView.class.getSimpleName() + "-currency"; //$NON-NLS-1$
-
     private TimelineChart chart;
     private DataSeriesConfigurator configurator;
     private StatementOfAssetsSeriesBuilder seriesBuilder;
     private ChartViewConfig chartViewConfig;
-    private String chartCurrencySelection = ChartCurrencySelection.PORTFOLIO;
-    private ChartCurrencyDropDown chartCurrencyDropDown;
-
-    @PostConstruct
-    public void setup()
-    {
-        chartCurrencySelection = ChartCurrencySelection.restore(getPreferenceStore().getString(KEY_CURRENCY),
-                        ChartCurrencySelection.PORTFOLIO);
-    }
-
     @Inject
     @Optional
     public void onDiscreedModeChanged(@UIEventTopic(UIConstants.Event.Global.DISCREET_MODE) Object obj)
@@ -90,12 +75,6 @@ public class StatementOfAssetsHistoryView extends AbstractHistoricView
     protected void addButtons(ToolBarManager toolBar)
     {
         super.addButtons(toolBar);
-        chartCurrencyDropDown = new ChartCurrencyDropDown(getClient(), chartCurrencySelection, selection -> {
-            chartCurrencySelection = selection;
-            getPreferenceStore().setValue(KEY_CURRENCY, selection);
-            reportingPeriodUpdated();
-        });
-        toolBar.add(chartCurrencyDropDown);
         addExportButton(toolBar);
         toolBar.add(new DropDown(Messages.MenuConfigureChart, Images.CONFIG, SWT.NONE,
                         manager -> configurator.configMenuAboutToShow(manager)));
@@ -209,7 +188,6 @@ public class StatementOfAssetsHistoryView extends AbstractHistoricView
     public void notifyModelUpdated()
     {
         seriesBuilder.getCache().clear();
-        chartCurrencyDropDown.refreshLabel();
         updateChart();
     }
 
@@ -249,7 +227,7 @@ public class StatementOfAssetsHistoryView extends AbstractHistoricView
         {
             Interval interval = getReportingPeriod().toInterval(LocalDate.now());
             Lists.reverse(configurator.getSelectedDataSeries()).forEach(
-                            series -> seriesBuilder.build(series, interval, chartCurrencySelection));
+                            series -> seriesBuilder.build(series, interval));
         }
         catch (MonetaryException e)
         {
