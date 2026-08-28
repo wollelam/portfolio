@@ -62,7 +62,7 @@ public class DataSeriesCache
 
     public PerformanceIndex lookup(DataSeries series, Interval reportingPeriod, String currencySelection)
     {
-        return lookup(series, reportingPeriod, currencySelection, true);
+        return lookup(series, reportingPeriod, currencySelection, false);
     }
 
     private PerformanceIndex lookup(DataSeries series, Interval reportingPeriod, String currencySelection,

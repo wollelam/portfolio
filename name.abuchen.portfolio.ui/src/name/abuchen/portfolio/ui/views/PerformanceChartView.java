@@ -71,6 +71,7 @@ public class PerformanceChartView extends AbstractHistoricView
 
     private Aggregation.Period aggregationPeriod;
     private String chartCurrencySelection = ChartCurrencySelection.PORTFOLIO;
+    private CurrencyDropDown currencyDropDown;
 
     private PerformanceChartSeriesBuilder seriesBuilder;
 
@@ -113,7 +114,8 @@ public class PerformanceChartView extends AbstractHistoricView
     {
         super.addButtons(toolBar);
         toolBar.add(new AggregationPeriodDropDown());
-        toolBar.add(new CurrencyDropDown());
+        currencyDropDown = new CurrencyDropDown();
+        toolBar.add(currencyDropDown);
         toolBar.add(new ExportDropDown());
         toolBar.add(new DropDown(Messages.MenuConfigureChart, Images.CONFIG, SWT.NONE,
                         manager -> picker.configMenuAboutToShow(manager)));
@@ -190,6 +192,8 @@ public class PerformanceChartView extends AbstractHistoricView
     public void notifyModelUpdated()
     {
         seriesBuilder.getCache().clear();
+        if (currencyDropDown != null)
+            currencyDropDown.setLabel(getChartCurrencyLabel());
         updateChart();
     }
 
