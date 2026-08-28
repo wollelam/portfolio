@@ -86,6 +86,8 @@ import name.abuchen.portfolio.ui.util.format.AxisTickPercentNumberFormat;
 import name.abuchen.portfolio.ui.views.securitychart.PriceTimelineChart;
 import name.abuchen.portfolio.ui.views.securitychart.SecurityPriceSeries;
 import name.abuchen.portfolio.ui.views.securitychart.SharesHeldChartSeries;
+import name.abuchen.portfolio.util.ExchangeRateGapClassifier;
+import name.abuchen.portfolio.util.ExchangeRateGapClassifier.Status;
 import name.abuchen.portfolio.util.FormatHelper;
 import name.abuchen.portfolio.util.Interval;
 import name.abuchen.portfolio.util.Pair;
@@ -1074,6 +1076,7 @@ public class SecuritiesChart
 
         chart.clearMarkerLines();
         chart.clearNonTradingDayMarker();
+        chart.clearBackgroundBands();
         customPaintListeners.clear();
         customTooltipEvents.clear();
         chart.resetAxes();
@@ -1132,18 +1135,19 @@ public class SecuritiesChart
 
                 List<SecurityPrice> prices = security.getPricesIncludingLatest();
                 CurrencyConverter chartCurrencyConverter = getChartCurrencyConverter(security);
+                SecurityPriceSeries.ConversionResult conversionResult = null;
                 if (chartCurrencyConverter != null)
                 {
-                    Optional<List<SecurityPrice>> converted = SecurityPriceSeries.convert(prices,
+                    conversionResult = SecurityPriceSeries.convert(prices,
                                     security.getCurrencyCode(), chartCurrencyConverter);
-                    if (converted.isEmpty())
+                    prices = conversionResult.getConvertedPrices();
+                    if (prices.isEmpty() && !conversionResult.getSourcePrices().isEmpty())
                     {
                         messagePainter.setMessage(MessageFormat.format(
                                         Messages.SecuritiesChart_NoDataMessage_NoExchangeRate,
                                         security.getCurrencyCode(), chartCurrencyConverter.getTermCurrency()));
                         return;
                     }
-                    prices = converted.get();
                 }
                 if (isSingleSecurityMode && prices.isEmpty())
                 {
@@ -1162,6 +1166,7 @@ public class SecuritiesChart
 
                 // determine the interval to be shown in the chart
                 ChartInterval chartInterval = chartIntervalOrMessage.getInterval();
+                addExchangeRateGapBands(conversionResult, chartInterval, security);
                 ChartRange range = ChartRange.createFor(prices, chartInterval);
                 if (range == null)
                 {
@@ -1328,6 +1333,73 @@ public class SecuritiesChart
             chart.setRedraw(true);
             chart.redraw();
         }
+    }
+
+    private void addExchangeRateGapBands(SecurityPriceSeries.ConversionResult conversionResult,
+                    ChartInterval chartInterval, Security security)
+    {
+        if (conversionResult == null)
+            return;
+
+        Color color = Colors.theme().warningBackground();
+
+        for (SecurityPriceSeries.MissingExchangeRateInterval interval : conversionResult
+                        .getMissingExchangeRateIntervals())
+        {
+            LocalDate start = interval.start().isBefore(chartInterval.getStart()) ? chartInterval.getStart()
+                            : interval.start();
+            LocalDate end = interval.end().isAfter(chartInterval.getEnd()) ? chartInterval.getEnd() : interval.end();
+            if (!end.isBefore(start))
+                chart.addBackgroundBand(start, end, color, 45);
+        }
+
+        TradeCalendar calendar = TradeCalendarManager.getInstance(security);
+        LocalDate gapStart = null;
+        LocalDate gapEnd = null;
+
+        for (SecurityPriceSeries.RateUse rateUse : conversionResult.getRateUses())
+        {
+            if (!chartInterval.contains(rateUse.priceDate()))
+                continue;
+
+            Status status = ExchangeRateGapClassifier.classify(rateUse.priceDate(), rateUse.exchangeRateDate(),
+                            calendar);
+            if (status != Status.UNEXPECTED_BUSINESS_DAY_GAP)
+            {
+                if (gapStart != null)
+                {
+                    chart.addBackgroundBand(gapStart, gapEnd, color, 45);
+                    gapStart = null;
+                }
+                continue;
+            }
+
+            if (gapStart == null)
+            {
+                gapStart = rateUse.priceDate();
+                gapEnd = rateUse.priceDate();
+            }
+            else
+            {
+                LocalDate bridge = gapEnd.plusDays(1);
+                while (bridge.isBefore(rateUse.priceDate()) && calendar.isHoliday(bridge))
+                    bridge = bridge.plusDays(1);
+
+                if (bridge.equals(rateUse.priceDate()))
+                {
+                    gapEnd = rateUse.priceDate();
+                }
+                else
+                {
+                    chart.addBackgroundBand(gapStart, gapEnd, color, 45);
+                    gapStart = rateUse.priceDate();
+                    gapEnd = rateUse.priceDate();
+                }
+            }
+        }
+
+        if (gapStart != null)
+            chart.addBackgroundBand(gapStart, gapEnd, color, 45);
     }
 
     private void addChartMarkerBackground(ChartInterval chartInterval, ChartRange range, Security security,

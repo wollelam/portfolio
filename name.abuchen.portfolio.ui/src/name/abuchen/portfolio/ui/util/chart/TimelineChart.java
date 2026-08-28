@@ -7,6 +7,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Supplier;
 
 import org.eclipse.jface.action.IMenuManager;
@@ -72,8 +73,30 @@ public class TimelineChart extends Chart // NOSONAR
         }
     }
 
+    /**
+     * A coloured, closed date range painted behind the time grid and chart
+     * series. It is intended for annotations that apply to a period rather
+     * than a single date, for example unavailable market data.
+     */
+    private static class BackgroundBand
+    {
+        private final LocalDate start;
+        private final LocalDate end;
+        private final Color color;
+        private final int alpha;
+
+        private BackgroundBand(LocalDate start, LocalDate end, Color color, int alpha)
+        {
+            this.start = start;
+            this.end = end;
+            this.color = color;
+            this.alpha = alpha;
+        }
+    }
+
     private List<MarkerLine> markerLines = new ArrayList<>();
     private List<NonTradingDayMarker> nonTradingDayMarkers = new ArrayList<>();
+    private List<BackgroundBand> backgroundBands = new ArrayList<>();
     private Map<Object, IAxis> addedAxis = new HashMap<>();
 
     private ChartToolsManager chartTools;
@@ -111,6 +134,7 @@ public class TimelineChart extends Chart // NOSONAR
             @Override
             public void paintControl(PaintEvent e)
             {
+                paintBackgroundBands(e);
                 paintTimeGrid(e);
                 paintNonTradingDayMarker(e);
             }
@@ -177,6 +201,43 @@ public class TimelineChart extends Chart // NOSONAR
     public void clearNonTradingDayMarker()
     {
         this.nonTradingDayMarkers.clear();
+    }
+
+    /**
+     * Paints a subtle background band covering the closed date range from
+     * {@code start} through {@code end}. The band remains behind the time grid
+     * and all data series when the chart is repainted, zoomed or panned.
+     *
+     * @param start
+     *            first date included in the band
+     * @param end
+     *            last date included in the band
+     * @param color
+     *            background colour of the band
+     * @param alpha
+     *            opacity between {@code 0} (transparent) and {@code 255}
+     *            (opaque)
+     */
+    public void addBackgroundBand(LocalDate start, LocalDate end, Color color, int alpha)
+    {
+        Objects.requireNonNull(start, "start"); //$NON-NLS-1$
+        Objects.requireNonNull(end, "end"); //$NON-NLS-1$
+        Objects.requireNonNull(color, "color"); //$NON-NLS-1$
+
+        if (end.isBefore(start))
+            throw new IllegalArgumentException("The end of a background band must not precede its start"); //$NON-NLS-1$
+        if (alpha < 0 || alpha > 255)
+            throw new IllegalArgumentException("Alpha must be between 0 and 255"); //$NON-NLS-1$
+
+        backgroundBands.add(new BackgroundBand(start, end, color, alpha));
+    }
+
+    /**
+     * Removes all background bands added with {@link #addBackgroundBand(LocalDate, LocalDate, Color, int)}.
+     */
+    public void clearBackgroundBands()
+    {
+        backgroundBands.clear();
     }
 
     public void addPlotPaintListener(PaintListener listener)
@@ -258,6 +319,55 @@ public class TimelineChart extends Chart // NOSONAR
         LocalDate end = LocalDate.ofEpochDay((long) range.upper);
 
         TimeGridHelper.paintTimeGrid(this, e, start, end, cursor -> xAxis.getPixelCoordinate(cursor.toEpochDay()));
+    }
+
+    private void paintBackgroundBands(PaintEvent event)
+    {
+        if (backgroundBands.isEmpty())
+            return;
+
+        IAxis xAxis = getAxisSet().getXAxis(0);
+        Range range = xAxis.getRange();
+        LocalDate visibleStart = LocalDate.ofEpochDay((long) range.lower);
+        LocalDate visibleEnd = LocalDate.ofEpochDay((long) range.upper);
+
+        int alpha = event.gc.getAlpha();
+        try
+        {
+            for (BackgroundBand band : backgroundBands)
+            {
+                if (band.end.isBefore(visibleStart) || band.start.isAfter(visibleEnd))
+                    continue;
+
+                LocalDate start = band.start.isBefore(visibleStart) ? visibleStart : band.start;
+                LocalDate end = band.end.isAfter(visibleEnd) ? visibleEnd : band.end;
+
+                int startX = getStartPixel(xAxis, start);
+                int endX = getEndPixel(xAxis, end);
+
+                event.gc.setBackground(band.color);
+                event.gc.setAlpha(band.alpha);
+                event.gc.fillRectangle(startX, 0, Math.max(1, endX - startX), event.height);
+            }
+        }
+        finally
+        {
+            event.gc.setAlpha(alpha);
+        }
+    }
+
+    private int getStartPixel(IAxis axis, LocalDate date)
+    {
+        int pixel = axis.getPixelCoordinate(date.toEpochDay());
+        int previousPixel = axis.getPixelCoordinate(date.minusDays(1).toEpochDay());
+        return pixel - Math.round((pixel - previousPixel) / 2f);
+    }
+
+    private int getEndPixel(IAxis axis, LocalDate date)
+    {
+        int pixel = axis.getPixelCoordinate(date.toEpochDay());
+        int nextPixel = axis.getPixelCoordinate(date.plusDays(1).toEpochDay());
+        return pixel + Math.round((nextPixel - pixel) / 2f);
     }
 
     private void paintMarkerLines(PaintEvent e) // NOSONAR
@@ -359,6 +469,7 @@ public class TimelineChart extends Chart // NOSONAR
             setRedraw(false);
 
             getAxisSet().adjustRange();
+            adjustXAxisRangeForBackgroundBands();
             ChartUtil.addYMargins(this, 0.08);
         }
         finally
@@ -398,5 +509,30 @@ public class TimelineChart extends Chart // NOSONAR
 
             return axis;
         });
+    }
+
+    /**
+     * Extends the x-axis to make every background band visible. Subclasses
+     * overriding {@link #adjustRange()} must call this after adjusting their
+     * axis set.
+     */
+    protected void adjustXAxisRangeForBackgroundBands()
+    {
+        if (backgroundBands.isEmpty())
+            return;
+
+        IAxis xAxis = getAxisSet().getXAxis(0);
+        Range range = xAxis.getRange();
+        double lower = range.lower;
+        double upper = range.upper;
+
+        for (BackgroundBand band : backgroundBands)
+        {
+            lower = Math.min(lower, band.start.toEpochDay());
+            upper = Math.max(upper, band.end.toEpochDay());
+        }
+
+        if (lower != range.lower || upper != range.upper)
+            xAxis.setRange(new Range(lower, upper));
     }
 }
