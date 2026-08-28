@@ -42,6 +42,7 @@ import name.abuchen.portfolio.online.Factory;
 import name.abuchen.portfolio.online.QuoteFeed;
 import name.abuchen.portfolio.ui.Images;
 import name.abuchen.portfolio.ui.Messages;
+import name.abuchen.portfolio.ui.PortfolioPlugin;
 import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.editor.AbstractFinanceView;
 import name.abuchen.portfolio.ui.handlers.UpdateQuotesHandler;
@@ -619,7 +620,7 @@ public class SecurityPriceUpdateView extends AbstractFinanceView implements Pric
             manager.add(new SimpleAction(
                             MessageFormat.format(Messages.SecurityMenuUpdateQuotesMultipleSecurities, selection.size()),
                             a -> new UpdatePricesJob(getClient(), selection.getSecurities(),
-                                            PriceUpdateMode.fromCode(getPreferenceStore()
+                                            PriceUpdateMode.fromCode(PortfolioPlugin.getDefault().getPreferenceStore()
                                                             .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE)))
                                                             .schedule()));
 

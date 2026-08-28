@@ -12,6 +12,7 @@ import org.eclipse.core.runtime.jobs.JobChangeAdapter;
 
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.ui.Messages;
+import name.abuchen.portfolio.ui.PortfolioPlugin;
 import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.editor.ClientInput;
 
@@ -49,7 +50,7 @@ public class PeriodicUpdatePricesJob extends Job
             var converter = new CurrencyConverterImpl(this.clientInput.getExchangeRateProviderFacory(),
                             client.getBaseCurrency());
             var job = new UpdatePricesJob(client, config.getPredicate(converter, client), EnumSet.of(target),
-                            PriceUpdateMode.fromCode(clientInput.getPreferenceStore()
+                            PriceUpdateMode.fromCode(PortfolioPlugin.getDefault().getPreferenceStore()
                                             .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE)));
             job.suppressAuthenticationDialog(true);
 

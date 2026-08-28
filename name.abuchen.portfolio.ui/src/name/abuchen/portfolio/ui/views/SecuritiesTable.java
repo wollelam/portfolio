@@ -60,6 +60,7 @@ import name.abuchen.portfolio.snapshot.QuoteQualityMetrics;
 import name.abuchen.portfolio.snapshot.ReportingPeriod;
 import name.abuchen.portfolio.ui.Images;
 import name.abuchen.portfolio.ui.Messages;
+import name.abuchen.portfolio.ui.PortfolioPlugin;
 import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.dialogs.transactions.AccountTransactionDialog;
 import name.abuchen.portfolio.ui.dialogs.transactions.InvestmentPlanDialog;
@@ -767,7 +768,7 @@ public final class SecuritiesTable implements ModificationListener
     public void updateQuotes(Security security)
     {
         new UpdatePricesJob(getClient(), security,
-                        PriceUpdateMode.fromCode(view.getPreferenceStore()
+                        PriceUpdateMode.fromCode(PortfolioPlugin.getDefault().getPreferenceStore()
                                         .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE))).schedule();
     }
 
@@ -877,7 +878,7 @@ public final class SecuritiesTable implements ModificationListener
                             MessageFormat.format(Messages.SecurityMenuUpdateQuotesMultipleSecurities, selection.size()),
                             a -> new UpdatePricesJob(getClient(),
                                             selection.toList().stream().map(Security.class::cast).toList(),
-                                            PriceUpdateMode.fromCode(view.getPreferenceStore()
+                                            PriceUpdateMode.fromCode(PortfolioPlugin.getDefault().getPreferenceStore()
                                                             .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE)))
                                                             .schedule()));
 

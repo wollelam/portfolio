@@ -73,7 +73,7 @@ public class QuotesContextMenu
             public void run()
             {
                 new UpdatePricesJob(owner.getClient(), security,
-                                PriceUpdateMode.fromCode(owner.getPreferenceStore()
+                                PriceUpdateMode.fromCode(PortfolioPlugin.getDefault().getPreferenceStore()
                                                 .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE))).schedule();
             }
         };

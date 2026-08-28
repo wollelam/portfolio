@@ -17,6 +17,7 @@ import org.eclipse.swt.widgets.Shell;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
 import name.abuchen.portfolio.ui.Messages;
+import name.abuchen.portfolio.ui.PortfolioPlugin;
 import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.jobs.UpdateDividendsJob;
 import name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateMode;
@@ -60,7 +61,7 @@ public class UpdateQuotesHandler
     {
         MenuHelper.getActiveClientInput(part, false).ifPresent(clientInput -> {
             var client = clientInput.getClient();
-            var mode = PriceUpdateMode.fromCode(clientInput.getPreferenceStore()
+            var mode = PriceUpdateMode.fromCode(PortfolioPlugin.getDefault().getPreferenceStore()
                             .getString(UIConstants.Preferences.UPDATE_QUOTES_MODE));
 
             if (FilterType.SECURITY.name().equalsIgnoreCase(filter))
