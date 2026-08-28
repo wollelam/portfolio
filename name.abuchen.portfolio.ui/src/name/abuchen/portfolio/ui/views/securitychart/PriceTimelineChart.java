@@ -46,6 +46,7 @@ public class PriceTimelineChart extends TimelineChart
             setRedraw(false);
 
             getAxisSet().adjustRange();
+            adjustXAxisRangeForBackgroundBands();
 
             var yAxis1st = getAxisSet().getYAxis(0);
             var yAxis2nd = getAxisSet().getYAxis(1);
