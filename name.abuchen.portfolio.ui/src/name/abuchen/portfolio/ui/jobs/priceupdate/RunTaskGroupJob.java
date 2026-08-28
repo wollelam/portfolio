@@ -6,6 +6,7 @@ import java.util.List;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.jobs.Job;
 
@@ -44,20 +45,23 @@ import name.abuchen.portfolio.ui.PortfolioPlugin;
 
         while (!candidates.isEmpty())
         {
+            if (monitor.isCanceled())
+                return Status.CANCEL_STATUS;
+
             var task = candidates.removeFirst();
 
             task.status.setStatus(UpdateStatus.LOADING, null);
 
             try
             {
-                var status = task.update();
+                var status = task.update(monitor);
 
                 task.status.setStatus(status, null);
 
                 task.security.getEphemeralData().touchFeedLastUpdate();
 
                 if (status == UpdateStatus.MODIFIED)
-                    request.markDirty();
+                    request.markModified();
             }
             catch (AuthenticationExpiredException e)
             {
@@ -78,6 +82,9 @@ import name.abuchen.portfolio.ui.PortfolioPlugin;
             }
             catch (RateLimitExceededException e)
             {
+                if (monitor.isCanceled())
+                    return Status.CANCEL_STATUS;
+
                 maxAttempts--;
 
                 if (maxAttempts >= 0 && e.getRetryAfter().isPositive())
@@ -95,6 +102,7 @@ import name.abuchen.portfolio.ui.PortfolioPlugin;
                     catch (InterruptedException ie)
                     {
                         Thread.currentThread().interrupt();
+                        return Status.CANCEL_STATUS;
                     }
                 }
                 else
@@ -109,6 +117,10 @@ import name.abuchen.portfolio.ui.PortfolioPlugin;
                     return Status.OK_STATUS;
                 }
             }
+            catch (OperationCanceledException e)
+            {
+                return Status.CANCEL_STATUS;
+            }
             catch (Exception e)
             {
                 task.status.setStatus(UpdateStatus.ERROR, e.getMessage());
@@ -116,6 +128,6 @@ import name.abuchen.portfolio.ui.PortfolioPlugin;
             }
         }
 
-        return Status.OK_STATUS;
+        return monitor.isCanceled() ? Status.CANCEL_STATUS : Status.OK_STATUS;
     }
 }

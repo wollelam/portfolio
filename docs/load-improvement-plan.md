@@ -39,6 +39,11 @@ The larger file explains why a complete performance/snapshot rebuild can exceed 
 
 Implement this small change first. It targets the demonstrated bottleneck and is suitable for a lower-cost coding agent.
 
+The implementation exposes this behavior as a per-portfolio setting under
+**Settings → General → Prices → View refresh mode**. `LIVE` preserves the
+existing periodic view refreshes and is the fallback for existing settings files;
+`BATCHED` keeps progress live but defers view recalculation until the update ends.
+
 ### Required behavior
 
 - Continue publishing `PriceUpdateSnapshot` every 300 ms. The progress bar and `SecurityPriceUpdateView` remain live.

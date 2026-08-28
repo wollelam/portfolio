@@ -189,6 +189,12 @@ public interface UIConstants
         String UPDATE_QUOTES_STRATEGY = "UPDATE_QUOTES_STRATEGY"; //$NON-NLS-1$
 
         /**
+         * Preference key for when views are recalculated during quote updates;
+         * see {@link name.abuchen.portfolio.ui.jobs.priceupdate.PriceUpdateMode}
+         */
+        String UPDATE_QUOTES_MODE = "UPDATE_QUOTES_MODE"; //$NON-NLS-1$
+
+        /**
          * Preference key whether to automatically update quotes after opening a
          * data file.
          */
