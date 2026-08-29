@@ -47,6 +47,7 @@ import name.abuchen.portfolio.ui.views.GroupedAccountsListView;
 import name.abuchen.portfolio.ui.views.InvestmentPlanListView;
 import name.abuchen.portfolio.ui.views.PerformanceChartView;
 import name.abuchen.portfolio.ui.views.PerformanceView;
+import name.abuchen.portfolio.ui.views.PerformanceWaterfallView;
 import name.abuchen.portfolio.ui.views.PortfolioListView;
 import name.abuchen.portfolio.ui.views.ReturnsVolatilityChartView;
 import name.abuchen.portfolio.ui.views.SecuritiesPerformanceView;
@@ -499,6 +500,7 @@ public final class Navigation
 
         performance.add(new Item(Messages.ClientEditorPerformanceCalculation, PerformanceView.class));
         performance.add(new Item(Messages.ClientEditorLabelChart, PerformanceChartView.class, true));
+        performance.add(new Item(Messages.ClientEditorPerformanceWaterfall, PerformanceWaterfallView.class));
         performance.add(new Item(Messages.ClientEditorLabelReturnsVolatility, ReturnsVolatilityChartView.class, true));
         performance.add(new Item(Messages.LabelSecurities, SecuritiesPerformanceView.class));
         performance.add(new Item(Messages.LabelPayments, PaymentsView.class, true));
