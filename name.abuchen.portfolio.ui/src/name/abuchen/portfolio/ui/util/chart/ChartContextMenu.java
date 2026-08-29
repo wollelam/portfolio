@@ -68,6 +68,8 @@ import name.abuchen.portfolio.util.TextUtil;
                     scatterChart.adjustRange();
                 else if (chart instanceof TimelineChart timelineChart)
                     timelineChart.adjustRange();
+                else if (chart instanceof WaterfallChart waterfallChart)
+                    waterfallChart.adjustRange();
                 else
                     chart.getAxisSet().adjustRange();
 

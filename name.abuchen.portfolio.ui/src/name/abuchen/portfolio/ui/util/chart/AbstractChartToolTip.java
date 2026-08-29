@@ -45,6 +45,13 @@ public abstract class AbstractChartToolTip implements Listener
         this.isActive = isActive;
     }
 
+    public void reset()
+    {
+        showToolTip = false;
+        focus = null;
+        closeToolTip();
+    }
+
     protected abstract Object getFocusObjectAt(Event event);
 
     protected abstract void createComposite(Composite parent);
