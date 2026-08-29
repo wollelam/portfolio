@@ -211,9 +211,11 @@ public class Messages extends NLS
     public static String LabelSecurity;
     public static String LabelSecurityPrice;
     public static String LabelSEKINTERBANKOFFERED3M;
+    public static String LabelStartValue;
     public static String LabelStatementOfAssets;
     public static String LabelSuffixEntryCorrected;
     public static String LabelSum;
+    public static String LabelTotalPerformance;
     public static String LabelTradeCalendarASX;
     public static String LabelTradeCalendarBIST;
     public static String LabelTradeCalendarDefault;
