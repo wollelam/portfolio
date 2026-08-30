@@ -1,0 +1,22 @@
+services:
+  portfolio-performance-development:
+    build:
+      context: .
+      args:
+        ARCH: ${PP_ARCH:-x86_64}
+        APP_VERSION: ${PP_APP_VERSION:-development}
+    image: portfolio-performance:development
+    container_name: portfolio-performance-development
+    restart: unless-stopped
+    ports:
+      - "${PP_WEB_PORT:-5800}:5800"
+    volumes:
+      - ./volume/config:/config
+      - ./volume/data:/opt/portfolio/data
+    environment:
+      USER_ID: ${USER_ID:-1000}
+      GROUP_ID: ${GROUP_ID:-1000}
+      TZ: ${TZ:-Europe/Zurich}
+      DISPLAY_WIDTH: ${DISPLAY_WIDTH:-1920}
+      DISPLAY_HEIGHT: ${DISPLAY_HEIGHT:-1080}
+
