@@ -1,7 +1,9 @@
 package name.abuchen.portfolio.ui.views;
 
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.inject.Inject;
@@ -13,11 +15,16 @@ import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.action.ToolBarManager;
 import org.eclipse.jface.layout.GridDataFactory;
 import org.eclipse.jface.layout.GridLayoutFactory;
+import org.eclipse.jface.resource.JFaceResources;
+import org.eclipse.jface.resource.LocalResourceManager;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.graphics.Color;
+import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.widgets.Composite;
 
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.CostMethod;
+import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
@@ -32,9 +39,11 @@ import name.abuchen.portfolio.ui.util.ClientFilterDropDown;
 import name.abuchen.portfolio.ui.util.Colors;
 import name.abuchen.portfolio.ui.util.DropDown;
 import name.abuchen.portfolio.ui.util.LabelOnly;
+import name.abuchen.portfolio.ui.util.LogoManager;
 import name.abuchen.portfolio.ui.util.SimpleAction;
 import name.abuchen.portfolio.ui.util.chart.WaterfallChart;
 import name.abuchen.portfolio.ui.util.chart.WaterfallChartCSVExporter;
+import name.abuchen.portfolio.ui.util.chart.ChartColorWheel;
 import name.abuchen.portfolio.ui.util.chart.WaterfallDataset;
 import name.abuchen.portfolio.ui.views.panes.HistoricalPricesPane;
 import name.abuchen.portfolio.ui.views.panes.InformationPanePage;
@@ -60,6 +69,7 @@ public class PerformanceWaterfallView extends AbstractHistoricView
     private static final String KEY_CAPITAL_GAIN_METHOD = "PerformanceWaterfallView-capital-gain-method"; //$NON-NLS-1$
     private static final String KEY_PRE_TAX = "PerformanceWaterfallView-pre-tax"; //$NON-NLS-1$
     private static final String KEY_TOP_N = "PerformanceWaterfallView-top-n"; //$NON-NLS-1$
+    private static final String KEY_SHOW_VALUE_LABELS = "PerformanceWaterfallView-show-value-labels"; //$NON-NLS-1$
 
     private enum Mode
     {
@@ -88,11 +98,15 @@ public class PerformanceWaterfallView extends AbstractHistoricView
 
     private WaterfallChart chart;
     private ClientFilterDropDown clientFilter;
+    private LocalResourceManager resources;
+    private final ChartColorWheel instrumentColors = new ChartColorWheel();
+    private final Map<Security, Color> instrumentColorCache = new HashMap<>();
 
     private Mode mode = Mode.CALCULATION;
     private boolean useFifo = true;
     private boolean preTax;
     private int topN = 10;
+    private boolean showValueLabels;
 
     @PostConstruct
     public void setup()
@@ -118,6 +132,7 @@ public class PerformanceWaterfallView extends AbstractHistoricView
         int configuredTopN = getPreferenceStore().getInt(KEY_TOP_N);
         if (configuredTopN > 0)
             topN = configuredTopN;
+        showValueLabels = getPreferenceStore().getBoolean(KEY_SHOW_VALUE_LABELS);
     }
 
     @Override
@@ -146,6 +161,7 @@ public class PerformanceWaterfallView extends AbstractHistoricView
         composite.setBackground(Colors.theme().defaultBackground());
 
         chart = new WaterfallChart(composite);
+        chart.setShowValueLabels(showValueLabels);
         chart.getTitle().setVisible(false);
         chart.getTitle().setText(getTitle());
         chart.addSelectionListener(bar -> {
@@ -158,6 +174,7 @@ public class PerformanceWaterfallView extends AbstractHistoricView
         GridLayoutFactory.fillDefaults().margins(0, 0).spacing(0, 0).applyTo(composite);
         GridDataFactory.fillDefaults().grab(true, true).applyTo(chart);
 
+        resources = new LocalResourceManager(JFaceResources.getResources(), composite);
         reportingPeriodUpdated();
         return composite;
     }
@@ -195,6 +212,8 @@ public class PerformanceWaterfallView extends AbstractHistoricView
         if (!breakdown.isReconciled())
         {
             chart.setDataset(null);
+            chart.setBarColorProvider(null);
+            chart.setBarImageProvider(null);
             chart.getTitle().setText(Messages.MsgPerformanceWaterfallNotReconciled);
             chart.getTitle().setVisible(true);
         }
@@ -203,6 +222,8 @@ public class PerformanceWaterfallView extends AbstractHistoricView
             chart.getTitle().setVisible(false);
             chart.setDataset(mode == Mode.INSTRUMENTS ? new WaterfallDataset(breakdown, topN)
                             : new WaterfallDataset(breakdown));
+            chart.setBarColorProvider(mode == Mode.INSTRUMENTS ? this::getInstrumentColor : null);
+            chart.setBarImageProvider(mode == Mode.INSTRUMENTS ? this::getInstrumentLogo : null);
         }
 
         chart.adjustRange();
@@ -252,6 +273,16 @@ public class PerformanceWaterfallView extends AbstractHistoricView
         manager.add(preTaxAction);
 
         manager.add(new Separator());
+
+        SimpleAction showValuesAction = new SimpleAction(Messages.LabelPerformanceWaterfallShowValues, a -> {
+            showValueLabels = !showValueLabels;
+            getPreferenceStore().setValue(KEY_SHOW_VALUE_LABELS, showValueLabels);
+            chart.setShowValueLabels(showValueLabels);
+        });
+        showValuesAction.setChecked(showValueLabels);
+        manager.add(showValuesAction);
+
+        manager.add(new Separator());
         manager.add(new LabelOnly(Messages.LabelCapitalGainsMethod));
 
         SimpleAction fifoAction = new SimpleAction(CostMethod.FIFO.getLabel(), a -> {
@@ -285,6 +316,22 @@ public class PerformanceWaterfallView extends AbstractHistoricView
                 manager.add(action);
             }
         }
+    }
+
+    private Color getInstrumentColor(WaterfallDataset.Bar bar)
+    {
+        if (bar.getSource() instanceof PerformanceBreakdown.Entry entry && entry.getSecurity() != null)
+            return instrumentColorCache.computeIfAbsent(entry.getSecurity(),
+                            security -> resources.createColor(instrumentColors.getRGB(security)));
+        return null;
+    }
+
+    private Image getInstrumentLogo(WaterfallDataset.Bar bar)
+    {
+        if (bar.getSource() instanceof PerformanceBreakdown.Entry entry && entry.getSecurity() != null
+                        && LogoManager.instance().hasCustomLogo(entry.getSecurity(), getClient().getSettings()))
+            return LogoManager.instance().getDefaultColumnImage(entry.getSecurity(), getClient().getSettings());
+        return null;
     }
 
     private final class ExportDropDown extends DropDown implements IMenuListener

@@ -14,6 +14,16 @@ import name.abuchen.portfolio.money.Values;
 public class WaterfallDatasetTest
 {
     @Test
+    public void testLongCategoryLabelsAreWrapped()
+    {
+        assertThat(WaterfallChart.formatCategoryLabel("Very Long Instrument Name"), is("Very Long\nInstrument Name"));
+        assertThat(WaterfallChart.formatCategoryLabel("Very Long Instrument Name With More Details"),
+                        is("Very Long\nInstrument Name…"));
+        assertThat(WaterfallChart.formatCategoryLabel("abcdefghijklmnopqrst"), is("abcdefghijklmnop…"));
+        assertThat(WaterfallChart.formatCategoryLabel("Short"), is("Short"));
+    }
+
+    @Test
     public void testChartValueConvertsMinorToMajorCurrencyUnits()
     {
         assertThat(WaterfallChart.toChartValue(Values.Amount.factorize(250_000)), is(250_000.0));
