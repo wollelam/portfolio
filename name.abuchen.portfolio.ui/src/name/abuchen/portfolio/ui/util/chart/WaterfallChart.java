@@ -4,12 +4,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import org.eclipse.jface.action.IMenuManager;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.PaintEvent;
 import org.eclipse.swt.events.MouseListener;
 import org.eclipse.swt.graphics.Color;
+import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.graphics.Rectangle;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swtchart.IAxis;
@@ -30,6 +32,7 @@ public class WaterfallChart extends PlainChart // NOSONAR
 {
     private static final int MINIMUM_BAR_WIDTH = 5;
     private static final int MAXIMUM_BAR_WIDTH = 60;
+    private static final int CATEGORY_LABEL_LINE_LENGTH = 16;
 
     private final ChartContextMenu contextMenu;
     private final WaterfallChartToolTip toolTip;
@@ -42,6 +45,8 @@ public class WaterfallChart extends PlainChart // NOSONAR
     private Color negativeColor;
     private Color totalColor;
     private Color connectorColor;
+    private Function<WaterfallDataset.Bar, Color> barColorProvider;
+    private Function<WaterfallDataset.Bar, Image> barImageProvider;
     private boolean showValueLabels;
 
     public WaterfallChart(Composite parent)
@@ -105,13 +110,35 @@ public class WaterfallChart extends PlainChart // NOSONAR
         toolTip.reset();
         this.dataset = dataset == null ? new WaterfallDataset("XXX", Collections.emptyList()) : dataset; //$NON-NLS-1$
 
-        var categories = this.dataset.getBars().stream().map(WaterfallDataset.Bar::getLabel).toArray(String[]::new);
+        var categories = this.dataset.getBars().stream().map(WaterfallDataset.Bar::getLabel)
+                        .map(WaterfallChart::formatCategoryLabel).toArray(String[]::new);
         IAxis xAxis = getAxisSet().getXAxis(0);
         xAxis.setCategorySeries(categories);
         xAxis.enableCategory(true);
 
         adjustRange();
         redraw();
+    }
+
+    static String formatCategoryLabel(String label)
+    {
+        if (label.length() <= CATEGORY_LABEL_LINE_LENGTH)
+            return label;
+
+        int wrapAt = label.lastIndexOf(' ', CATEGORY_LABEL_LINE_LENGTH);
+        if (wrapAt <= 0)
+            return limitCategoryLabel(label);
+
+        String firstLine = label.substring(0, wrapAt);
+        String secondLine = limitCategoryLabel(label.substring(wrapAt + 1));
+        return firstLine + '\n' + secondLine;
+    }
+
+    private static String limitCategoryLabel(String label)
+    {
+        if (label.length() <= CATEGORY_LABEL_LINE_LENGTH)
+            return label;
+        return label.substring(0, CATEGORY_LABEL_LINE_LENGTH).stripTrailing() + "…"; //$NON-NLS-1$
     }
 
     private void adjustCategoryRange(IAxis xAxis, int categoryCount)
@@ -144,6 +171,7 @@ public class WaterfallChart extends PlainChart // NOSONAR
     public void setShowValueLabels(boolean showValueLabels)
     {
         this.showValueLabels = showValueLabels;
+        adjustRange();
         redraw();
     }
 
@@ -187,6 +215,28 @@ public class WaterfallChart extends PlainChart // NOSONAR
         this.connectorColor = connectorColor;
     }
 
+    /**
+     * Sets an optional colour resolver for individual bars. A {@code null}
+     * return value falls back to the semantic increase, decrease, and total
+     * colours.
+     */
+    public void setBarColorProvider(Function<WaterfallDataset.Bar, Color> barColorProvider)
+    {
+        this.barColorProvider = barColorProvider;
+        redraw();
+    }
+
+    /**
+     * Sets an optional image resolver for individual bars. Images are drawn
+     * only if the rendered bar has sufficient space.
+     */
+    public void setBarImageProvider(Function<WaterfallDataset.Bar, Image> barImageProvider)
+    {
+        this.barImageProvider = barImageProvider;
+        adjustRange();
+        redraw();
+    }
+
     public void adjustRange()
     {
         adjustCategoryRange(getAxisSet().getXAxis(0), dataset.getBars().size());
@@ -201,7 +251,9 @@ public class WaterfallChart extends PlainChart // NOSONAR
         double lower = toChartValue(dataset.getMinimum());
         double upper = toChartValue(dataset.getMaximum());
         double span = upper - lower;
-        double margin = span == 0 ? Math.max(Math.abs(upper) * 0.1, 1) : span * 0.08;
+        double marginFactor = showValueLabels && barImageProvider != null ? 0.2
+                        : showValueLabels || barImageProvider != null ? 0.14 : 0.08;
+        double margin = span == 0 ? Math.max(Math.abs(upper) * marginFactor, 1) : span * marginFactor;
         yAxis.setRange(new Range(lower - margin, upper + margin));
     }
 
@@ -296,6 +348,8 @@ public class WaterfallChart extends PlainChart // NOSONAR
                 event.gc.drawRectangle(paintedBar.bounds.x, paintedBar.bounds.y, paintedBar.bounds.width - 1,
                                 paintedBar.bounds.height - 1);
 
+                paintBarImage(event, paintedBar);
+
                 if (showValueLabels)
                     paintValueLabel(event, paintedBar);
             }
@@ -320,6 +374,13 @@ public class WaterfallChart extends PlainChart // NOSONAR
 
     private Color getColor(WaterfallDataset.Bar bar)
     {
+        if (barColorProvider != null)
+        {
+            Color color = barColorProvider.apply(bar);
+            if (color != null)
+                return color;
+        }
+
         if (bar.isTotal())
             return getTotalColor();
         return bar.getChange() < 0 ? getNegativeColor() : getPositiveColor();
@@ -331,9 +392,41 @@ public class WaterfallChart extends PlainChart // NOSONAR
         String text = Values.Amount.format(value);
         var extent = event.gc.textExtent(text);
         int x = paintedBar.bounds.x + (paintedBar.bounds.width - extent.x) / 2;
-        int y = paintedBar.bounds.y - extent.y - 2;
+        int y = paintedBar.bar.getChange() < 0 ? paintedBar.bounds.y + paintedBar.bounds.height + 2
+                        : paintedBar.bounds.y - extent.y - 2 - getBarImageSize(paintedBar) - 3;
         event.gc.setForeground(Colors.theme().defaultForeground());
         event.gc.drawText(text, x, y, true);
+    }
+
+    private void paintBarImage(PaintEvent event, PaintedBar paintedBar)
+    {
+        if (barImageProvider == null)
+            return;
+
+        Image image = getBarImage(paintedBar);
+        if (image == null || image.isDisposed())
+            return;
+
+        int size = getBarImageSize(paintedBar);
+        if (size < 10)
+            return;
+
+        var source = image.getBounds();
+        int x = paintedBar.bounds.x + (paintedBar.bounds.width - size) / 2;
+        int y = paintedBar.bounds.y - size - 3;
+        event.gc.drawImage(image, 0, 0, source.width, source.height, x, y, size, size);
+    }
+
+    private Image getBarImage(PaintedBar paintedBar)
+    {
+        return barImageProvider == null ? null : barImageProvider.apply(paintedBar.bar);
+    }
+
+    private int getBarImageSize(PaintedBar paintedBar)
+    {
+        if (getBarImage(paintedBar) == null)
+            return 0;
+        return Math.min(18, paintedBar.bounds.width - 4);
     }
 
     private static final class PaintedBar
