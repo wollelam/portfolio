@@ -845,6 +845,7 @@ public class Messages extends NLS
     public static String LabelPerformanceWaterfallInstruments;
     public static String LabelPerformanceWaterfallMode;
     public static String LabelPerformanceWaterfallStart;
+    public static String LabelPerformanceWaterfallShowValues;
     public static String LabelPerformanceWaterfallTopN;
     public static String LabelPerformanceWaterfallType;
     public static String LabelPerformanceIRR;
