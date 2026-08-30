@@ -85,6 +85,7 @@ public class Messages extends NLS
     public static String ClientEditorLabelReports;
     public static String ClientEditorLabelReturnsVolatility;
     public static String ClientEditorPerformanceCalculation;
+    public static String ClientEditorPerformanceWaterfall;
     public static String CmdCreateNewTaxonomy;
     public static String CmdDoNotImport;
     public static String CmdLogin;
@@ -837,6 +838,15 @@ public class Messages extends NLS
     public static String LabelPaymentsUseConsolidateRetired;
     public static String LabelPerformanceCalculation;
     public static String LabelPerformanceChart;
+    public static String LabelPerformanceWaterfall;
+    public static String LabelPerformanceWaterfallCalculation;
+    public static String LabelPerformanceWaterfallChange;
+    public static String LabelPerformanceWaterfallEnd;
+    public static String LabelPerformanceWaterfallInstruments;
+    public static String LabelPerformanceWaterfallMode;
+    public static String LabelPerformanceWaterfallStart;
+    public static String LabelPerformanceWaterfallTopN;
+    public static String LabelPerformanceWaterfallType;
     public static String LabelPerformanceIRR;
     public static String LabelPerformanceMetric;
     public static String LabelPerformanceTTWROR;
@@ -1177,6 +1187,7 @@ public class Messages extends NLS
     public static String MsgOpenFile;
     public static String MsgPasswordMinCharacters;
     public static String MsgPasswordNotIdentical;
+    public static String MsgPerformanceWaterfallNotReconciled;
     public static String MsgPortfolioFromMissing;
     public static String MsgPortfolioMustBeDifferent;
     public static String MsgPortfolioToMissing;
