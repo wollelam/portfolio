@@ -36,6 +36,13 @@ public class WaterfallChartToolTip extends AbstractChartToolTip
         GridLayoutFactory.swtDefaults().numColumns(2).applyTo(data);
 
         add(data, Messages.ColumnLabel, bar.getLabel());
+
+        if (bar.getKind() == WaterfallDataset.EntryKind.CHANGE)
+        {
+            add(data, Messages.LabelPerformanceWaterfallContribution, format(bar.getChange()));
+            return;
+        }
+
         add(data, Messages.LabelPerformanceWaterfallType, label(bar.getKind()));
         add(data, Messages.LabelPerformanceWaterfallStart, format(bar.getStart()));
         add(data, Messages.LabelPerformanceWaterfallChange, format(bar.getChange()));

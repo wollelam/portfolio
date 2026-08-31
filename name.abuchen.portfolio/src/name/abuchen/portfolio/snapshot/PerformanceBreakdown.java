@@ -268,7 +268,7 @@ public final class PerformanceBreakdown
             return this;
 
         Set<Entry> included = new HashSet<>(securities.stream()
-                        .sorted(Comparator.<Entry> comparingLong(entry -> absolute(entry.amount.getAmount())).reversed()
+                        .sorted(Comparator.<Entry>comparingLong(entry -> absolute(entry.amount.getAmount())).reversed()
                                         .thenComparing(Entry::getLabel, String.CASE_INSENSITIVE_ORDER))
                         .limit(maximum).toList());
 
