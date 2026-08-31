@@ -220,8 +220,11 @@ public final class PerformanceBreakdown
                     EntryKind kind)
     {
         Category category = snapshot.getCategoryByType(type);
-        entries.add(new Entry(kind, type(type), category.getLabel(), signed(type, category.getValuation()), null,
-                        category, null));
+        Money amount = signed(type, category.getValuation());
+        if (kind == EntryKind.CHANGE && amount.isZero())
+            return;
+
+        entries.add(new Entry(kind, type(type), category.getLabel(), amount, null, category, null));
     }
 
     private static Money signed(CategoryType type, Money amount)

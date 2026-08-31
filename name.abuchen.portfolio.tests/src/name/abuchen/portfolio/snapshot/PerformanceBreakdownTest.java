@@ -46,11 +46,13 @@ public class PerformanceBreakdownTest
         PerformanceBreakdown breakdown = PerformanceBreakdown.createCalculation(snapshot);
 
         assertThat(breakdown.isReconciled(), is(true));
-        assertThat(breakdown.getEntries().size(), is(9));
+        assertThat(breakdown.getEntries().size(), is(4));
         assertThat(entry(breakdown, EntryType.INITIAL_VALUE).getKind(), is(EntryKind.START));
         assertThat(entry(breakdown, EntryType.FINAL_VALUE).getKind(), is(EntryKind.TOTAL));
         assertThat(entry(breakdown, EntryType.FEES).getAmount(), is(Money.of(CurrencyUnit.EUR, 10_00)));
         assertThat(entry(breakdown, EntryType.TRANSFERS).getAmount(), is(Money.of(CurrencyUnit.EUR, 50_00)));
+        assertThat(breakdown.getEntries().stream()
+                        .noneMatch(entry -> entry.getKind() == EntryKind.CHANGE && entry.getAmount().isZero()), is(true));
         assertThat(entry(breakdown, EntryType.FEES).getSourceCategory(),
                         is(snapshot.getCategoryByType(ClientPerformanceSnapshot.CategoryType.FEES)));
         assertThat(breakdown.getEntries().stream().noneMatch(entry -> entry.getType() == EntryType.OTHER), is(true));
