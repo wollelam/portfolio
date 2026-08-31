@@ -1,6 +1,7 @@
 package name.abuchen.portfolio.ui.util.chart;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
@@ -40,6 +41,8 @@ public class WaterfallChart extends PlainChart // NOSONAR
 
     private WaterfallDataset dataset = new WaterfallDataset("XXX", Collections.emptyList()); //$NON-NLS-1$
     private List<PaintedBar> paintedBars = Collections.emptyList();
+    private String[] categoryFirstLines = new String[0];
+    private String[] categorySecondLines = new String[0];
 
     private Color positiveColor;
     private Color negativeColor;
@@ -59,6 +62,8 @@ public class WaterfallChart extends PlainChart // NOSONAR
         getTitle().setVisible(false);
 
         IAxis xAxis = getAxisSet().getXAxis(0);
+        xAxis.getTitle().setText(" "); //$NON-NLS-1$
+        xAxis.getTitle().setFont(xAxis.getTick().getFont());
         xAxis.getTitle().setVisible(false);
         xAxis.getTick().setVisible(true);
         xAxis.getGrid().setStyle(LineStyle.NONE);
@@ -99,6 +104,7 @@ public class WaterfallChart extends PlainChart // NOSONAR
             if (selected != null)
                 selectionListeners.forEach(listener -> listener.accept(selected));
         }));
+        addPaintListener(this::paintCategoryLabels);
     }
 
     public WaterfallDataset getDataset()
@@ -111,11 +117,27 @@ public class WaterfallChart extends PlainChart // NOSONAR
         toolTip.reset();
         this.dataset = dataset == null ? new WaterfallDataset("XXX", Collections.emptyList()) : dataset; //$NON-NLS-1$
 
-        var categories = this.dataset.getBars().stream().map(WaterfallDataset.Bar::getLabel)
+        var formattedCategories = this.dataset.getBars().stream().map(WaterfallDataset.Bar::getLabel)
                         .map(WaterfallChart::formatCategoryLabel).toArray(String[]::new);
+        categoryFirstLines = new String[formattedCategories.length];
+        categorySecondLines = new String[formattedCategories.length];
+        boolean hasWrappedLabel = false;
+
+        for (int index = 0; index < formattedCategories.length; index++)
+        {
+            String label = formattedCategories[index];
+            int newline = label.indexOf('\n');
+            categoryFirstLines[index] = newline < 0 ? label : label.substring(0, newline);
+            categorySecondLines[index] = newline < 0 ? "" : label.substring(newline + 1); //$NON-NLS-1$
+            hasWrappedLabel |= newline >= 0;
+        }
+
+        String[] blankCategories = new String[formattedCategories.length];
+        Arrays.fill(blankCategories, ""); //$NON-NLS-1$
         IAxis xAxis = getAxisSet().getXAxis(0);
-        xAxis.setCategorySeries(categories);
+        xAxis.setCategorySeries(blankCategories);
         xAxis.enableCategory(true);
+        xAxis.getTitle().setVisible(hasWrappedLabel);
 
         adjustRange();
         redraw();
@@ -263,6 +285,34 @@ public class WaterfallChart extends PlainChart // NOSONAR
                         : showValueLabels || barImageProvider != null ? 0.14 : 0.08;
         double margin = span == 0 ? Math.max(Math.abs(upper) * marginFactor, 1) : span * marginFactor;
         yAxis.setRange(new Range(lower - margin, upper + margin));
+    }
+
+    private void paintCategoryLabels(PaintEvent event)
+    {
+        if (categoryFirstLines.length == 0)
+            return;
+
+        IAxis xAxis = getAxisSet().getXAxis(0);
+        Rectangle tickBounds = xAxis.getTick().getBounds();
+        var plotOrigin = getDisplay().map(getPlotArea().getControl(), this, 0, 0);
+
+        event.gc.setFont(xAxis.getTick().getFont());
+        event.gc.setForeground(xAxis.getTick().getForeground());
+        int lineHeight = event.gc.textExtent("X").y; //$NON-NLS-1$
+
+        for (int index = 0; index < categoryFirstLines.length; index++)
+        {
+            int center = plotOrigin.x + xAxis.getPixelCoordinate(index);
+            drawCenteredLabel(event, categoryFirstLines[index], center, tickBounds.y);
+            if (!categorySecondLines[index].isEmpty())
+                drawCenteredLabel(event, categorySecondLines[index], center, tickBounds.y + lineHeight);
+        }
+    }
+
+    private void drawCenteredLabel(PaintEvent event, String label, int center, int y)
+    {
+        int width = event.gc.textExtent(label).x;
+        event.gc.drawText(label, center - width / 2, y, true);
     }
 
     /**
