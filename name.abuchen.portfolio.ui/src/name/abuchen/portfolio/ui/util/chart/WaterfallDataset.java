@@ -153,7 +153,9 @@ public final class WaterfallDataset
     private final String currencyCode;
     private final List<Bar> bars;
     private final long minimum;
+    private final long minimumValue;
     private final long maximum;
+    private final long maximumValue;
 
     public WaterfallDataset(String currencyCode, List<Entry> entries)
     {
@@ -163,7 +165,9 @@ public final class WaterfallDataset
         var calculated = new ArrayList<Bar>(entries.size());
         long cumulative = 0;
         long min = 0;
+        long minValue = Long.MAX_VALUE;
         long max = 0;
+        long maxValue = Long.MIN_VALUE;
 
         for (var entry : entries)
         {
@@ -204,12 +208,18 @@ public final class WaterfallDataset
 
             calculated.add(new Bar(entry, start, end, change));
             min = Math.min(min, Math.min(start, end));
+            long entryMinimum = entry.getKind() == EntryKind.CHANGE ? Math.min(start, end) : end;
+            long entryMaximum = entry.getKind() == EntryKind.CHANGE ? Math.max(start, end) : end;
+            minValue = Math.min(minValue, entryMinimum);
+            maxValue = Math.max(maxValue, entryMaximum);
             max = Math.max(max, Math.max(start, end));
         }
 
         this.bars = Collections.unmodifiableList(calculated);
         this.minimum = min;
+        this.minimumValue = minValue == Long.MAX_VALUE ? 0 : minValue;
         this.maximum = max;
+        this.maximumValue = maxValue == Long.MIN_VALUE ? 0 : maxValue;
     }
 
     /**
@@ -270,5 +280,17 @@ public final class WaterfallDataset
     public long getMaximum()
     {
         return maximum;
+    }
+
+    /** Lowest actual cumulative value, without forcing the range to include zero. */
+    public long getMinimumValue()
+    {
+        return minimumValue;
+    }
+
+    /** Highest actual cumulative value, without forcing the range to include zero. */
+    public long getMaximumValue()
+    {
+        return maximumValue;
     }
 }

@@ -62,6 +62,22 @@ public final class LogoManager
         return object.getAttributes().get(logoAttr.get()) != null;
     }
 
+    public Image getCustomLogoImage(Attributable object, ClientSettings settings, int width, int height)
+    {
+        if (object == null)
+            return null;
+
+        Optional<AttributeType> logoAttr = settings.getOptionalLogoAttributeType(object.getClass());
+        if (!logoAttr.isPresent())
+            return null;
+
+        AttributeType attribute = logoAttr.get();
+        return usesRetiredAlpha(object, attribute, false)
+                        ? ImageManager.instance().getImageWithAlpha(object, attribute, width, height,
+                                        ImageManager.RETIRED_ALPHA)
+                        : ImageManager.instance().getImage(object, attribute, width, height);
+    }
+
     public void clearCustomLogo(Attributable object, ClientSettings settings)
     {
         if (object == null)

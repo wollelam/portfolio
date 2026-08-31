@@ -45,7 +45,9 @@ public class WaterfallDatasetTest
         assertThat(dataset.getBars().stream().map(WaterfallDataset.Bar::getChange).toList(),
                         contains(10_000L, 2_500L, -500L, 0L, 0L));
         assertThat(dataset.getMinimum(), is(0L));
+        assertThat(dataset.getMinimumValue(), is(10_000L));
         assertThat(dataset.getMaximum(), is(12_500L));
+        assertThat(dataset.getMaximumValue(), is(12_500L));
     }
 
     @Test
@@ -55,8 +57,24 @@ public class WaterfallDatasetTest
                         WaterfallDataset.Entry.change("Gain", 500)));
 
         assertThat(dataset.getMinimum(), is(-1_000L));
+        assertThat(dataset.getMinimumValue(), is(-1_000L));
         assertThat(dataset.getMaximum(), is(0L));
+        assertThat(dataset.getMaximumValue(), is(-500L));
         assertThat(dataset.getBars().get(1).getStart(), is(-1_000L));
         assertThat(dataset.getBars().get(1).getEnd(), is(-500L));
+    }
+
+    @Test
+    public void testCalculatesRangeWithoutArtificialZeroBaseline()
+    {
+        var dataset = new WaterfallDataset("EUR", List.of(WaterfallDataset.Entry.start("Initial", 10_000),
+                        WaterfallDataset.Entry.change("Loss", -3_000),
+                        WaterfallDataset.Entry.change("Recovery", 2_000),
+                        WaterfallDataset.Entry.total("Final", 9_000)));
+
+        assertThat(dataset.getMinimum(), is(0L));
+        assertThat(dataset.getMaximum(), is(10_000L));
+        assertThat(dataset.getMinimumValue(), is(7_000L));
+        assertThat(dataset.getMaximumValue(), is(10_000L));
     }
 }

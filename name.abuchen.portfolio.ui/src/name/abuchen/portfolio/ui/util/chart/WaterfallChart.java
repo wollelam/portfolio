@@ -47,6 +47,7 @@ public class WaterfallChart extends PlainChart // NOSONAR
     private Color connectorColor;
     private Function<WaterfallDataset.Bar, Color> barColorProvider;
     private Function<WaterfallDataset.Bar, Image> barImageProvider;
+    private boolean includeZeroInRange = true;
     private boolean showValueLabels;
 
     public WaterfallChart(Composite parent)
@@ -175,6 +176,13 @@ public class WaterfallChart extends PlainChart // NOSONAR
         redraw();
     }
 
+    public void setIncludeZeroInRange(boolean includeZeroInRange)
+    {
+        this.includeZeroInRange = includeZeroInRange;
+        adjustRange();
+        redraw();
+    }
+
     public Color getPositiveColor()
     {
         return positiveColor != null ? positiveColor : Colors.theme().greenBackground();
@@ -248,8 +256,8 @@ public class WaterfallChart extends PlainChart // NOSONAR
             return;
         }
 
-        double lower = toChartValue(dataset.getMinimum());
-        double upper = toChartValue(dataset.getMaximum());
+        double lower = toChartValue(includeZeroInRange ? dataset.getMinimum() : dataset.getMinimumValue());
+        double upper = toChartValue(includeZeroInRange ? dataset.getMaximum() : dataset.getMaximumValue());
         double span = upper - lower;
         double marginFactor = showValueLabels && barImageProvider != null ? 0.2
                         : showValueLabels || barImageProvider != null ? 0.14 : 0.08;
@@ -329,8 +337,12 @@ public class WaterfallChart extends PlainChart // NOSONAR
         {
             event.gc.setForeground(getConnectorColor());
             event.gc.setLineStyle(SWT.LINE_DASH);
-            int zero = yAxis.getPixelCoordinate(0);
-            event.gc.drawLine(0, zero, plotWidth, zero);
+            var range = yAxis.getRange();
+            if (range.lower <= 0 && range.upper >= 0)
+            {
+                int zero = yAxis.getPixelCoordinate(0);
+                event.gc.drawLine(0, zero, plotWidth, zero);
+            }
 
             event.gc.setLineStyle(SWT.LINE_SOLID);
             for (int index = 0; index < painted.size() - 1; index++)
@@ -426,7 +438,7 @@ public class WaterfallChart extends PlainChart // NOSONAR
     {
         if (getBarImage(paintedBar) == null)
             return 0;
-        return Math.min(18, paintedBar.bounds.width - 4);
+        return Math.min(24, paintedBar.bounds.width - 4);
     }
 
     private static final class PaintedBar
