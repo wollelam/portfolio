@@ -385,30 +385,6 @@ public final class TransactionsViewer implements ModificationListener
         }).attachTo(column);
         support.addColumn(column);
 
-        if (showBaseCurrencyColumns)
-        {
-            column = new Column("quoteBaseCurrency", Messages.ColumnQuote + Messages.BaseCurrencyCue, SWT.RIGHT, //$NON-NLS-1$
-                            80);
-            column.setGroupLabel(Messages.ColumnForeignCurrencies);
-            column.setLabelProvider(new TransactionLabelProvider(t -> {
-                if (t instanceof PortfolioTransaction pt && t.getShares() != 0)
-                {
-                    var quote = pt.getGrossPricePerShare(getCurrencyConverter());
-                    return Values.CalculatedQuote.format(quote, owner.getClient().getBaseCurrency());
-                }
-                else
-                {
-                    return null;
-                }
-            }));
-            ColumnViewerSorter.create(e -> {
-                Transaction tx = ((TransactionPair<?>) e).getTransaction();
-                return tx instanceof PortfolioTransaction pt ? pt.getGrossPricePerShare(getCurrencyConverter()) : null;
-            }).attachTo(column);
-            column.setVisible(false);
-            support.addColumn(column);
-        }
-
         column = new Column("5", Messages.ColumnAmount, SWT.RIGHT, 80); //$NON-NLS-1$
         column.setLabelProvider(new TransactionLabelProvider(t -> {
             Money m;
@@ -423,19 +399,6 @@ public final class TransactionsViewer implements ModificationListener
             return tx instanceof PortfolioTransaction pt ? pt.getGrossValue() : null;
         }).attachTo(column);
         support.addColumn(column);
-
-        if (showBaseCurrencyColumns)
-        {
-            column = new Column("amountBaseCurrency", Messages.ColumnAmount + Messages.BaseCurrencyCue, SWT.RIGHT, //$NON-NLS-1$
-                            80);
-            column.setGroupLabel(Messages.ColumnForeignCurrencies);
-            column.setLabelProvider(new TransactionLabelProvider(t -> Values.Money
-                            .format(getGrossValueInBaseCurrency(t), owner.getClient().getBaseCurrency())));
-            ColumnViewerSorter.create(e -> getGrossValueInBaseCurrency(((TransactionPair<?>) e).getTransaction()))
-                            .attachTo(column);
-            column.setVisible(false);
-            support.addColumn(column);
-        }
 
         column = new Column("6", Messages.ColumnFees, SWT.RIGHT, 80); //$NON-NLS-1$
         column.setLabelProvider(new TransactionLabelProvider(t -> Values.Money
@@ -538,6 +501,102 @@ public final class TransactionsViewer implements ModificationListener
                         .attachTo(column);
         new StringEditingSupport(Transaction.class, "source").addListener(this).attachTo(column); //$NON-NLS-1$
         support.addColumn(column);
+
+        if (showBaseCurrencyColumns)
+            addBaseCurrencyColumns();
+    }
+
+    private void addBaseCurrencyColumns() // NOSONAR
+    {
+        Column column = new Column("transactionCurrency", Messages.ColumnCurrency, SWT.LEFT, 80); //$NON-NLS-1$
+        column.setGroupLabel(Messages.ColumnForeignCurrencies);
+        column.setLabelProvider(new TransactionLabelProvider(Transaction::getCurrencyCode));
+        ColumnViewerSorter.createIgnoreCase(
+                        e -> ((TransactionPair<?>) e).getTransaction().getCurrencyCode()).attachTo(column);
+        column.setVisible(false);
+        support.addColumn(column);
+
+        column = new Column("transactionExchangeRate", Messages.ColumnExchangeRate, SWT.RIGHT, 80); //$NON-NLS-1$
+        column.setGroupLabel(Messages.ColumnForeignCurrencies);
+        column.setLabelProvider(new TransactionLabelProvider(t -> Values.ExchangeRate
+                        .format(getCurrencyConverter().getRate(t.getDateTime(), t.getCurrencyCode()).getValue()))
+        {
+            @Override
+            public String getToolTipText(Object element)
+            {
+                var transaction = ((TransactionPair<?>) element).getTransaction();
+                String text = getText(element);
+                String term = getCurrencyConverter().getTermCurrency();
+                return text + ' ' + term + '/' + transaction.getCurrencyCode();
+            }
+        });
+        ColumnViewerSorter.create(e -> {
+            var transaction = ((TransactionPair<?>) e).getTransaction();
+            return getCurrencyConverter().getRate(transaction.getDateTime(), transaction.getCurrencyCode()).getValue();
+        }).attachTo(column);
+        column.setVisible(false);
+        support.addColumn(column);
+
+        column = new Column("quoteBaseCurrency", Messages.ColumnQuote + Messages.BaseCurrencyCue, SWT.RIGHT, //$NON-NLS-1$
+                        80);
+        column.setGroupLabel(Messages.ColumnForeignCurrencies);
+        column.setLabelProvider(new TransactionLabelProvider(t -> {
+            if (t instanceof PortfolioTransaction pt && t.getShares() != 0)
+            {
+                var quote = pt.getGrossPricePerShare(getCurrencyConverter());
+                return Values.CalculatedQuote.format(quote, owner.getClient().getBaseCurrency());
+            }
+            else
+            {
+                return null;
+            }
+        }));
+        ColumnViewerSorter.create(e -> {
+            Transaction tx = ((TransactionPair<?>) e).getTransaction();
+            return tx instanceof PortfolioTransaction pt ? pt.getGrossPricePerShare(getCurrencyConverter()) : null;
+        }).attachTo(column);
+        column.setVisible(false);
+        support.addColumn(column);
+
+        column = new Column("amountBaseCurrency", Messages.ColumnAmount + Messages.BaseCurrencyCue, SWT.RIGHT, //$NON-NLS-1$
+                        80);
+        column.setGroupLabel(Messages.ColumnForeignCurrencies);
+        column.setLabelProvider(new TransactionLabelProvider(t -> Values.Money
+                        .format(getGrossValueInBaseCurrency(t), owner.getClient().getBaseCurrency())));
+        ColumnViewerSorter.create(e -> getGrossValueInBaseCurrency(((TransactionPair<?>) e).getTransaction()))
+                        .attachTo(column);
+        column.setVisible(false);
+        support.addColumn(column);
+
+        column = createBaseCurrencyUnitColumn("feesBaseCurrency", Messages.ColumnFees, //$NON-NLS-1$
+                        Transaction.Unit.Type.FEE);
+        support.addColumn(column);
+
+        column = createBaseCurrencyUnitColumn("taxesBaseCurrency", Messages.ColumnTaxes, //$NON-NLS-1$
+                        Transaction.Unit.Type.TAX);
+        support.addColumn(column);
+
+        column = new Column("netValueBaseCurrency", Messages.ColumnNetValue + Messages.BaseCurrencyCue, SWT.RIGHT, //$NON-NLS-1$
+                        80);
+        column.setGroupLabel(Messages.ColumnForeignCurrencies);
+        column.setLabelProvider(new TransactionLabelProvider(t -> Values.Money
+                        .format(getMonetaryAmountInBaseCurrency(t), owner.getClient().getBaseCurrency())));
+        ColumnViewerSorter.create(e -> getMonetaryAmountInBaseCurrency(((TransactionPair<?>) e).getTransaction()))
+                        .attachTo(column);
+        column.setVisible(false);
+        support.addColumn(column);
+    }
+
+    private Column createBaseCurrencyUnitColumn(String id, String label, Transaction.Unit.Type unitType)
+    {
+        Column column = new Column(id, label + Messages.BaseCurrencyCue, SWT.RIGHT, 80);
+        column.setGroupLabel(Messages.ColumnForeignCurrencies);
+        column.setLabelProvider(new TransactionLabelProvider(t -> Values.Money.formatNonZero(
+                        t.getUnitSum(unitType, getCurrencyConverter()), owner.getClient().getBaseCurrency())));
+        ColumnViewerSorter.create(e -> ((TransactionPair<?>) e).getTransaction()
+                        .getUnitSum(unitType, getCurrencyConverter())).attachTo(column);
+        column.setVisible(false);
+        return column;
     }
 
     private CurrencyConverter getCurrencyConverter()
@@ -558,6 +617,11 @@ public final class TransactionsViewer implements ModificationListener
             return pt.getGrossValue(converter);
 
         return converter.convert(transaction.getDateTime(), ((AccountTransaction) transaction).getGrossValue());
+    }
+
+    private Money getMonetaryAmountInBaseCurrency(Transaction transaction)
+    {
+        return getCurrencyConverter().convert(transaction.getDateTime(), transaction.getMonetaryAmount());
     }
 
     public ShowHideColumnHelper getColumnSupport()
