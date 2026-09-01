@@ -34,6 +34,9 @@ import name.abuchen.portfolio.model.PortfolioTransaction;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.model.Transaction;
 import name.abuchen.portfolio.model.TransactionPair;
+import name.abuchen.portfolio.money.CurrencyConverter;
+import name.abuchen.portfolio.money.CurrencyConverterImpl;
+import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Money;
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.ui.Images;
@@ -130,7 +133,13 @@ public final class TransactionsViewer implements ModificationListener
     @Inject
     private SelectionService selectionService;
 
+    @Inject
+    private ExchangeRateProviderFactory exchangeRateProviderFactory;
+
+    private CurrencyConverter currencyConverter;
+
     private AbstractFinanceView owner;
+    private final boolean showBaseCurrencyColumns;
     private Set<TransactionPair<?>> marked = new HashSet<>();
 
     private TableViewer tableViewer;
@@ -146,7 +155,14 @@ public final class TransactionsViewer implements ModificationListener
 
     public TransactionsViewer(String identifier, Composite parent, AbstractFinanceView owner)
     {
+        this(identifier, parent, owner, false);
+    }
+
+    public TransactionsViewer(String identifier, Composite parent, AbstractFinanceView owner,
+                    boolean showBaseCurrencyColumns)
+    {
         this.owner = owner;
+        this.showBaseCurrencyColumns = showBaseCurrencyColumns;
 
         Composite container = new Composite(parent, SWT.NONE);
         TableColumnLayout layout = new TableColumnLayout();
@@ -369,6 +385,30 @@ public final class TransactionsViewer implements ModificationListener
         }).attachTo(column);
         support.addColumn(column);
 
+        if (showBaseCurrencyColumns)
+        {
+            column = new Column("quoteBaseCurrency", Messages.ColumnQuote + Messages.BaseCurrencyCue, SWT.RIGHT, //$NON-NLS-1$
+                            80);
+            column.setGroupLabel(Messages.ColumnForeignCurrencies);
+            column.setLabelProvider(new TransactionLabelProvider(t -> {
+                if (t instanceof PortfolioTransaction pt && t.getShares() != 0)
+                {
+                    var quote = pt.getGrossPricePerShare(getCurrencyConverter());
+                    return Values.CalculatedQuote.format(quote, owner.getClient().getBaseCurrency());
+                }
+                else
+                {
+                    return null;
+                }
+            }));
+            ColumnViewerSorter.create(e -> {
+                Transaction tx = ((TransactionPair<?>) e).getTransaction();
+                return tx instanceof PortfolioTransaction pt ? pt.getGrossPricePerShare(getCurrencyConverter()) : null;
+            }).attachTo(column);
+            column.setVisible(false);
+            support.addColumn(column);
+        }
+
         column = new Column("5", Messages.ColumnAmount, SWT.RIGHT, 80); //$NON-NLS-1$
         column.setLabelProvider(new TransactionLabelProvider(t -> {
             Money m;
@@ -383,6 +423,19 @@ public final class TransactionsViewer implements ModificationListener
             return tx instanceof PortfolioTransaction pt ? pt.getGrossValue() : null;
         }).attachTo(column);
         support.addColumn(column);
+
+        if (showBaseCurrencyColumns)
+        {
+            column = new Column("amountBaseCurrency", Messages.ColumnAmount + Messages.BaseCurrencyCue, SWT.RIGHT, //$NON-NLS-1$
+                            80);
+            column.setGroupLabel(Messages.ColumnForeignCurrencies);
+            column.setLabelProvider(new TransactionLabelProvider(t -> Values.Money
+                            .format(getGrossValueInBaseCurrency(t), owner.getClient().getBaseCurrency())));
+            ColumnViewerSorter.create(e -> getGrossValueInBaseCurrency(((TransactionPair<?>) e).getTransaction()))
+                            .attachTo(column);
+            column.setVisible(false);
+            support.addColumn(column);
+        }
 
         column = new Column("6", Messages.ColumnFees, SWT.RIGHT, 80); //$NON-NLS-1$
         column.setLabelProvider(new TransactionLabelProvider(t -> Values.Money
@@ -485,6 +538,26 @@ public final class TransactionsViewer implements ModificationListener
                         .attachTo(column);
         new StringEditingSupport(Transaction.class, "source").addListener(this).attachTo(column); //$NON-NLS-1$
         support.addColumn(column);
+    }
+
+    private CurrencyConverter getCurrencyConverter()
+    {
+        String baseCurrency = owner.getClient().getBaseCurrency();
+        if (currencyConverter == null)
+            currencyConverter = new CurrencyConverterImpl(exchangeRateProviderFactory, baseCurrency);
+        else
+            currencyConverter = currencyConverter.with(baseCurrency);
+
+        return currencyConverter;
+    }
+
+    private Money getGrossValueInBaseCurrency(Transaction transaction)
+    {
+        var converter = getCurrencyConverter();
+        if (transaction instanceof PortfolioTransaction pt)
+            return pt.getGrossValue(converter);
+
+        return converter.convert(transaction.getDateTime(), ((AccountTransaction) transaction).getGrossValue());
     }
 
     public ShowHideColumnHelper getColumnSupport()
