@@ -979,6 +979,7 @@ public class Messages extends NLS
     public static String LabelUnknown;
     public static String LabelUnnamedFile;
     public static String LabelUnnamedXml;
+    public static String LabelUpdateAvailableShort;
     public static String LabelUpdatedConfiguration;
     public static String LabelUpdatesAvailable;
     public static String LabelUseExistingSecurity;
@@ -1173,7 +1174,6 @@ public class Messages extends NLS
     public static String MsgInstrumentWithConfigurationIssue;
     public static String MsgInvalidImage;
     public static String MsgInvalidImageDetail;
-    public static String MsgJavaVersionTooOldForLetsEncrypt;
     public static String MsgLoadingFile;
     public static String MsgMissingAccount;
     public static String MsgMissingPortfolio;
@@ -1204,7 +1204,6 @@ public class Messages extends NLS
     public static String MsgUpdateNewInVersionX;
     public static String MsgUpdateNoWritePermissions;
     public static String MsgUpdateRequiresLatestJavaVersion;
-    public static String MsgUpdateRunning32BitOn64BitOS;
     public static String MsgUpdatingDashboardData;
     public static String MsgUpdatingExchangeRates;
     public static String MsgWarningPieChartNoValues;
