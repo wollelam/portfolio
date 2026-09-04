@@ -1,0 +1,30 @@
+services:
+  portfolio-performance-development:
+    build:
+      context: .
+      args:
+        ARCH: ${PP_ARCH:-x86_64}
+        APP_VERSION: ${PP_APP_VERSION:-development}
+    image: portfolio-performance:development
+    container_name: portfolio-performance-development
+    restart: unless-stopped
+    volumes:
+      - ./volume/config:/config
+      - ./volume/data:/opt/portfolio/data
+      - type: bind
+        source: /fast/docker/gdrive-sync/data
+        target: /opt/portfolio/workspace
+        bind:
+          propagation: rslave
+    environment:
+      USER_ID: ${USER_ID:-1000}
+      GROUP_ID: ${GROUP_ID:-1000}
+      TZ: ${TZ:-Europe/Zurich}
+      DISPLAY_WIDTH: ${DISPLAY_WIDTH:-1920}
+      DISPLAY_HEIGHT: ${DISPLAY_HEIGHT:-1080}
+    networks:
+      - internal
+networks:
+  internal:
+    external: true
+    name: internal

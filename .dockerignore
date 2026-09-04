@@ -1,0 +1,7 @@
+.git
+.github
+.metadata
+.settings
+**/target
+volume
+
