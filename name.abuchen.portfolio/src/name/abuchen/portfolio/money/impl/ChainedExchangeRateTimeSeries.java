@@ -61,6 +61,7 @@ public class ChainedExchangeRateTimeSeries implements ExchangeRateTimeSeries
     private Optional<ExchangeRate> lookupRate(LocalDate requestedTime, boolean requireHistoricalRate)
     {
         BigDecimal value = BigDecimal.ONE;
+        LocalDate rateTime = null;
 
         for (int ii = 0; ii < series.length; ii++)
         {
@@ -69,10 +70,15 @@ public class ChainedExchangeRateTimeSeries implements ExchangeRateTimeSeries
             if (!answer.isPresent())
                 return answer;
 
-            value = value.multiply(answer.get().getValue());
+            var componentRate = answer.get();
+            value = value.multiply(componentRate.getValue());
+
+            // The chained rate is only as current as its oldest component.
+            if (rateTime == null || componentRate.getTime().isBefore(rateTime))
+                rateTime = componentRate.getTime();
         }
 
-        return Optional.of(new ExchangeRate(requestedTime, value));
+        return Optional.of(new ExchangeRate(rateTime, value));
     }
 
     @Override
