@@ -37,6 +37,8 @@ public class ChainedExchangeRateTimeSeriesTest
         assertThat(chained.lookupRateIfAvailable(LocalDate.parse("2014-11-30")).isPresent(), is(false));
         assertThat(chained.lookupRateIfAvailable(LocalDate.parse("2014-12-02")).get().getValue(),
                         is(BigDecimal.valueOf(4)));
+        assertThat(chained.lookupRateIfAvailable(LocalDate.parse("2014-12-02")).get().getTime(),
+                        is(LocalDate.parse("2014-12-02")));
 
         assertThat(chained.getBaseCurrency(), is("EUR"));
         assertThat(chained.getTermCurrency(), is("CHF"));
@@ -75,6 +77,26 @@ public class ChainedExchangeRateTimeSeriesTest
         assertThat(chained.lookupRateIfAvailable(LocalDate.parse("2014-12-01")).isPresent(), is(false));
         assertThat(chained.lookupRateIfAvailable(LocalDate.parse("2014-12-02")).get().getValue(),
                         is(BigDecimal.valueOf(6)));
+    }
+
+    @Test
+    public void testLookupReportsOldestComponentRateDate()
+    {
+        ExchangeRateTimeSeriesImpl first = new ExchangeRateTimeSeriesImpl();
+        first.addRate(new ExchangeRate(LocalDate.parse("2014-12-01"), BigDecimal.valueOf(2)));
+        ExchangeRateTimeSeriesImpl second = new ExchangeRateTimeSeriesImpl();
+        second.addRate(new ExchangeRate(LocalDate.parse("2014-12-02"), BigDecimal.valueOf(3)));
+        ChainedExchangeRateTimeSeries chained = new ChainedExchangeRateTimeSeries(first, second);
+
+        ExchangeRate rate = chained.lookupRate(LocalDate.parse("2014-12-03")).orElseThrow();
+
+        assertThat(rate.getValue(), is(BigDecimal.valueOf(6)));
+        assertThat(rate.getTime(), is(LocalDate.parse("2014-12-01")));
+
+        rate = chained.lookupRateIfAvailable(LocalDate.parse("2014-12-02")).orElseThrow();
+
+        assertThat(rate.getValue(), is(BigDecimal.valueOf(6)));
+        assertThat(rate.getTime(), is(LocalDate.parse("2014-12-01")));
     }
 
 }
