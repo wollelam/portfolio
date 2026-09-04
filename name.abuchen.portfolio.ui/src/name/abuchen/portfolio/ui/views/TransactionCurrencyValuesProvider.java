@@ -97,6 +97,7 @@ final class TransactionCurrencyValuesProvider
                 return new ExchangeRate(date, BigDecimal.ONE);
 
             return factory.getTimeSeries(currencyCode, termCurrency).lookupRate(date)
+                            .filter(rate -> !rate.getTime().isAfter(date))
                             .orElseThrow(MissingExchangeRateException::new);
         }
 

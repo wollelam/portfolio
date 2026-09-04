@@ -83,6 +83,20 @@ public class TransactionCurrencyValuesProviderTest
     }
 
     @Test
+    public void testFirstFutureExchangeRateDoesNotFabricateHistoricalValues()
+    {
+        var transaction = new AccountTransaction(DATE, CurrencyUnit.USD, 10_000, null,
+                        AccountTransaction.Type.DIVIDENDS);
+
+        var values = TransactionCurrencyValuesProvider.calculate(transaction, CurrencyUnit.EUR,
+                        factory(DATE.toLocalDate().plusDays(1), new BigDecimal("0.8")));
+
+        assertThat(values.getExchangeRate(), is(Optional.empty()));
+        assertThat(values.getGrossValue(), is(Optional.empty()));
+        assertThat(values.getNetValue(), is(Optional.empty()));
+    }
+
+    @Test
     public void testBookedForexGrossValueDoesNotRequireHistoricalRate()
     {
         var security = new Security("Security", CurrencyUnit.EUR);
@@ -104,9 +118,14 @@ public class TransactionCurrencyValuesProviderTest
 
     private ExchangeRateProviderFactory factory(BigDecimal rate)
     {
+        return factory(DATE.toLocalDate(), rate);
+    }
+
+    private ExchangeRateProviderFactory factory(LocalDate date, BigDecimal rate)
+    {
         var series = new ExchangeRateTimeSeriesImpl(null, CurrencyUnit.USD, CurrencyUnit.EUR);
         if (rate != null)
-            series.addRate(new ExchangeRate(DATE.toLocalDate(), rate));
+            series.addRate(new ExchangeRate(date, rate));
 
         return new ExchangeRateProviderFactory(new Client())
         {
