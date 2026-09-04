@@ -6,6 +6,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -26,6 +27,7 @@ public class ProtobufWriterAdditionalTest
         Client client = new Client();
         Security security = new Security();
         security.setName(ProtobufWriterAdditionalTest.class.getName());
+        security.setWithholdingTaxRate(new BigDecimal("0.26375"));
         security.setUpdatedAt(Instant.now());
         security.addPrice(new SecurityPrice(LocalDate.now().plusDays(10), Values.Quote.factorize(100)));
         client.addSecurity(security);
@@ -45,6 +47,7 @@ public class ProtobufWriterAdditionalTest
         String actual = ClientTestUtilities.toString(newClient);
 
         assertThat(actual, is(expected));
+        assertThat(newClient.getSecurities().get(0).getWithholdingTaxRate(), is(new BigDecimal("0.26375")));
     }
 
     @Test

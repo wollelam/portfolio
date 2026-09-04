@@ -926,6 +926,32 @@ private static final long serialVersionUID = 0L;
     return updatedAt_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : updatedAt_;
   }
 
+  public static final int WITHHOLDINGTAXRATE_FIELD_NUMBER = 22;
+  private name.abuchen.portfolio.model.proto.v1.PDecimalValue withholdingTaxRate_;
+  /**
+   * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+   * @return Whether the withholdingTaxRate field is set.
+   */
+  @java.lang.Override
+  public boolean hasWithholdingTaxRate() {
+    return ((bitField0_ & 0x00002000) != 0);
+  }
+  /**
+   * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+   * @return The withholdingTaxRate.
+   */
+  @java.lang.Override
+  public name.abuchen.portfolio.model.proto.v1.PDecimalValue getWithholdingTaxRate() {
+    return withholdingTaxRate_ == null ? name.abuchen.portfolio.model.proto.v1.PDecimalValue.getDefaultInstance() : withholdingTaxRate_;
+  }
+  /**
+   * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+   */
+  @java.lang.Override
+  public name.abuchen.portfolio.model.proto.v1.PDecimalValueOrBuilder getWithholdingTaxRateOrBuilder() {
+    return withholdingTaxRate_ == null ? name.abuchen.portfolio.model.proto.v1.PDecimalValue.getDefaultInstance() : withholdingTaxRate_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -1002,6 +1028,9 @@ private static final long serialVersionUID = 0L;
     }
     if (updatedAt_ != null) {
       output.writeMessage(21, getUpdatedAt());
+    }
+    if (((bitField0_ & 0x00002000) != 0)) {
+      output.writeMessage(22, getWithholdingTaxRate());
     }
     getUnknownFields().writeTo(output);
   }
@@ -1081,6 +1110,10 @@ private static final long serialVersionUID = 0L;
     if (updatedAt_ != null) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(21, getUpdatedAt());
+    }
+    if (((bitField0_ & 0x00002000) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(22, getWithholdingTaxRate());
     }
     size += getUnknownFields().getSerializedSize();
     memoizedSize = size;
@@ -1181,6 +1214,11 @@ private static final long serialVersionUID = 0L;
       if (!getUpdatedAt()
           .equals(other.getUpdatedAt())) return false;
     }
+    if (hasWithholdingTaxRate() != other.hasWithholdingTaxRate()) return false;
+    if (hasWithholdingTaxRate()) {
+      if (!getWithholdingTaxRate()
+          .equals(other.getWithholdingTaxRate())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -1270,6 +1308,10 @@ private static final long serialVersionUID = 0L;
     if (hasUpdatedAt()) {
       hash = (37 * hash) + UPDATEDAT_FIELD_NUMBER;
       hash = (53 * hash) + getUpdatedAt().hashCode();
+    }
+    if (hasWithholdingTaxRate()) {
+      hash = (37 * hash) + WITHHOLDINGTAXRATE_FIELD_NUMBER;
+      hash = (53 * hash) + getWithholdingTaxRate().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -1405,6 +1447,7 @@ private static final long serialVersionUID = 0L;
         getEventsFieldBuilder();
         getPropertiesFieldBuilder();
         getUpdatedAtFieldBuilder();
+        getWithholdingTaxRateFieldBuilder();
       }
     }
     @java.lang.Override
@@ -1463,6 +1506,11 @@ private static final long serialVersionUID = 0L;
       if (updatedAtBuilder_ != null) {
         updatedAtBuilder_.dispose();
         updatedAtBuilder_ = null;
+      }
+      withholdingTaxRate_ = null;
+      if (withholdingTaxRateBuilder_ != null) {
+        withholdingTaxRateBuilder_.dispose();
+        withholdingTaxRateBuilder_ = null;
       }
       return this;
     }
@@ -1605,6 +1653,12 @@ private static final long serialVersionUID = 0L;
         result.updatedAt_ = updatedAtBuilder_ == null
             ? updatedAt_
             : updatedAtBuilder_.build();
+      }
+      if (((from_bitField0_ & 0x00200000) != 0)) {
+        result.withholdingTaxRate_ = withholdingTaxRateBuilder_ == null
+            ? withholdingTaxRate_
+            : withholdingTaxRateBuilder_.build();
+        to_bitField0_ |= 0x00002000;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -1804,6 +1858,9 @@ private static final long serialVersionUID = 0L;
       if (other.hasUpdatedAt()) {
         mergeUpdatedAt(other.getUpdatedAt());
       }
+      if (other.hasWithholdingTaxRate()) {
+        mergeWithholdingTaxRate(other.getWithholdingTaxRate());
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -1971,6 +2028,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00100000;
               break;
             } // case 170
+            case 178: {
+              input.readMessage(
+                  getWithholdingTaxRateFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00200000;
+              break;
+            } // case 178
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -4309,6 +4373,125 @@ private static final long serialVersionUID = 0L;
       }
       return updatedAtBuilder_;
     }
+
+    private name.abuchen.portfolio.model.proto.v1.PDecimalValue withholdingTaxRate_;
+    private com.google.protobuf.SingleFieldBuilderV3<
+        name.abuchen.portfolio.model.proto.v1.PDecimalValue, name.abuchen.portfolio.model.proto.v1.PDecimalValue.Builder, name.abuchen.portfolio.model.proto.v1.PDecimalValueOrBuilder> withholdingTaxRateBuilder_;
+    /**
+     * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+     * @return Whether the withholdingTaxRate field is set.
+     */
+    public boolean hasWithholdingTaxRate() {
+      return ((bitField0_ & 0x00200000) != 0);
+    }
+    /**
+     * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+     * @return The withholdingTaxRate.
+     */
+    public name.abuchen.portfolio.model.proto.v1.PDecimalValue getWithholdingTaxRate() {
+      if (withholdingTaxRateBuilder_ == null) {
+        return withholdingTaxRate_ == null ? name.abuchen.portfolio.model.proto.v1.PDecimalValue.getDefaultInstance() : withholdingTaxRate_;
+      } else {
+        return withholdingTaxRateBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+     */
+    public Builder setWithholdingTaxRate(name.abuchen.portfolio.model.proto.v1.PDecimalValue value) {
+      if (withholdingTaxRateBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        withholdingTaxRate_ = value;
+      } else {
+        withholdingTaxRateBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00200000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+     */
+    public Builder setWithholdingTaxRate(
+        name.abuchen.portfolio.model.proto.v1.PDecimalValue.Builder builderForValue) {
+      if (withholdingTaxRateBuilder_ == null) {
+        withholdingTaxRate_ = builderForValue.build();
+      } else {
+        withholdingTaxRateBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00200000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+     */
+    public Builder mergeWithholdingTaxRate(name.abuchen.portfolio.model.proto.v1.PDecimalValue value) {
+      if (withholdingTaxRateBuilder_ == null) {
+        if (((bitField0_ & 0x00200000) != 0) &&
+          withholdingTaxRate_ != null &&
+          withholdingTaxRate_ != name.abuchen.portfolio.model.proto.v1.PDecimalValue.getDefaultInstance()) {
+          getWithholdingTaxRateBuilder().mergeFrom(value);
+        } else {
+          withholdingTaxRate_ = value;
+        }
+      } else {
+        withholdingTaxRateBuilder_.mergeFrom(value);
+      }
+      bitField0_ |= 0x00200000;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+     */
+    public Builder clearWithholdingTaxRate() {
+      bitField0_ = (bitField0_ & ~0x00200000);
+      withholdingTaxRate_ = null;
+      if (withholdingTaxRateBuilder_ != null) {
+        withholdingTaxRateBuilder_.dispose();
+        withholdingTaxRateBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+     */
+    public name.abuchen.portfolio.model.proto.v1.PDecimalValue.Builder getWithholdingTaxRateBuilder() {
+      bitField0_ |= 0x00200000;
+      onChanged();
+      return getWithholdingTaxRateFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+     */
+    public name.abuchen.portfolio.model.proto.v1.PDecimalValueOrBuilder getWithholdingTaxRateOrBuilder() {
+      if (withholdingTaxRateBuilder_ != null) {
+        return withholdingTaxRateBuilder_.getMessageOrBuilder();
+      } else {
+        return withholdingTaxRate_ == null ?
+            name.abuchen.portfolio.model.proto.v1.PDecimalValue.getDefaultInstance() : withholdingTaxRate_;
+      }
+    }
+    /**
+     * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilderV3<
+        name.abuchen.portfolio.model.proto.v1.PDecimalValue, name.abuchen.portfolio.model.proto.v1.PDecimalValue.Builder, name.abuchen.portfolio.model.proto.v1.PDecimalValueOrBuilder>
+        getWithholdingTaxRateFieldBuilder() {
+      if (withholdingTaxRateBuilder_ == null) {
+        withholdingTaxRateBuilder_ = new com.google.protobuf.SingleFieldBuilderV3<
+            name.abuchen.portfolio.model.proto.v1.PDecimalValue, name.abuchen.portfolio.model.proto.v1.PDecimalValue.Builder, name.abuchen.portfolio.model.proto.v1.PDecimalValueOrBuilder>(
+                getWithholdingTaxRate(),
+                getParentForChildren(),
+                isClean());
+        withholdingTaxRate_ = null;
+      }
+      return withholdingTaxRateBuilder_;
+    }
     @java.lang.Override
     public final Builder setUnknownFields(
         final com.google.protobuf.UnknownFieldSet unknownFields) {
@@ -4372,4 +4555,3 @@ private static final long serialVersionUID = 0L;
   }
 
 }
-
