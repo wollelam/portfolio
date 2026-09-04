@@ -1,5 +1,6 @@
 package name.abuchen.portfolio.ui.wizards.security;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -200,6 +201,7 @@ import name.abuchen.portfolio.ui.util.BindingHelper;
 
     private String currencyCode;
     private String targetCurrencyCode;
+    private BigDecimal withholdingTaxRate;
     private String note;
     private String isin;
     private String tickerSymbol;
@@ -233,6 +235,7 @@ import name.abuchen.portfolio.ui.util.BindingHelper;
         this.onlineId = security.getOnlineId();
         this.currencyCode = security.getCurrencyCode();
         this.targetCurrencyCode = security.getTargetCurrencyCode();
+        this.withholdingTaxRate = security.getWithholdingTaxRate();
         this.note = security.getNote();
         this.isin = security.getIsin();
         this.tickerSymbol = security.getTickerSymbol();
@@ -299,6 +302,17 @@ import name.abuchen.portfolio.ui.util.BindingHelper;
     public void setTargetCurrencyCode(String targetCurrencyCode)
     {
         firePropertyChange("targetCurrencyCode", this.targetCurrencyCode, this.targetCurrencyCode = targetCurrencyCode); //$NON-NLS-1$ //NOSONAR
+    }
+
+    public BigDecimal getWithholdingTaxRate()
+    {
+        return withholdingTaxRate;
+    }
+
+    public void setWithholdingTaxRate(BigDecimal withholdingTaxRate)
+    {
+        firePropertyChange("withholdingTaxRate", this.withholdingTaxRate, //$NON-NLS-1$
+                        this.withholdingTaxRate = withholdingTaxRate); // NOSONAR
     }
 
     public String getNote()
@@ -482,6 +496,7 @@ import name.abuchen.portfolio.ui.util.BindingHelper;
         security.setOnlineId(onlineId);
         security.setCurrencyCode(currencyCode);
         security.setTargetCurrencyCode(targetCurrencyCode);
+        security.setWithholdingTaxRate(withholdingTaxRate);
         security.setNote(note);
         security.setIsin(isin);
         security.setTickerSymbol(tickerSymbol);

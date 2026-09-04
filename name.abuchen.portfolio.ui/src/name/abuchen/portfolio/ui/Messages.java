@@ -364,6 +364,8 @@ public class Messages extends NLS
     public static String ColumnVolumeOfSecurityDeposits;
     public static String ColumnWeight;
     public static String ColumnWeight_Description;
+    public static String ColumnWithholdingTaxRate;
+    public static String ColumnWithholdingTaxRate_Description;
     public static String ColumnWKN;
     public static String ColumnYear;
     public static String ConfigurationDelete;

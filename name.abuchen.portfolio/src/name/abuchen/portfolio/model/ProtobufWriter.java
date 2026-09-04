@@ -157,6 +157,8 @@ import name.abuchen.portfolio.money.Money;
             security.setCurrencyCode(newSecurity.hasCurrencyCode() ? newSecurity.getCurrencyCode() : null);
             if (newSecurity.hasTargetCurrencyCode())
                 security.setTargetCurrencyCode(newSecurity.getTargetCurrencyCode());
+            if (newSecurity.hasWithholdingTaxRate())
+                security.setWithholdingTaxRate(fromDecimalValue(newSecurity.getWithholdingTaxRate()));
 
             if (newSecurity.hasNote())
                 security.setNote(newSecurity.getNote());
@@ -897,6 +899,8 @@ import name.abuchen.portfolio.money.Money;
                 newSecurity.setCurrencyCode(security.getCurrencyCode());
             if (security.getTargetCurrencyCode() != null)
                 newSecurity.setTargetCurrencyCode(security.getTargetCurrencyCode());
+            if (security.getWithholdingTaxRate() != null)
+                newSecurity.setWithholdingTaxRate(asDecimalValue(security.getWithholdingTaxRate()));
 
             if (security.getNote() != null)
                 newSecurity.setNote(security.getNote());
