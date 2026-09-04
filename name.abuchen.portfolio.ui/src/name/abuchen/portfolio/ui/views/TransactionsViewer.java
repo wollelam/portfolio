@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -34,6 +35,7 @@ import name.abuchen.portfolio.model.PortfolioTransaction;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.model.Transaction;
 import name.abuchen.portfolio.model.TransactionPair;
+import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Money;
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.ui.Images;
@@ -130,7 +132,13 @@ public final class TransactionsViewer implements ModificationListener
     @Inject
     private SelectionService selectionService;
 
+    @Inject
+    private ExchangeRateProviderFactory exchangeRateProviderFactory;
+
+    private TransactionCurrencyValuesProvider currencyValuesProvider;
+
     private AbstractFinanceView owner;
+    private final boolean showBaseCurrencyColumns;
     private Set<TransactionPair<?>> marked = new HashSet<>();
 
     private TableViewer tableViewer;
@@ -146,7 +154,14 @@ public final class TransactionsViewer implements ModificationListener
 
     public TransactionsViewer(String identifier, Composite parent, AbstractFinanceView owner)
     {
+        this(identifier, parent, owner, false);
+    }
+
+    public TransactionsViewer(String identifier, Composite parent, AbstractFinanceView owner,
+                    boolean showBaseCurrencyColumns)
+    {
         this.owner = owner;
+        this.showBaseCurrencyColumns = showBaseCurrencyColumns;
 
         Composite container = new Composite(parent, SWT.NONE);
         TableColumnLayout layout = new TableColumnLayout();
@@ -214,6 +229,7 @@ public final class TransactionsViewer implements ModificationListener
         // preserve selection when (updating with) new transactions
 
         ISelection selection = tableViewer.getSelection();
+        clearCurrencyValuesCache();
         this.support.invalidateCache();
         this.tableViewer.setInput(transactions);
         this.tableViewer.setSelection(selection);
@@ -221,6 +237,7 @@ public final class TransactionsViewer implements ModificationListener
 
     public void refresh()
     {
+        clearCurrencyValuesCache();
         tableViewer.refresh();
     }
 
@@ -245,6 +262,7 @@ public final class TransactionsViewer implements ModificationListener
         if (t.getTransaction().getCrossEntry() != null)
             t.getTransaction().getCrossEntry().updateFrom(t.getTransaction());
 
+        clearCurrencyValuesCache();
         owner.markDirty();
     }
 
@@ -485,6 +503,105 @@ public final class TransactionsViewer implements ModificationListener
                         .attachTo(column);
         new StringEditingSupport(Transaction.class, "source").addListener(this).attachTo(column); //$NON-NLS-1$
         support.addColumn(column);
+
+        if (showBaseCurrencyColumns)
+            addBaseCurrencyColumns();
+    }
+
+    private void addBaseCurrencyColumns() // NOSONAR
+    {
+        Column column = new Column("transactionCurrency", Messages.ColumnCurrency, SWT.LEFT, 80); //$NON-NLS-1$
+        column.setGroupLabel(Messages.ColumnForeignCurrencies);
+        column.setLabelProvider(new TransactionLabelProvider(Transaction::getCurrencyCode));
+        ColumnViewerSorter.createIgnoreCase(
+                        e -> ((TransactionPair<?>) e).getTransaction().getCurrencyCode()).attachTo(column);
+        column.setVisible(false);
+        support.addColumn(column);
+
+        column = new Column("transactionExchangeRate", Messages.ColumnExchangeRate, SWT.RIGHT, 80); //$NON-NLS-1$
+        column.setGroupLabel(Messages.ColumnForeignCurrencies);
+        column.setLabelProvider(new TransactionLabelProvider(t -> getCurrencyValues(t).getExchangeRate()
+                        .map(Values.ExchangeRate::format).orElse(null))
+        {
+            @Override
+            public String getToolTipText(Object element)
+            {
+                var transaction = ((TransactionPair<?>) element).getTransaction();
+                String text = getText(element);
+                return text != null ? text + ' ' + owner.getClient().getBaseCurrency() + '/'
+                                + transaction.getCurrencyCode() : null;
+            }
+        });
+        ColumnViewerSorter.create(e -> getCurrencyValues(((TransactionPair<?>) e).getTransaction()).getExchangeRate()
+                        .orElse(null)).attachTo(column);
+        column.setVisible(false);
+        support.addColumn(column);
+
+        column = new Column("quoteBaseCurrency", Messages.ColumnQuote + Messages.BaseCurrencyCue, SWT.RIGHT, //$NON-NLS-1$
+                        80);
+        column.setGroupLabel(Messages.ColumnForeignCurrencies);
+        column.setLabelProvider(new TransactionLabelProvider(t -> getCurrencyValues(t).getGrossPrice()
+                        .map(q -> Values.CalculatedQuote.format(q, owner.getClient().getBaseCurrency())).orElse(null)));
+        ColumnViewerSorter.create(e -> getCurrencyValues(((TransactionPair<?>) e).getTransaction()).getGrossPrice()
+                        .orElse(null)).attachTo(column);
+        column.setVisible(false);
+        support.addColumn(column);
+
+        column = new Column("amountBaseCurrency", Messages.ColumnAmount + Messages.BaseCurrencyCue, SWT.RIGHT, //$NON-NLS-1$
+                        80);
+        column.setGroupLabel(Messages.ColumnForeignCurrencies);
+        column.setLabelProvider(new TransactionLabelProvider(t -> getCurrencyValues(t).getGrossValue()
+                        .map(m -> Values.Money.format(m, owner.getClient().getBaseCurrency())).orElse(null)));
+        ColumnViewerSorter.create(e -> getCurrencyValues(((TransactionPair<?>) e).getTransaction()).getGrossValue()
+                        .orElse(null)).attachTo(column);
+        column.setVisible(false);
+        support.addColumn(column);
+
+        column = createBaseCurrencyUnitColumn("feesBaseCurrency", Messages.ColumnFees, //$NON-NLS-1$
+                        v -> v.getFees());
+        support.addColumn(column);
+
+        column = createBaseCurrencyUnitColumn("taxesBaseCurrency", Messages.ColumnTaxes, //$NON-NLS-1$
+                        v -> v.getTaxes());
+        support.addColumn(column);
+
+        column = new Column("netValueBaseCurrency", Messages.ColumnNetValue + Messages.BaseCurrencyCue, SWT.RIGHT, //$NON-NLS-1$
+                        80);
+        column.setGroupLabel(Messages.ColumnForeignCurrencies);
+        column.setLabelProvider(new TransactionLabelProvider(t -> getCurrencyValues(t).getNetValue()
+                        .map(m -> Values.Money.format(m, owner.getClient().getBaseCurrency())).orElse(null)));
+        ColumnViewerSorter.create(e -> getCurrencyValues(((TransactionPair<?>) e).getTransaction()).getNetValue()
+                        .orElse(null)).attachTo(column);
+        column.setVisible(false);
+        support.addColumn(column);
+    }
+
+    private Column createBaseCurrencyUnitColumn(String id, String label,
+                    Function<TransactionCurrencyValuesProvider.Values, Optional<Money>> valueProvider)
+    {
+        Column column = new Column(id, label + Messages.BaseCurrencyCue, SWT.RIGHT, 80);
+        column.setGroupLabel(Messages.ColumnForeignCurrencies);
+        column.setLabelProvider(new TransactionLabelProvider(t -> valueProvider.apply(getCurrencyValues(t))
+                        .map(m -> Values.Money.formatNonZero(m, owner.getClient().getBaseCurrency())).orElse(null)));
+        ColumnViewerSorter.create(e -> valueProvider.apply(
+                        getCurrencyValues(((TransactionPair<?>) e).getTransaction())).orElse(null)).attachTo(column);
+        column.setVisible(false);
+        return column;
+    }
+
+    private TransactionCurrencyValuesProvider.Values getCurrencyValues(Transaction transaction)
+    {
+        if (currencyValuesProvider == null)
+            currencyValuesProvider = new TransactionCurrencyValuesProvider(exchangeRateProviderFactory,
+                            () -> owner.getClient().getBaseCurrency());
+
+        return currencyValuesProvider.get(transaction);
+    }
+
+    private void clearCurrencyValuesCache()
+    {
+        if (currencyValuesProvider != null)
+            currencyValuesProvider.clear();
     }
 
     public ShowHideColumnHelper getColumnSupport()
