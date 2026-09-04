@@ -1,6 +1,7 @@
 package name.abuchen.portfolio.model;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -67,6 +68,7 @@ public final class Security implements Attributable, InvestmentVehicle
     private String name;
     private String currencyCode = CurrencyUnit.EUR;
     private String targetCurrencyCode;
+    private BigDecimal withholdingTaxRate;
 
     private String note;
 
@@ -231,6 +233,26 @@ public final class Security implements Attributable, InvestmentVehicle
     public void setTargetCurrencyCode(String targetCurrencyCode)
     {
         this.targetCurrencyCode = targetCurrencyCode;
+        this.updatedAt = Instant.now();
+    }
+
+    /**
+     * Returns the withholding tax rate used when entering dividend
+     * transactions. The value is a fraction, for example {@code 0.15} for
+     * 15 percent. A {@code null} value means that no default is configured.
+     */
+    public BigDecimal getWithholdingTaxRate()
+    {
+        return withholdingTaxRate;
+    }
+
+    public void setWithholdingTaxRate(BigDecimal withholdingTaxRate)
+    {
+        if (withholdingTaxRate != null && (withholdingTaxRate.signum() < 0
+                        || withholdingTaxRate.compareTo(BigDecimal.ONE) > 0))
+            throw new IllegalArgumentException("withholding tax rate must be between zero and one"); //$NON-NLS-1$
+
+        this.withholdingTaxRate = withholdingTaxRate;
         this.updatedAt = Instant.now();
     }
 
@@ -907,6 +929,7 @@ public final class Security implements Attributable, InvestmentVehicle
         answer.name = name;
         answer.currencyCode = currencyCode;
         answer.targetCurrencyCode = targetCurrencyCode;
+        answer.withholdingTaxRate = withholdingTaxRate;
 
         answer.note = note;
         answer.isin = isin;

@@ -366,4 +366,19 @@ public interface PSecurityOrBuilder extends
    * <code>.google.protobuf.Timestamp updatedAt = 21;</code>
    */
   com.google.protobuf.TimestampOrBuilder getUpdatedAtOrBuilder();
+
+  /**
+   * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+   * @return Whether the withholdingTaxRate field is set.
+   */
+  boolean hasWithholdingTaxRate();
+  /**
+   * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+   * @return The withholdingTaxRate.
+   */
+  name.abuchen.portfolio.model.proto.v1.PDecimalValue getWithholdingTaxRate();
+  /**
+   * <code>optional .name.abuchen.portfolio.PDecimalValue withholdingTaxRate = 22;</code>
+   */
+  name.abuchen.portfolio.model.proto.v1.PDecimalValueOrBuilder getWithholdingTaxRateOrBuilder();
 }

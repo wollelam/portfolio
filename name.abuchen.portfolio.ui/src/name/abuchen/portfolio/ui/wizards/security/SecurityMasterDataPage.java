@@ -1,5 +1,14 @@
 package name.abuchen.portfolio.ui.wizards.security;
 
+import java.math.BigDecimal;
+import java.text.DecimalFormat;
+import java.text.ParsePosition;
+
+import org.eclipse.core.databinding.UpdateValueStrategy;
+import org.eclipse.core.databinding.beans.typed.BeanProperties;
+import org.eclipse.core.databinding.conversion.IConverter;
+import org.eclipse.core.databinding.observable.value.IObservableValue;
+import org.eclipse.jface.databinding.swt.typed.WidgetProperties;
 import org.eclipse.jface.layout.GridDataFactory;
 import org.eclipse.jface.layout.GridLayoutFactory;
 import org.eclipse.jface.viewers.ComboViewer;
@@ -15,8 +24,10 @@ import org.eclipse.swt.widgets.Text;
 import name.abuchen.portfolio.ui.Images;
 import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.util.BindingHelper;
+import name.abuchen.portfolio.ui.util.IValidatingConverter;
 import name.abuchen.portfolio.ui.util.SWTHelper;
 import name.abuchen.portfolio.ui.util.swt.ControlDecoration;
+import name.abuchen.portfolio.ui.util.text.DecimalKeypadSupport;
 
 public class SecurityMasterDataPage extends AbstractPage
 {
@@ -80,6 +91,8 @@ public class SecurityMasterDataPage extends AbstractPage
 
             ComboViewer calendar = bindings.bindCalendarCombo(container, Messages.LabelSecurityCalendar, "calendar"); //$NON-NLS-1$
             calendar.getCombo().setToolTipText(Messages.LabelSecurityCalendarToolTip);
+
+            bindWithholdingTaxRate(container);
         }
 
         Control control = bindings.bindBooleanInput(container, Messages.ColumnRetired, "retired"); //$NON-NLS-1$
@@ -100,5 +113,88 @@ public class SecurityMasterDataPage extends AbstractPage
                         SWT.BORDER | SWT.MULTI | SWT.V_SCROLL | SWT.H_SCROLL | SWT.WRAP, SWT.DEFAULT);
         GridDataFactory.fillDefaults().grab(true, true).hint(SWT.DEFAULT, SWTHelper.lineHeight(valueNote) * 4)
                         .applyTo(valueNote);
+    }
+
+    private void bindWithholdingTaxRate(Composite container)
+    {
+        Label label = new Label(container, SWT.NONE);
+        label.setText(Messages.ColumnWithholdingTaxRate);
+
+        Text value = new Text(container, SWT.BORDER | SWT.RIGHT);
+        value.setToolTipText(Messages.ColumnWithholdingTaxRate_Description);
+        DecimalKeypadSupport.configure(value);
+        GridDataFactory.fillDefaults().align(SWT.BEGINNING, SWT.FILL)
+                        .hint((int) Math.round(15 * SWTHelper.getAverageCharWidth(value)), SWT.DEFAULT).applyTo(value);
+
+        IValidatingConverter<String, BigDecimal> inputConverter = new WithholdingTaxRateInputConverter();
+        IObservableValue<String> target = WidgetProperties.text(SWT.Modify).observe(value);
+        IObservableValue<BigDecimal> observable = BeanProperties.value("withholdingTaxRate", BigDecimal.class) //$NON-NLS-1$
+                        .observe(model);
+
+        bindings.getBindingContext().bindValue(target, observable,
+                        new UpdateValueStrategy<String, BigDecimal>().setAfterGetValidator(inputConverter)
+                                        .setConverter(inputConverter),
+                        new UpdateValueStrategy<BigDecimal, String>().setConverter(new WithholdingTaxRateOutputConverter()));
+    }
+
+    private static final class WithholdingTaxRateInputConverter implements IValidatingConverter<String, BigDecimal>
+    {
+        private final DecimalFormat format = new DecimalFormat("#,##0.###"); //$NON-NLS-1$
+
+        private WithholdingTaxRateInputConverter()
+        {
+            format.setParseBigDecimal(true);
+        }
+
+        @Override
+        public Object getFromType()
+        {
+            return String.class;
+        }
+
+        @Override
+        public Object getToType()
+        {
+            return BigDecimal.class;
+        }
+
+        @Override
+        public BigDecimal convert(String input)
+        {
+            String value = input.trim();
+            if (value.isEmpty())
+                return null;
+
+            ParsePosition position = new ParsePosition(0);
+            BigDecimal percentage = (BigDecimal) format.parse(value, position);
+            if (percentage == null || position.getIndex() != value.length() || percentage.signum() < 0
+                            || percentage.compareTo(BigDecimal.valueOf(100)) > 0)
+                throw new IllegalArgumentException(String.format(Messages.CellEditor_NotANumber, value));
+
+            return percentage.movePointLeft(2);
+        }
+    }
+
+    private static final class WithholdingTaxRateOutputConverter implements IConverter<BigDecimal, String>
+    {
+        private final DecimalFormat format = new DecimalFormat("#,##0.###"); //$NON-NLS-1$
+
+        @Override
+        public Object getFromType()
+        {
+            return BigDecimal.class;
+        }
+
+        @Override
+        public Object getToType()
+        {
+            return String.class;
+        }
+
+        @Override
+        public String convert(BigDecimal rate)
+        {
+            return rate != null ? format.format(rate.movePointRight(2)) : ""; //$NON-NLS-1$
+        }
     }
 }

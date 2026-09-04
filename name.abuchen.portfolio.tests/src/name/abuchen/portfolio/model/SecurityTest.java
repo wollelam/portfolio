@@ -9,7 +9,11 @@ import java.beans.BeanInfo;
 import java.beans.IntrospectionException;
 import java.beans.Introspector;
 import java.beans.PropertyDescriptor;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -46,6 +50,8 @@ public class SecurityTest
                 p.getWriteMethod().invoke(source, true);
             else if (p.getPropertyType() == int.class && p.getWriteMethod() != null)
                 p.getWriteMethod().invoke(source, new Random().nextInt());
+            else if (p.getPropertyType() == BigDecimal.class && p.getWriteMethod() != null)
+                p.getWriteMethod().invoke(source, new BigDecimal("0.26375")); //$NON-NLS-1$
             else
                 skipped++;
         }
@@ -63,7 +69,7 @@ public class SecurityTest
                 continue;
 
             if (p.getPropertyType() != String.class && p.getPropertyType() != boolean.class
-                            && p.getPropertyType() != int.class)
+                            && p.getPropertyType() != int.class && p.getPropertyType() != BigDecimal.class)
                 continue;
 
             Object sourceValue = p.getReadMethod().invoke(source);
@@ -71,6 +77,32 @@ public class SecurityTest
 
             assertThat(targetValue, equalTo(sourceValue));
         }
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testWithholdingTaxRateCannotBeNegative()
+    {
+        new Security().setWithholdingTaxRate(new BigDecimal("-0.01")); //$NON-NLS-1$
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testWithholdingTaxRateCannotExceedOneHundredPercent()
+    {
+        new Security().setWithholdingTaxRate(new BigDecimal("1.01")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void testWithholdingTaxRateXmlPersistence() throws IOException
+    {
+        var client = new Client();
+        var security = new Security("Security", "EUR");
+        security.setWithholdingTaxRate(new BigDecimal("0.26375"));
+        client.addSecurity(security);
+
+        String xml = ClientTestUtilities.toString(client);
+        Client restored = ClientFactory.load(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+
+        assertThat(restored.getSecurities().get(0).getWithholdingTaxRate(), is(new BigDecimal("0.26375")));
     }
 
     @Test

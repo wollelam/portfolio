@@ -71,7 +71,6 @@ public class AccountTransactionDialog extends AbstractTransactionDialog // NOSON
     private boolean useIndirectQuotation = false;
 
     private Menu contextMenu;
-    private Menu taxRateMenu;
 
     @Inject
     public AccountTransactionDialog(@Named(IServiceConstants.ACTIVE_SHELL) Shell parentShell)
@@ -217,15 +216,13 @@ public class AccountTransactionDialog extends AbstractTransactionDialog // NOSON
         Button taxRateButton = null;
         if (model().getType() == AccountTransaction.Type.DIVIDENDS)
         {
-            taxRateButton = new Button(editArea, SWT.ARROW | SWT.DOWN);
-            taxRateButton.addSelectionListener(new SelectionAdapter()
-            {
-                @Override
-                public void widgetSelected(SelectionEvent e)
-                {
-                    showTaxRateMenu();
-                }
-            });
+            taxRateButton = new Button(editArea, SWT.PUSH);
+            updateTaxRateButton(taxRateButton);
+            taxRateButton.addSelectionListener(SelectionListener.widgetSelectedAdapter(
+                            event -> model().applyWithholdingTaxRate()));
+
+            Button button = taxRateButton;
+            model.addPropertyChangeListener(Properties.security.name(), e -> updateTaxRateButton(button));
         }
 
         // total
@@ -562,38 +559,14 @@ public class AccountTransactionDialog extends AbstractTransactionDialog // NOSON
     {
         if (contextMenu != null && !contextMenu.isDisposed())
             contextMenu.dispose();
-        if (taxRateMenu != null && !taxRateMenu.isDisposed())
-            taxRateMenu.dispose();
     }
 
-    private void showTaxRateMenu()
+    private void updateTaxRateButton(Button button)
     {
-        if (taxRateMenu == null)
-        {
-            MenuManager menuMgr = new MenuManager("#PopupMenu"); //$NON-NLS-1$
-            menuMgr.setRemoveAllWhenShown(true);
-            menuMgr.addMenuListener(manager -> {
-                manager.add(new Action("15%") //$NON-NLS-1$
-                {
-                    @Override
-                    public void run()
-                    {
-                        model().setTaxRate(BigDecimal.valueOf(15, 2));
-                    }
-                });
-                manager.add(new Action("35%") //$NON-NLS-1$
-                {
-                    @Override
-                    public void run()
-                    {
-                        model().setTaxRate(BigDecimal.valueOf(35, 2));
-                    }
-                });
-            });
-            taxRateMenu = menuMgr.createContextMenu(getShell());
-        }
-
-        taxRateMenu.setVisible(true);
+        BigDecimal rate = model().getWithholdingTaxRate();
+        button.setEnabled(rate != null);
+        button.setText(rate != null ? Values.Percent2.format(rate.doubleValue()) : "-"); //$NON-NLS-1$
+        button.setToolTipText(rate != null ? Values.Percent2.format(rate.doubleValue()) : null);
     }
 
     private String getTotalLabel() // NOSONAR
