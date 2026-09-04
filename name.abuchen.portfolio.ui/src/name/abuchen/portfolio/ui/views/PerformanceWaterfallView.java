@@ -1,9 +1,7 @@
 package name.abuchen.portfolio.ui.views;
 
 import java.time.LocalDate;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.inject.Inject;
@@ -15,16 +13,12 @@ import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.action.ToolBarManager;
 import org.eclipse.jface.layout.GridDataFactory;
 import org.eclipse.jface.layout.GridLayoutFactory;
-import org.eclipse.jface.resource.JFaceResources;
-import org.eclipse.jface.resource.LocalResourceManager;
 import org.eclipse.swt.SWT;
-import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.widgets.Composite;
 
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.CostMethod;
-import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
@@ -43,7 +37,6 @@ import name.abuchen.portfolio.ui.util.LogoManager;
 import name.abuchen.portfolio.ui.util.SimpleAction;
 import name.abuchen.portfolio.ui.util.chart.WaterfallChart;
 import name.abuchen.portfolio.ui.util.chart.WaterfallChartCSVExporter;
-import name.abuchen.portfolio.ui.util.chart.ChartColorWheel;
 import name.abuchen.portfolio.ui.util.chart.WaterfallDataset;
 import name.abuchen.portfolio.ui.views.panes.HistoricalPricesPane;
 import name.abuchen.portfolio.ui.views.panes.InformationPanePage;
@@ -65,7 +58,10 @@ import name.abuchen.portfolio.util.Interval;
  */
 public class PerformanceWaterfallView extends AbstractHistoricView
 {
+    private static final int WATERFALL_LOGO_SIZE = 24;
+
     private static final String KEY_MODE = "PerformanceWaterfallView-mode"; //$NON-NLS-1$
+    private static final String KEY_RANGE_MODE = "PerformanceWaterfallView-range-mode"; //$NON-NLS-1$
     private static final String KEY_CAPITAL_GAIN_METHOD = "PerformanceWaterfallView-capital-gain-method"; //$NON-NLS-1$
     private static final String KEY_PRE_TAX = "PerformanceWaterfallView-pre-tax"; //$NON-NLS-1$
     private static final String KEY_TOP_N = "PerformanceWaterfallView-top-n"; //$NON-NLS-1$
@@ -90,6 +86,19 @@ public class PerformanceWaterfallView extends AbstractHistoricView
         }
     }
 
+    private enum RangeMode
+    {
+        ABSOLUTE(Messages.LabelPerformanceWaterfallAbsolute),
+        RELATIVE(Messages.LabelPerformanceWaterfallRelative);
+
+        private final String label;
+
+        RangeMode(String label)
+        {
+            this.label = label;
+        }
+    }
+
     @Inject
     private ExchangeRateProviderFactory exchangeRateProviderFactory;
 
@@ -98,11 +107,9 @@ public class PerformanceWaterfallView extends AbstractHistoricView
 
     private WaterfallChart chart;
     private ClientFilterDropDown clientFilter;
-    private LocalResourceManager resources;
-    private final ChartColorWheel instrumentColors = new ChartColorWheel();
-    private final Map<Security, Color> instrumentColorCache = new HashMap<>();
 
     private Mode mode = Mode.CALCULATION;
+    private RangeMode rangeMode = RangeMode.ABSOLUTE;
     private boolean useFifo = true;
     private boolean preTax;
     private int topN = 10;
@@ -127,6 +134,19 @@ public class PerformanceWaterfallView extends AbstractHistoricView
         String methodKey = getPreferenceStore().getString(KEY_CAPITAL_GAIN_METHOD);
         if (methodKey != null && !methodKey.isEmpty())
             useFifo = CostMethod.FIFO.name().equals(methodKey);
+
+        String rangeModeKey = getPreferenceStore().getString(KEY_RANGE_MODE);
+        if (rangeModeKey != null && !rangeModeKey.isEmpty())
+        {
+            try
+            {
+                rangeMode = RangeMode.valueOf(rangeModeKey);
+            }
+            catch (IllegalArgumentException ignore)
+            {
+                // retain the default when upgrading from an unknown version
+            }
+        }
 
         preTax = getPreferenceStore().getBoolean(KEY_PRE_TAX);
         int configuredTopN = getPreferenceStore().getInt(KEY_TOP_N);
@@ -174,7 +194,6 @@ public class PerformanceWaterfallView extends AbstractHistoricView
         GridLayoutFactory.fillDefaults().margins(0, 0).spacing(0, 0).applyTo(composite);
         GridDataFactory.fillDefaults().grab(true, true).applyTo(chart);
 
-        resources = new LocalResourceManager(JFaceResources.getResources(), composite);
         reportingPeriodUpdated();
         return composite;
     }
@@ -220,9 +239,10 @@ public class PerformanceWaterfallView extends AbstractHistoricView
         else
         {
             chart.getTitle().setVisible(false);
+            chart.setIncludeZeroInRange(mode != Mode.CALCULATION || rangeMode == RangeMode.ABSOLUTE);
             chart.setDataset(mode == Mode.INSTRUMENTS ? new WaterfallDataset(breakdown, topN)
                             : new WaterfallDataset(breakdown));
-            chart.setBarColorProvider(mode == Mode.INSTRUMENTS ? this::getInstrumentColor : null);
+            chart.setBarColorProvider(null);
             chart.setBarImageProvider(mode == Mode.INSTRUMENTS ? this::getInstrumentLogo : null);
         }
 
@@ -263,6 +283,22 @@ public class PerformanceWaterfallView extends AbstractHistoricView
         }
 
         manager.add(new Separator());
+
+        if (mode == Mode.CALCULATION)
+        {
+            manager.add(new LabelOnly(Messages.LabelPerformanceWaterfallRange));
+            for (RangeMode candidate : RangeMode.values())
+            {
+                Action action = new SimpleAction(candidate.label, a -> {
+                    rangeMode = candidate;
+                    getPreferenceStore().setValue(KEY_RANGE_MODE, rangeMode.name());
+                    reportingPeriodUpdated();
+                });
+                action.setChecked(rangeMode == candidate);
+                manager.add(action);
+            }
+            manager.add(new Separator());
+        }
 
         SimpleAction preTaxAction = new SimpleAction(Messages.LabelPreTax, a -> {
             preTax = !preTax;
@@ -318,19 +354,12 @@ public class PerformanceWaterfallView extends AbstractHistoricView
         }
     }
 
-    private Color getInstrumentColor(WaterfallDataset.Bar bar)
-    {
-        if (bar.getSource() instanceof PerformanceBreakdown.Entry entry && entry.getSecurity() != null)
-            return instrumentColorCache.computeIfAbsent(entry.getSecurity(),
-                            security -> resources.createColor(instrumentColors.getRGB(security)));
-        return null;
-    }
-
     private Image getInstrumentLogo(WaterfallDataset.Bar bar)
     {
         if (bar.getSource() instanceof PerformanceBreakdown.Entry entry && entry.getSecurity() != null
                         && LogoManager.instance().hasCustomLogo(entry.getSecurity(), getClient().getSettings()))
-            return LogoManager.instance().getDefaultColumnImage(entry.getSecurity(), getClient().getSettings());
+            return LogoManager.instance().getCustomLogoImage(entry.getSecurity(), getClient().getSettings(),
+                            WATERFALL_LOGO_SIZE, WATERFALL_LOGO_SIZE);
         return null;
     }
 
