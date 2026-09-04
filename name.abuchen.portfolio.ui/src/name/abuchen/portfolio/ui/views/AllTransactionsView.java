@@ -123,7 +123,7 @@ public class AllTransactionsView extends AbstractFinanceView
     @Override
     protected Control createBody(Composite parent)
     {
-        table = new TransactionsViewer(AllTransactionsView.class.getName(), parent, this);
+        table = new TransactionsViewer(AllTransactionsView.class.getName(), parent, this, true);
         inject(table);
 
         table.addFilter(textFilter.getViewerFilter(element -> (TransactionPair<?>) element));
