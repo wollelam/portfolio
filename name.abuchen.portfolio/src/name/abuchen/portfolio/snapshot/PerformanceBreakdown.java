@@ -46,10 +46,9 @@ public final class PerformanceBreakdown
         private final Money amount;
         private final Security security;
         private final Category sourceCategory;
-        private final Position sourcePosition;
 
         private Entry(EntryKind kind, EntryType type, String label, Money amount, Security security,
-                        Category sourceCategory, Position sourcePosition)
+                        Category sourceCategory)
         {
             this.kind = kind;
             this.type = type;
@@ -57,7 +56,6 @@ public final class PerformanceBreakdown
             this.amount = amount;
             this.security = security;
             this.sourceCategory = sourceCategory;
-            this.sourcePosition = sourcePosition;
         }
 
         public EntryKind getKind()
@@ -98,14 +96,6 @@ public final class PerformanceBreakdown
         public Category getSourceCategory()
         {
             return sourceCategory;
-        }
-
-        /**
-         * Returns the source position, if this entry represents one position.
-         */
-        public Position getSourcePosition()
-        {
-            return sourcePosition;
         }
     }
 
@@ -151,7 +141,7 @@ public final class PerformanceBreakdown
         Money residual = snapshot.getCategoryByType(CategoryType.FINAL_VALUE).getValuation().subtract(reconciled);
         if (!residual.isZero())
             entries.add(new Entry(EntryKind.CHANGE, EntryType.OTHER, Messages.LabelOtherCategory, residual, null,
-                            null, null));
+                            null));
 
         addCategory(entries, snapshot, CategoryType.FINAL_VALUE, EntryKind.TOTAL);
 
@@ -192,26 +182,26 @@ public final class PerformanceBreakdown
 
         List<Entry> entries = new ArrayList<>();
         entries.add(new Entry(EntryKind.START, EntryType.INITIAL_VALUE, Messages.LabelStartValue,
-                        Money.of(currencyCode, 0), null, null, null));
+                        Money.of(currencyCode, 0), null, null));
 
         bySecurity.entrySet().stream() //
                         .filter(entry -> !entry.getValue().isZero()) //
                         .map(entry -> new Entry(EntryKind.CHANGE, EntryType.SECURITY, entry.getKey().getName(),
-                                        entry.getValue().toMoney(), entry.getKey(), null, null)) //
+                                        entry.getValue().toMoney(), entry.getKey(), null)) //
                         .sorted(Comparator.comparing(Entry::getLabel, String.CASE_INSENSITIVE_ORDER)) //
                         .forEach(entries::add);
 
         if (!other.isZero())
             entries.add(new Entry(EntryKind.CHANGE, EntryType.OTHER, Messages.LabelOtherCategory, other.toMoney(),
-                            null, null, null));
+                            null, null));
 
         Category currencyGains = snapshot.getCategoryByType(CategoryType.CURRENCY_GAINS);
         if (!currencyGains.getValuation().isZero())
             entries.add(new Entry(EntryKind.CHANGE, EntryType.CURRENCY_GAINS, currencyGains.getLabel(),
-                            currencyGains.getValuation(), null, currencyGains, null));
+                            currencyGains.getValuation(), null, currencyGains));
 
         entries.add(new Entry(EntryKind.TOTAL, EntryType.TOTAL_PERFORMANCE, Messages.LabelTotalPerformance,
-                        snapshot.getAbsoluteDelta(), null, null, null));
+                        snapshot.getAbsoluteDelta(), null, null));
 
         return new PerformanceBreakdown(entries);
     }
@@ -224,7 +214,7 @@ public final class PerformanceBreakdown
         if (kind == EntryKind.CHANGE && amount.isZero())
             return;
 
-        entries.add(new Entry(kind, type(type), category.getLabel(), amount, null, category, null));
+        entries.add(new Entry(kind, type(type), category.getLabel(), amount, null, category));
     }
 
     private static Money signed(CategoryType type, Money amount)
@@ -300,8 +290,7 @@ public final class PerformanceBreakdown
             {
                 Entry existing = limited.get(otherIndex);
                 limited.set(otherIndex, new Entry(existing.kind, existing.type, existing.label,
-                                existing.amount.add(other.toMoney()), existing.security, existing.sourceCategory,
-                                existing.sourcePosition));
+                                existing.amount.add(other.toMoney()), existing.security, existing.sourceCategory));
             }
             else
             {
@@ -315,7 +304,7 @@ public final class PerformanceBreakdown
                     }
                 }
                 limited.add(totalIndex, new Entry(EntryKind.CHANGE, EntryType.OTHER, Messages.LabelOtherCategory,
-                                other.toMoney(), null, null, null));
+                                other.toMoney(), null, null));
             }
         }
 
