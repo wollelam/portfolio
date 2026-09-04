@@ -67,7 +67,7 @@ public class TransactionsPane implements InformationPanePage
     @Override
     public Control createViewControl(Composite parent)
     {
-        transactions = new TransactionsViewer(TransactionsPane.class.getName(), parent, view);
+        transactions = new TransactionsViewer(TransactionsPane.class.getName(), parent, view, true);
         view.inject(transactions);
 
         transactions.addFilter(textFilter.getViewerFilter(element -> (TransactionPair<?>) element));
