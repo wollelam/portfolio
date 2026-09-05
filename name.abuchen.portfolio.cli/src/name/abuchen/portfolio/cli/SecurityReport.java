@@ -14,7 +14,6 @@ import name.abuchen.portfolio.model.SecurityPrice;
 import name.abuchen.portfolio.model.TaxesAndFees;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
-import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.AssetPosition;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
 import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceRecord;
@@ -60,9 +59,9 @@ public final class SecurityReport
         lines.add("Fees (period): " + money(performance, LazySecurityPerformanceRecord::getFees)); //$NON-NLS-1$
         lines.add("Taxes (period): " + money(performance, LazySecurityPerformanceRecord::getTaxes)); //$NON-NLS-1$
         lines.add("Realized capital gains (FIFO, period): " + (performance == null ? "n/a" //$NON-NLS-1$
-                        : Values.Money.format(performance.getRealizedCapitalGains(CostMethod.FIFO).getCapitalGains())));
+                        : CliFormatter.money(performance.getRealizedCapitalGains(CostMethod.FIFO).getCapitalGains())));
         lines.add("Unrealized capital gains (FIFO, period): " + (performance == null ? "n/a" //$NON-NLS-1$
-                        : Values.Money.format(performance.getUnrealizedCapitalGains(CostMethod.FIFO).getCapitalGains())));
+                        : CliFormatter.money(performance.getUnrealizedCapitalGains(CostMethod.FIFO).getCapitalGains())));
         return List.copyOf(lines);
     }
 
@@ -127,15 +126,15 @@ public final class SecurityReport
     private static String weight(AssetPosition position)
     {
         return position == null || !Double.isFinite(position.getShare()) ? "n/a" //$NON-NLS-1$
-                        : Values.Percent.format(position.getShare()) + "%"; //$NON-NLS-1$
+                        : CliFormatter.percent(position.getShare()); //$NON-NLS-1$
     }
 
     private static String holding(LazySecurityPerformanceRecord performance, AssetPosition position)
     {
         if (performance == null)
             return "n/a"; //$NON-NLS-1$
-        return "shares " + Values.Share.format(performance.getSharesHeld()) + ", value " //$NON-NLS-1$ //$NON-NLS-2$
-                        + Values.Money.format(position == null ? performance.getMarketValue() : position.getValuation())
+        return "shares " + CliFormatter.share(performance.getSharesHeld()) + ", value " //$NON-NLS-1$ //$NON-NLS-2$
+                        + CliFormatter.money(position == null ? performance.getMarketValue() : position.getValuation())
                         + ", weight " + weight(position); //$NON-NLS-1$
     }
 
@@ -144,17 +143,17 @@ public final class SecurityReport
         if (quote == null)
             return "n/a (no quote on or before period end)"; //$NON-NLS-1$
         long age = ChronoUnit.DAYS.between(quote.getDate(), interval.getEnd());
-        return Values.Quote.format(quote.getValue()) + " (price date " + quote.getDate() + ", " + age + " days old)"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        return CliFormatter.quote(quote.getValue()) + " (price date " + quote.getDate() + ", " + age + " days old)"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     }
 
     private static String percent(LazySecurityPerformanceRecord performance)
     {
-        return performance == null ? "n/a" : Values.Percent.format(performance.getTrueTimeWeightedRateOfReturn()) + "%"; //$NON-NLS-1$ //$NON-NLS-2$
+        return performance == null ? "n/a" : CliFormatter.percent(performance.getTrueTimeWeightedRateOfReturn()); //$NON-NLS-1$
     }
 
     private static String money(LazySecurityPerformanceRecord performance,
                     java.util.function.Function<LazySecurityPerformanceRecord, name.abuchen.portfolio.money.Money> value)
     {
-        return performance == null ? "n/a" : Values.Money.format(value.apply(performance)); //$NON-NLS-1$
+        return performance == null ? "n/a" : CliFormatter.money(value.apply(performance)); //$NON-NLS-1$
     }
 }

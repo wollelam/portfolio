@@ -37,7 +37,6 @@ import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Money;
-import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.AssetPosition;
 import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot.CategoryType;
@@ -287,7 +286,7 @@ public class PortfolioShell
         if (result.getUpdatedCount() > 0)
             modified = true;
 
-        println(String.format("Quotes: %d updated, %d unchanged, %d skipped, %d failed", result.getUpdatedCount(), //$NON-NLS-1$
+        println(CliFormatter.format("Quotes: %d updated, %d unchanged, %d skipped, %d failed", result.getUpdatedCount(), //$NON-NLS-1$
                         result.getUnchangedCount(), result.getSkippedCount(), result.getFailedCount()));
         result.getEntries().stream().filter(entry -> entry.status() == LatestQuoteUpdater.Status.FAILED)
                         .forEach(entry -> println("- " + entry.security().getName() + ": " + entry.message())); //$NON-NLS-1$ //$NON-NLS-2$
@@ -325,7 +324,7 @@ public class PortfolioShell
         LocalDate date = dateArgument(words, "VAL [YYYY-MM-DD]"); //$NON-NLS-1$
         ClientSnapshot snapshot = snapshot(loaded, date);
 
-        println("Value at " + date + ": " + Values.Money.format(snapshot.getMonetaryAssets())); //$NON-NLS-1$ //$NON-NLS-2$
+        println("Value at " + date + ": " + CliFormatter.money(snapshot.getMonetaryAssets())); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private void holdings(List<String> words)
@@ -334,7 +333,7 @@ public class PortfolioShell
         LocalDate date = dateArgument(words, "HOLD [YYYY-MM-DD]"); //$NON-NLS-1$
         ClientSnapshot snapshot = snapshot(loaded, date);
 
-        println(String.format("%-36s %14s %18s %8s", "Holding", "Shares", "Value", "Weight")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+        println(CliFormatter.format("%-36s %14s %18s %8s", "Holding", "Shares", "Value", "Weight")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
         snapshot.getAssetPositions().sorted(Comparator.comparing(AssetPosition::getValuation).reversed())
                         .forEach(position -> printHolding(position, snapshot.getCurrencyCode()));
     }
@@ -429,8 +428,8 @@ public class PortfolioShell
         snapshot.getAssetPositions().forEach(p -> totals.merge(p.getSecurity() == null ? "Cash" : "Securities", //$NON-NLS-1$ //$NON-NLS-2$
                         p.getValuation().getAmount(), Long::sum));
         println("Allocation at " + options.to() + ":"); //$NON-NLS-1$ //$NON-NLS-2$
-        totals.forEach((label, amount) -> println(String.format("%-16s %18s", label, //$NON-NLS-1$
-                        Values.Money.format(Money.of(loaded.getBaseCurrency(), amount)))));
+        totals.forEach((label, amount) -> println(CliFormatter.format("%-16s %18s", label, //$NON-NLS-1$
+                        CliFormatter.money(Money.of(loaded.getBaseCurrency(), amount)))));
     }
 
     private void income(List<String> words)
@@ -648,17 +647,17 @@ public class PortfolioShell
 
     private void printPerformer(PerformerRanking.Performer performer, String currency, boolean absoluteReturn)
     {
-        println(String.format("  %-36s %10s %10s %18s %18s", abbreviate(performer.name(), 36), //$NON-NLS-1$
+        println(CliFormatter.format("  %-36s %10s %10s %18s %18s", abbreviate(performer.name(), 36), //$NON-NLS-1$
                         formattedPercent(absoluteReturn ? performer.currencyPerformancePercent()
                                         : performer.performance()),
                         formattedPercent(performer.irr()),
                         signedMoney(Money.of(currency, performer.currencyPerformance())),
-                        Values.Money.format(Money.of(currency, performer.value()))));
+                        CliFormatter.money(Money.of(currency, performer.value()))));
     }
 
     private void printPerformerHeader(String returnLabel)
     {
-        println(String.format("  %-36s %10s %10s %18s %18s", "Instrument", returnLabel, "IRR p.a.", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        println(CliFormatter.format("  %-36s %10s %10s %18s %18s", "Instrument", returnLabel, "IRR p.a.", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                         "Contribution", "Current value")); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
@@ -679,17 +678,17 @@ public class PortfolioShell
 
     private void printBreakdownValue(String label, Money value, boolean signed)
     {
-        println(String.format("  %-28s %18s", label, signed ? signedMoney(value) : Values.Money.format(value))); //$NON-NLS-1$
+        println(CliFormatter.format("  %-28s %18s", label, signed ? signedMoney(value) : CliFormatter.money(value))); //$NON-NLS-1$
     }
 
     private String formattedPercent(double value)
     {
-        return Double.isFinite(value) ? String.format("%+.2f%%", value * 100) : "n/a"; //$NON-NLS-1$ //$NON-NLS-2$
+        return Double.isFinite(value) ? CliFormatter.format("%+.2f%%", value * 100) : "n/a"; //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private String signedMoney(Money value)
     {
-        String formatted = Values.Money.format(value);
+        String formatted = CliFormatter.money(value);
         return value.isPositive() ? "+" + formatted : formatted; //$NON-NLS-1$
     }
 
@@ -699,11 +698,11 @@ public class PortfolioShell
     private void printHolding(AssetPosition position, String currency)
     {
         String description = abbreviate(position.getDescription(), 36);
-        String shares = Values.Share.format(position.getPosition().getShares());
-        String value = Values.Money.format(position.getValuation(), currency);
+        String shares = CliFormatter.share(position.getPosition().getShares());
+        String value = CliFormatter.money(position.getValuation(), currency);
         double weight = position.getShare();
-        String share = Double.isFinite(weight) ? String.format("%.2f%%", weight * 100) : "n/a"; //$NON-NLS-1$ //$NON-NLS-2$
-        println(String.format("%-36s %14s %18s %8s", description, shares, value, share)); //$NON-NLS-1$
+        String share = Double.isFinite(weight) ? CliFormatter.format("%.2f%%", weight * 100) : "n/a"; //$NON-NLS-1$ //$NON-NLS-2$
+        println(CliFormatter.format("%-36s %14s %18s %8s", description, shares, value, share)); //$NON-NLS-1$
     }
 
     private void check(List<String> words)
