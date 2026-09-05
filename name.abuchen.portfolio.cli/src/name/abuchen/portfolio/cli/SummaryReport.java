@@ -41,6 +41,7 @@ public final class SummaryReport
         lines.add("Base currency: " + client.getBaseCurrency() + " | valuation date: " + interval.getEnd());
         lines.add("Total value       " + Values.Money.format(snapshot.getMonetaryAssets()));
         lines.add(String.format("Return (TTWROR)   %+.2f%%", index.getFinalAccumulatedPercentage() * 100));
+        lines.add("Return (IRR, annualized) " + percent(index.getPerformanceIRR()));
         lines.add("Performance       " + Values.Money.format(performance.getAbsoluteDelta()));
         lines.add("Net deposits      " + Values.Money.format(performance.getValue(CategoryType.TRANSFERS)));
         lines.add("Cash              " + Values.Money.format(Money.of(client.getBaseCurrency(), cash)));
@@ -48,20 +49,25 @@ public final class SummaryReport
         lines.add("Fees / taxes      " + Values.Money.format(performance.getValue(CategoryType.FEES)) + " / "
                         + Values.Money.format(performance.getValue(CategoryType.TAXES)));
         lines.add("Largest positions (including cash):");
-        positions.stream().limit(INSTRUMENT_LIMIT).forEach(p -> lines.add(String.format("  %-32s %18s  %s", p.getDescription(),
-                        Values.Money.format(p.getValuation()), snapshot.getMonetaryAssets().isZero() ? "n/a"
+        positions.stream().limit(INSTRUMENT_LIMIT).forEach(p -> lines.add(String.format("  %-32s %18s  %s",
+                        abbreviate(p.getDescription(), 32), Values.Money.format(p.getValuation()),
+                        snapshot.getMonetaryAssets().isZero() ? "n/a"
                                         : String.format("%.1f%%", p.getShare() * 100))));
         var contributors = PerformerRanking.sortByCurrencyPerformance(
                         PerformerRanking.rank(client, converter, interval, index, -1));
-        addContributors(lines, contributors, client.getBaseCurrency(), true);
-        addContributors(lines, contributors, client.getBaseCurrency(), false);
+        long totalPerformance = performance.getAbsoluteDelta().getAmount();
+        double portfolioReturn = index.getFinalAccumulatedPercentage();
+        addContributors(lines, contributors, client.getBaseCurrency(), totalPerformance, portfolioReturn, true);
+        addContributors(lines, contributors, client.getBaseCurrency(), totalPerformance, portfolioReturn, false);
         return List.copyOf(lines);
     }
 
     private static void addContributors(List<String> lines, List<PerformerRanking.Performer> contributors,
-                    String currency, boolean positive)
+                    String currency, long totalPerformance, double portfolioReturn, boolean positive)
     {
         lines.add(positive ? "Top contributors:" : "Top detractors:");
+        lines.add(String.format("  %-32s %10s %10s %18s %10s", "Instrument", "Return", "IRR p.a.",
+                        "Contribution", "Impact"));
         var matching = contributors.stream().filter(p -> positive ? p.currencyPerformance() > 0
                         : p.currencyPerformance() < 0).toList();
         if (matching.isEmpty())
@@ -75,9 +81,33 @@ public final class SummaryReport
         {
             int position = positive ? index : matching.size() - index - 1;
             var contributor = matching.get(position);
-            lines.add(String.format("  %-32s %18s  %+.2f%%", contributor.name(),
-                            Values.Money.format(Money.of(currency, contributor.currencyPerformance())),
-                            contributor.currencyPerformancePercent() * 100));
+            String impact = portfolioImpact(contributor.currencyPerformance(), totalPerformance, portfolioReturn);
+            lines.add(String.format("  %-32s %10s %10s %18s %10s", abbreviate(contributor.name(), 32),
+                            percent(contributor.currencyPerformancePercent()), percent(contributor.irr()),
+                            signedMoney(Money.of(currency, contributor.currencyPerformance())), impact));
         }
+    }
+
+    static String portfolioImpact(long contribution, long totalPerformance, double portfolioReturn)
+    {
+        if (totalPerformance == 0)
+            return "n/a";
+        return String.format("%+.2f pp", contribution / (double) totalPerformance * portfolioReturn * 100);
+    }
+
+    private static String percent(double value)
+    {
+        return Double.isFinite(value) ? String.format("%+.2f%%", value * 100) : "n/a";
+    }
+
+    private static String signedMoney(Money value)
+    {
+        String formatted = Values.Money.format(value);
+        return value.isPositive() ? "+" + formatted : formatted;
+    }
+
+    private static String abbreviate(String value, int width)
+    {
+        return value.length() <= width ? value : value.substring(0, width - 1) + "…";
     }
 }
