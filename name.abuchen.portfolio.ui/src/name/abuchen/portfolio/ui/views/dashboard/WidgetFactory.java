@@ -27,6 +27,8 @@ import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.views.dashboard.charts.ClientDataSeriesChartWidget;
 import name.abuchen.portfolio.ui.views.dashboard.charts.DrawdownChartWidget;
 import name.abuchen.portfolio.ui.views.dashboard.charts.HoldingsChartWidget;
+import name.abuchen.portfolio.ui.views.dashboard.charts.InstrumentContributionWaterfallWidget;
+import name.abuchen.portfolio.ui.views.dashboard.charts.PerformanceContributionWaterfallWidget;
 import name.abuchen.portfolio.ui.views.dashboard.charts.RebalancingChartWidget;
 import name.abuchen.portfolio.ui.views.dashboard.charts.RebalancingTargetChartWidget;
 import name.abuchen.portfolio.ui.views.dashboard.charts.TaxonomyChartWidget;
@@ -336,6 +338,14 @@ public enum WidgetFactory
 
     CHART(Messages.LabelPerformanceChart, Messages.ClientEditorLabelPerformance, Images.VIEW_LINECHART,
                     (widget, data) -> new ChartWidget(widget, data, DataSeries.UseCase.PERFORMANCE)),
+
+    PERFORMANCE_CONTRIBUTION_WATERFALL(Messages.LabelPerformanceWaterfallContributionWidget,
+                    Messages.ClientEditorLabelPerformance, Images.VIEW_BARCHART,
+                    PerformanceContributionWaterfallWidget::new),
+
+    INSTRUMENT_CONTRIBUTION_WATERFALL(Messages.LabelPerformanceWaterfallInstrumentContributionWidget,
+                    Messages.ClientEditorLabelPerformance, Images.VIEW_BARCHART,
+                    InstrumentContributionWaterfallWidget::new),
 
     ASSET_CHART(Messages.LabelAssetChart, Messages.LabelStatementOfAssets, Images.VIEW_LINECHART,
                     (widget, data) -> new ChartWidget(widget, data, DataSeries.UseCase.STATEMENT_OF_ASSETS)),
