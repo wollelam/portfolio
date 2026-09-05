@@ -1,5 +1,6 @@
 target
 workspace
+local-portfolios/
 .metadata/*
 .recommenders/*
 .DS_Store
