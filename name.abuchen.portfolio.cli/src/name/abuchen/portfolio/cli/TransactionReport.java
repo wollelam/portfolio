@@ -19,7 +19,6 @@ import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Money;
-import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.util.Interval;
 
 /** Renders a complete, filterable transaction ledger for a client. */
@@ -90,10 +89,10 @@ public final class TransactionReport
         Transaction transaction = entry.transaction();
         return String.join(" | ", entry.owner(), entry.ownerType(), entry.counterparty(), //$NON-NLS-1$
                         transaction.getDateTime().toLocalDate().toString(), type(transaction), security(transaction),
-                        shares(transaction), Values.Money.format(transaction.getMonetaryAmount()),
-                        Values.Money.format(baseAmount(transaction, converter)),
-                        Values.Money.format(transaction.getUnitSum(Transaction.Unit.Type.FEE)),
-                        Values.Money.format(transaction.getUnitSum(Transaction.Unit.Type.TAX)), note(transaction));
+                        shares(transaction), CliFormatter.money(transaction.getMonetaryAmount()),
+                        CliFormatter.money(baseAmount(transaction, converter)),
+                        CliFormatter.money(transaction.getUnitSum(Transaction.Unit.Type.FEE)),
+                        CliFormatter.money(transaction.getUnitSum(Transaction.Unit.Type.TAX)), note(transaction));
     }
 
     private static Money baseAmount(Transaction transaction, CurrencyConverter converter)
@@ -138,7 +137,7 @@ public final class TransactionReport
 
     private static String shares(Transaction transaction)
     {
-        return transaction.getShares() == 0 ? "" : Values.Share.format(transaction.getShares()); //$NON-NLS-1$
+        return transaction.getShares() == 0 ? "" : CliFormatter.share(transaction.getShares()); //$NON-NLS-1$
     }
 
     private static String note(Transaction transaction)
