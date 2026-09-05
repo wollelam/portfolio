@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.OptionalDouble;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.LongStream;
 
 import name.abuchen.portfolio.math.AllTimeHigh;
@@ -262,7 +263,7 @@ public enum WidgetFactory
     MAXDRAWDOWNDURATION(Messages.LabelMaxDrawdownDuration, Messages.LabelRiskIndicators,
                     MaxDrawdownDurationWidget::new),
 
-    DRAWDOWN_CHART(Messages.LabelMaxDrawdownChart, Messages.LabelRiskIndicators, Images.VIEW_LINECHART,
+    DRAWDOWN_CHART(Messages.LabelMaxDrawdownChart, Messages.LabelRiskIndicators, () -> Images.VIEW_LINECHART,
                     DrawdownChartWidget::new),
 
     VOLATILITY(Messages.LabelVolatility, Messages.LabelRiskIndicators, //
@@ -336,27 +337,27 @@ public enum WidgetFactory
     PERFORMANCE_TOP_CONTRIBUTORS_RETURN(Messages.LabelTopContributorsReturn, Messages.ClientEditorLabelPerformance,
                     TopContributorsReturnWidget::new),
 
-    CHART(Messages.LabelPerformanceChart, Messages.ClientEditorLabelPerformance, Images.VIEW_LINECHART,
+    CHART(Messages.LabelPerformanceChart, Messages.ClientEditorLabelPerformance, () -> Images.VIEW_LINECHART,
                     (widget, data) -> new ChartWidget(widget, data, DataSeries.UseCase.PERFORMANCE)),
 
     PERFORMANCE_CONTRIBUTION_WATERFALL(Messages.LabelPerformanceWaterfallContributionWidget,
-                    Messages.ClientEditorLabelPerformance, Images.VIEW_BARCHART,
+                    Messages.ClientEditorLabelPerformance, () -> Images.VIEW_BARCHART,
                     PerformanceContributionWaterfallWidget::new),
 
     INSTRUMENT_CONTRIBUTION_WATERFALL(Messages.LabelPerformanceWaterfallInstrumentContributionWidget,
-                    Messages.ClientEditorLabelPerformance, Images.VIEW_BARCHART,
+                    Messages.ClientEditorLabelPerformance, () -> Images.VIEW_BARCHART,
                     InstrumentContributionWaterfallWidget::new),
 
-    ASSET_CHART(Messages.LabelAssetChart, Messages.LabelStatementOfAssets, Images.VIEW_LINECHART,
+    ASSET_CHART(Messages.LabelAssetChart, Messages.LabelStatementOfAssets, () -> Images.VIEW_LINECHART,
                     (widget, data) -> new ChartWidget(widget, data, DataSeries.UseCase.STATEMENT_OF_ASSETS)),
 
-    HOLDINGS_CHART(Messages.LabelStatementOfAssetsHoldings, Messages.LabelStatementOfAssets, Images.VIEW_PIECHART,
+    HOLDINGS_CHART(Messages.LabelStatementOfAssetsHoldings, Messages.LabelStatementOfAssets, () -> Images.VIEW_PIECHART,
                     HoldingsChartWidget::new),
 
     CLIENT_DATA_SERIES_CHART(Messages.LabelStatementOfAssetsDerivedDataSeries, Messages.LabelStatementOfAssets,
-                    Images.VIEW_LINECHART, ClientDataSeriesChartWidget::new),
+                    () -> Images.VIEW_LINECHART, ClientDataSeriesChartWidget::new),
 
-    TAXONOMY_CHART(Messages.LabelTaxonomies, Messages.LabelStatementOfAssets, Images.VIEW_PIECHART,
+    TAXONOMY_CHART(Messages.LabelTaxonomies, Messages.LabelStatementOfAssets, () -> Images.VIEW_PIECHART,
                     TaxonomyChartWidget::new),
 
     HEATMAP(Messages.LabelHeatmap, Messages.ClientEditorLabelPerformance, PerformanceHeatmapWidget::new),
@@ -372,16 +373,16 @@ public enum WidgetFactory
 
     DIVIDEND_EVENT_LIST(Messages.LabelEarningsDividendList, Messages.LabelEarnings, DividendListWidget::new),
 
-    EARNINGS_PER_YEAR_CHART(Messages.LabelEarningsPerYear, Messages.LabelEarnings, Images.VIEW_BARCHART,
+    EARNINGS_PER_YEAR_CHART(Messages.LabelEarningsPerYear, Messages.LabelEarnings, () -> Images.VIEW_BARCHART,
                     EarningsChartWidget::perYear),
 
-    EARNINGS_PER_QUARTER_CHART(Messages.LabelEarningsPerQuarter, Messages.LabelEarnings, Images.VIEW_BARCHART,
+    EARNINGS_PER_QUARTER_CHART(Messages.LabelEarningsPerQuarter, Messages.LabelEarnings, () -> Images.VIEW_BARCHART,
                     EarningsChartWidget::perQuarter),
 
-    EARNINGS_PER_MONTH_CHART(Messages.LabelEarningsPerMonth, Messages.LabelEarnings, Images.VIEW_BARCHART,
+    EARNINGS_PER_MONTH_CHART(Messages.LabelEarningsPerMonth, Messages.LabelEarnings, () -> Images.VIEW_BARCHART,
                     EarningsChartWidget::perMonth),
 
-    EARNINGS_BY_TAXONOMY(Messages.LabelEarningsByTaxonomy, Messages.LabelEarnings, Images.VIEW_PIECHART,
+    EARNINGS_BY_TAXONOMY(Messages.LabelEarningsByTaxonomy, Messages.LabelEarnings, () -> Images.VIEW_PIECHART,
                     EarningsByTaxonomyChartWidget::new),
 
     TRADES_BASIC_STATISTICS(Messages.LabelTradesBasicStatistics, Messages.LabelTrades, TradesWidget::new),
@@ -449,7 +450,8 @@ public enum WidgetFactory
 
     EXCHANGE_RATE(Messages.LabelExchangeRate, Messages.LabelCommon, ExchangeRateWidget::new),
 
-    ACTIVITY_CHART(Messages.LabelTradingActivityChart, Messages.LabelCommon, Images.VIEW_BARCHART, ActivityWidget::new),
+    ACTIVITY_CHART(Messages.LabelTradingActivityChart, Messages.LabelCommon, () -> Images.VIEW_BARCHART,
+                    ActivityWidget::new),
 
     LIMIT_EXCEEDED(Messages.SecurityListFilterLimitPriceExceeded, Messages.LabelCommon, LimitExceededWidget::new),
 
@@ -524,9 +526,9 @@ public enum WidgetFactory
     REBALANCING_TARGET_CHART(
                     MessageFormat.format(Messages.LabelColonSeparated, Messages.LabelTaxonomies,
                                     Messages.ColumnTargetValue),
-                    Messages.LabelStatementOfAssets, Images.VIEW_PIECHART, RebalancingTargetChartWidget::new),
+                    Messages.LabelStatementOfAssets, () -> Images.VIEW_PIECHART, RebalancingTargetChartWidget::new),
 
-    REBALANCING_CHART(Messages.RebalancingChartActualVsTarget, Messages.LabelStatementOfAssets, Images.VIEW_BARCHART,
+    REBALANCING_CHART(Messages.RebalancingChartActualVsTarget, Messages.LabelStatementOfAssets, () -> Images.VIEW_BARCHART,
                     RebalancingChartWidget::new),
 
     // typo is API now!!
@@ -573,16 +575,17 @@ public enum WidgetFactory
 
     private String label;
     private String group;
-    private Images image;
+    private Supplier<Images> imageSupplier;
     private Consumer<Map<String, String>> defaultConfigFunction;
     private BiFunction<Dashboard.Widget, DashboardData, WidgetDelegate<?>> createFunction;
 
-    private WidgetFactory(String label, String group, Images image, Consumer<Map<String, String>> defaultConfigFunction,
+    private WidgetFactory(String label, String group, Supplier<Images> imageSupplier,
+                    Consumer<Map<String, String>> defaultConfigFunction,
                     BiFunction<Dashboard.Widget, DashboardData, WidgetDelegate<?>> createFunction)
     {
         this.label = label;
         this.group = group;
-        this.image = image;
+        this.imageSupplier = imageSupplier;
         this.defaultConfigFunction = defaultConfigFunction;
         this.createFunction = createFunction;
     }
@@ -593,10 +596,10 @@ public enum WidgetFactory
         this(label, group, null, defaultConfigFunction, createFunction);
     }
 
-    private WidgetFactory(String label, String group, Images image,
+    private WidgetFactory(String label, String group, Supplier<Images> imageSupplier,
                     BiFunction<Dashboard.Widget, DashboardData, WidgetDelegate<?>> createFunction)
     {
-        this(label, group, image, null, createFunction);
+        this(label, group, imageSupplier, null, createFunction);
     }
 
     private WidgetFactory(String label, String group,
@@ -617,7 +620,7 @@ public enum WidgetFactory
 
     public Images getImage()
     {
-        return image;
+        return imageSupplier != null ? imageSupplier.get() : null;
     }
 
     public WidgetDelegate<?> constructDelegate(Dashboard.Widget widget, DashboardData data)
