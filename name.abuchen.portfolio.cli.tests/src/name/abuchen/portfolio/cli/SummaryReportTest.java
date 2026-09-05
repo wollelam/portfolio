@@ -1,6 +1,7 @@
 package name.abuchen.portfolio.cli;
 
 import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.MatcherAssert.assertThat;
 
@@ -18,6 +19,14 @@ import name.abuchen.portfolio.util.Interval;
 public class SummaryReportTest
 {
     @Test
+    public void portfolioImpactReconcilesCurrencyContributionToPortfolioReturn()
+    {
+        assertThat(SummaryReport.portfolioImpact(20_000L, 200_000L, 0.20d), is("+2.00 pp"));
+        assertThat(SummaryReport.portfolioImpact(-20_000L, 200_000L, 0.20d), is("-2.00 pp"));
+        assertThat(SummaryReport.portfolioImpact(20_000L, 0L, 0.20d), is("n/a"));
+    }
+
+    @Test
     public void depositIncreasesValueAndCashButNotPerformance()
     {
         var client = new Client();
@@ -33,8 +42,10 @@ public class SummaryReportTest
         assertThat(output, containsString("Cash              EUR 1,000.00"));
         assertThat(output, containsString("Net deposits      EUR 1,000.00"));
         assertThat(output, containsString("Performance       EUR 0.00"));
+        assertThat(output, containsString("Return (IRR, annualized)"));
         assertThat(output, containsString("Top contributors:"));
         assertThat(output, containsString("Top detractors:"));
+        assertThat(output, containsString("IRR p.a."));
         assertThat(output, not(containsString("Data checks")));
     }
 }

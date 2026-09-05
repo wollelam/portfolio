@@ -93,6 +93,16 @@ public class PortfolioShellTest
     }
 
     @Test
+    public void colourizerDoesNotMistakeAnInstrumentSuffixForACurrency()
+    {
+        String styled = PortfolioShell.colourValues(
+                        "  Fundsmith Equity T INC               -0.45%       CHF -2,668.29   -0.08 pp"); //$NON-NLS-1$
+
+        assertThat(styled, containsString("INC               \033[31m-0.45%\033[0m")); //$NON-NLS-1$
+        assertThat(styled, containsString("\033[31mCHF -2,668.29\033[0m")); //$NON-NLS-1$
+    }
+
+    @Test
     public void performanceShowsDashboardStyleBreakdown() throws Exception
     {
         Path file = copyFixture("scenarios/currency_sample.xml"); //$NON-NLS-1$
@@ -134,10 +144,11 @@ public class PortfolioShellTest
             harness.execute("TPERF --from 2014-01-01 --to 2015-01-16 --limit 2"); //$NON-NLS-1$
 
             assertThat(harness.output(), containsString("Top performers")); //$NON-NLS-1$
-            assertThat(harness.output(), containsString("Best performers:")); //$NON-NLS-1$
-            assertThat(harness.output(), containsString("Worst performers:")); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("Best performers (TTWROR):")); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("Worst performers (TTWROR):")); //$NON-NLS-1$
             assertThat(harness.output(), containsString("Best performers (currency performance):")); //$NON-NLS-1$
             assertThat(harness.output(), containsString("Worst performers (currency performance):")); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("IRR p.a.")); //$NON-NLS-1$
         }
     }
 
@@ -292,6 +303,7 @@ public class PortfolioShellTest
             assertThat(harness.output(), containsString("Total value       EUR 4,354.38")); //$NON-NLS-1$
             assertThat(harness.output(), containsString("Top contributors:")); //$NON-NLS-1$
             assertThat(harness.output(), containsString("Top detractors:")); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("IRR p.a.")); //$NON-NLS-1$
             harness.execute("DATA 1M --to 2015-01-16"); //$NON-NLS-1$
             assertThat(harness.output(), containsString("DATA QUALITY  2014-12-16 to 2015-01-16")); //$NON-NLS-1$
             assertThat(harness.output(), containsString("Quotes older than 7 calendar days")); //$NON-NLS-1$
