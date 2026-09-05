@@ -62,7 +62,7 @@ public class PortfolioShell
     private static final String ANSI_GREEN = "\033[32m"; //$NON-NLS-1$
     private static final String ANSI_RED = "\033[31m"; //$NON-NLS-1$
     private static final Pattern COLOUR_VALUE = Pattern.compile(
-                    "\\b[A-Z]{3}\\s+-?\\d[\\d.,'’]*|(?<![\\p{Alnum}_])[-+]\\d[\\d.,'’]*%?"); //$NON-NLS-1$
+                    "\\b[A-Z]{3} -?\\d[\\d.,'’]*|(?<![\\p{Alnum}_])[-+]\\d[\\d.,'’]*%?"); //$NON-NLS-1$
     private static final Pattern NEGATIVE_PERIOD = Pattern.compile("^-([1-9][0-9]*)([DWMY])$"); //$NON-NLS-1$
 
     private static final List<String> COMMANDS = List.of("OPEN", "RELOAD", "QUPD", "STORE", "VAL", "HOLD", "PERF", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$
@@ -369,22 +369,26 @@ public class PortfolioShell
         }
 
         int count = Math.min(options.limit(), performers.size());
-        println("Best performers:"); //$NON-NLS-1$
+        println("Best performers (TTWROR):"); //$NON-NLS-1$
+        printPerformerHeader("TTWROR"); //$NON-NLS-1$
         for (int index = 0; index < count; index++)
-            printPerformer(performers.get(index), loaded.getBaseCurrency());
+            printPerformer(performers.get(index), loaded.getBaseCurrency(), false);
 
-        println("Worst performers:"); //$NON-NLS-1$
+        println("Worst performers (TTWROR):"); //$NON-NLS-1$
+        printPerformerHeader("TTWROR"); //$NON-NLS-1$
         for (int index = performers.size() - 1; index >= performers.size() - count; index--)
-            printPerformer(performers.get(index), loaded.getBaseCurrency());
+            printPerformer(performers.get(index), loaded.getBaseCurrency(), false);
 
         var currencyPerformers = PerformerRanking.sortByCurrencyPerformance(performers);
         println("Best performers (currency performance):"); //$NON-NLS-1$
+        printPerformerHeader("Abs. return"); //$NON-NLS-1$
         for (int index = 0; index < count; index++)
-            printCurrencyPerformer(currencyPerformers.get(index), loaded.getBaseCurrency());
+            printPerformer(currencyPerformers.get(index), loaded.getBaseCurrency(), true);
 
         println("Worst performers (currency performance):"); //$NON-NLS-1$
+        printPerformerHeader("Abs. return"); //$NON-NLS-1$
         for (int index = currencyPerformers.size() - 1; index >= currencyPerformers.size() - count; index--)
-            printCurrencyPerformer(currencyPerformers.get(index), loaded.getBaseCurrency());
+            printPerformer(currencyPerformers.get(index), loaded.getBaseCurrency(), true);
 
         if (!warnings.isEmpty())
             println(warnings.size() + " performance calculation warning(s)."); //$NON-NLS-1$
@@ -642,11 +646,20 @@ public class PortfolioShell
         }
     }
 
-    private void printPerformer(PerformerRanking.Performer performer, String currency)
+    private void printPerformer(PerformerRanking.Performer performer, String currency, boolean absoluteReturn)
     {
-        println(String.format("%+9.2f%%  %18s  %-36s %18s", performer.performance() * 100, //$NON-NLS-1$
-                        signedMoney(Money.of(currency, performer.currencyPerformance())), abbreviate(performer.name(), 36),
+        println(String.format("  %-36s %10s %10s %18s %18s", abbreviate(performer.name(), 36), //$NON-NLS-1$
+                        formattedPercent(absoluteReturn ? performer.currencyPerformancePercent()
+                                        : performer.performance()),
+                        formattedPercent(performer.irr()),
+                        signedMoney(Money.of(currency, performer.currencyPerformance())),
                         Values.Money.format(Money.of(currency, performer.value()))));
+    }
+
+    private void printPerformerHeader(String returnLabel)
+    {
+        println(String.format("  %-36s %10s %10s %18s %18s", "Instrument", returnLabel, "IRR p.a.", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                        "Contribution", "Current value")); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private void printPerformanceBreakdown(ClientPerformanceSnapshot snapshot)
@@ -669,12 +682,9 @@ public class PortfolioShell
         println(String.format("  %-28s %18s", label, signed ? signedMoney(value) : Values.Money.format(value))); //$NON-NLS-1$
     }
 
-    private void printCurrencyPerformer(PerformerRanking.Performer performer, String currency)
+    private String formattedPercent(double value)
     {
-        println(String.format("%18s  %+9.2f%%  %-36s %18s", //$NON-NLS-1$
-                        signedMoney(Money.of(currency, performer.currencyPerformance())),
-                        performer.currencyPerformancePercent() * 100, abbreviate(performer.name(), 36),
-                        Values.Money.format(Money.of(currency, performer.value()))));
+        return Double.isFinite(value) ? String.format("%+.2f%%", value * 100) : "n/a"; //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private String signedMoney(Money value)
@@ -815,6 +825,11 @@ public class PortfolioShell
         if (isHeading(message))
             return prefix + ANSI_BOLD_CYAN + message + ANSI_RESET;
 
+        return prefix + colourValues(message);
+    }
+
+    static String colourValues(String message)
+    {
         Matcher matcher = COLOUR_VALUE.matcher(message);
         StringBuilder styled = new StringBuilder();
         while (matcher.find())
@@ -824,7 +839,7 @@ public class PortfolioShell
             matcher.appendReplacement(styled, Matcher.quoteReplacement(colour + value + ANSI_RESET));
         }
         matcher.appendTail(styled);
-        return prefix + styled;
+        return styled.toString();
     }
 
     private boolean isHeading(String message)

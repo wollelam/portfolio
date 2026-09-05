@@ -19,6 +19,18 @@ the five largest positions, and the five strongest positive and negative securit
 contributors in portfolio currency. Use `DATA` for quote, FX, and calculation
 diagnostics.
 
+Contributor rows show the instrument's own absolute return, its signed
+annualized IRR, portfolio-currency contribution, and its impact on the portfolio
+in percentage points. Portfolio impact allocates the portfolio's TTWROR proportionally to each
+signed currency contribution. This makes the complete contribution breakdown
+reconcile to the reported portfolio return without allowing deposits or a small
+opening balance to inflate the result. It is shown as `n/a` when total currency
+performance is zero.
+
+`SUMMARY` reports both TTWROR and annualized IRR. TTWROR removes the effect of
+external cash-flow timing; IRR is money-weighted and therefore reflects when
+and how much the investor deposited or withdrew.
+
 Drill down with `SEC "Apple" YTD`: exact names and identifiers take precedence,
 ambiguous searches list candidates, and the report shows shares, weight,
 value, dated quotes, dividends, fees, taxes and period gains. Quote selection

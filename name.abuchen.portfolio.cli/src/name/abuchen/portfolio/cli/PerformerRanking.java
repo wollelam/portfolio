@@ -24,7 +24,7 @@ public final class PerformerRanking
     }
 
     public record Performer(Security security, String name, double performance, long currencyPerformance,
-                    double currencyPerformancePercent, long value) {}
+                    double currencyPerformancePercent, double irr, long value) {}
 
     /**
      * Returns holdings ordered from best to worst by cumulative TTWROR over
@@ -61,8 +61,9 @@ public final class PerformerRanking
             var currencyRecord = currencyPerformance.getRecord(security);
             long performanceInCurrency = currencyRecord.map(record -> record.getDelta().getAmount()).orElse(0L);
             double performanceInCurrencyPercent = currencyRecord.map(record -> record.getDeltaPercent()).orElse(0d);
+            double irr = currencyRecord.map(record -> record.getIrr()).orElse(Double.NaN);
             result.add(new Performer(security, position.getDescription(), performance, performanceInCurrency,
-                            performanceInCurrencyPercent, position.getValuation().getAmount()));
+                            performanceInCurrencyPercent, irr, position.getValuation().getAmount()));
         }
         result.sort(Comparator.comparingDouble(Performer::performance).reversed()
                         .thenComparing(Performer::name, String.CASE_INSENSITIVE_ORDER));
