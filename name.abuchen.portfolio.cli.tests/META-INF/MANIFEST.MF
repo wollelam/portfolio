@@ -1,0 +1,15 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Portfolio Performance Command Line Tests
+Bundle-SymbolicName: name.abuchen.portfolio.cli.tests
+Bundle-Version: 0.87.1.qualifier
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Bundle-Vendor: Andreas Buchen
+Fragment-Host: name.abuchen.portfolio.cli
+Require-Bundle: name.abuchen.portfolio,
+ org.junit,
+ org.hamcrest.core,
+ org.eclipse.core.runtime,
+ org.apache.servicemix.bundles.xpp3,
+ org.jline
+Automatic-Module-Name: name.abuchen.portfolio.cli.tests
