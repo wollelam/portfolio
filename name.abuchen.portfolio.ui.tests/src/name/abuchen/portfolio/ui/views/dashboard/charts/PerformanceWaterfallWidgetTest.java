@@ -16,7 +16,7 @@ import name.abuchen.portfolio.ui.views.dashboard.WidgetFactory;
 public class PerformanceWaterfallWidgetTest
 {
     @Test
-    public void testWidgetFactoryRegistersBothWaterfalls()
+    public void testWidgetFactoryRegistersBothWaterfallsWithoutInitializingImages()
     {
         var data = new DashboardData(new Client());
 
