@@ -8,7 +8,6 @@ import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Money;
-import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.AssetPosition;
 import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot.CategoryType;
@@ -39,20 +38,20 @@ public final class SummaryReport
                         .mapToLong(p -> p.getValuation().getAmount()).sum();
         lines.add("PORTFOLIO SUMMARY  " + interval.getStart() + " to " + interval.getEnd());
         lines.add("Base currency: " + client.getBaseCurrency() + " | valuation date: " + interval.getEnd());
-        lines.add("Total value       " + Values.Money.format(snapshot.getMonetaryAssets()));
-        lines.add(String.format("Return (TTWROR)   %+.2f%%", index.getFinalAccumulatedPercentage() * 100));
+        lines.add("Total value       " + CliFormatter.money(snapshot.getMonetaryAssets()));
+        lines.add(CliFormatter.format("Return (TTWROR)   %+.2f%%", index.getFinalAccumulatedPercentage() * 100));
         lines.add("Return (IRR, annualized) " + percent(index.getPerformanceIRR()));
-        lines.add("Performance       " + Values.Money.format(performance.getAbsoluteDelta()));
-        lines.add("Net deposits      " + Values.Money.format(performance.getValue(CategoryType.TRANSFERS)));
-        lines.add("Cash              " + Values.Money.format(Money.of(client.getBaseCurrency(), cash)));
-        lines.add("Earnings          " + Values.Money.format(performance.getValue(CategoryType.EARNINGS)));
-        lines.add("Fees / taxes      " + Values.Money.format(performance.getValue(CategoryType.FEES)) + " / "
-                        + Values.Money.format(performance.getValue(CategoryType.TAXES)));
+        lines.add("Performance       " + CliFormatter.money(performance.getAbsoluteDelta()));
+        lines.add("Net deposits      " + CliFormatter.money(performance.getValue(CategoryType.TRANSFERS)));
+        lines.add("Cash              " + CliFormatter.money(Money.of(client.getBaseCurrency(), cash)));
+        lines.add("Earnings          " + CliFormatter.money(performance.getValue(CategoryType.EARNINGS)));
+        lines.add("Fees / taxes      " + CliFormatter.money(performance.getValue(CategoryType.FEES)) + " / "
+                        + CliFormatter.money(performance.getValue(CategoryType.TAXES)));
         lines.add("Largest positions (including cash):");
-        positions.stream().limit(INSTRUMENT_LIMIT).forEach(p -> lines.add(String.format("  %-32s %18s  %s",
-                        abbreviate(p.getDescription(), 32), Values.Money.format(p.getValuation()),
+        positions.stream().limit(INSTRUMENT_LIMIT).forEach(p -> lines.add(CliFormatter.format("  %-32s %18s  %s",
+                        abbreviate(p.getDescription(), 32), CliFormatter.money(p.getValuation()),
                         snapshot.getMonetaryAssets().isZero() ? "n/a"
-                                        : String.format("%.1f%%", p.getShare() * 100))));
+                                        : CliFormatter.format("%.1f%%", p.getShare() * 100))));
         var contributors = PerformerRanking.sortByCurrencyPerformance(
                         PerformerRanking.rank(client, converter, interval, index, -1));
         long totalPerformance = performance.getAbsoluteDelta().getAmount();
@@ -66,7 +65,7 @@ public final class SummaryReport
                     String currency, long totalPerformance, double portfolioReturn, boolean positive)
     {
         lines.add(positive ? "Top contributors:" : "Top detractors:");
-        lines.add(String.format("  %-32s %10s %10s %18s %10s", "Instrument", "Return", "IRR p.a.",
+        lines.add(CliFormatter.format("  %-32s %10s %10s %18s %10s", "Instrument", "Return", "IRR p.a.",
                         "Contribution", "Impact"));
         var matching = contributors.stream().filter(p -> positive ? p.currencyPerformance() > 0
                         : p.currencyPerformance() < 0).toList();
@@ -82,7 +81,7 @@ public final class SummaryReport
             int position = positive ? index : matching.size() - index - 1;
             var contributor = matching.get(position);
             String impact = portfolioImpact(contributor.currencyPerformance(), totalPerformance, portfolioReturn);
-            lines.add(String.format("  %-32s %10s %10s %18s %10s", abbreviate(contributor.name(), 32),
+            lines.add(CliFormatter.format("  %-32s %10s %10s %18s %10s", abbreviate(contributor.name(), 32),
                             percent(contributor.currencyPerformancePercent()), percent(contributor.irr()),
                             signedMoney(Money.of(currency, contributor.currencyPerformance())), impact));
         }
@@ -92,17 +91,17 @@ public final class SummaryReport
     {
         if (totalPerformance == 0)
             return "n/a";
-        return String.format("%+.2f pp", contribution / (double) totalPerformance * portfolioReturn * 100);
+        return CliFormatter.format("%+.2f pp", contribution / (double) totalPerformance * portfolioReturn * 100);
     }
 
     private static String percent(double value)
     {
-        return Double.isFinite(value) ? String.format("%+.2f%%", value * 100) : "n/a";
+        return Double.isFinite(value) ? CliFormatter.format("%+.2f%%", value * 100) : "n/a";
     }
 
     private static String signedMoney(Money value)
     {
-        String formatted = Values.Money.format(value);
+        String formatted = CliFormatter.money(value);
         return value.isPositive() ? "+" + formatted : formatted;
     }
 
