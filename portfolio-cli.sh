@@ -4,7 +4,10 @@ set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 maven_volume=portfolio-cli-m2
-maven_image=maven:3.9.11-eclipse-temurin-21
+build_image_repository=portfolio-cli-build
+build_image_tag=$(sha256sum "$script_dir/docker/cli-build/Dockerfile" | cut -c1-16)
+maven_image="$build_image_repository:$build_image_tag"
+maven_image_alias="$build_image_repository:latest"
 runtime_config="$script_dir/name.abuchen.portfolio.cli.tests/target/work/configuration/config.ini"
 launcher=/root/.m2/repository/p2/osgi/bundle/org.eclipse.equinox.launcher/1.7.100.v20251111-0406/org.eclipse.equinox.launcher-1.7.100.v20251111-0406.jar
 
@@ -69,6 +72,21 @@ if ! docker volume inspect "$maven_volume" >/dev/null 2>&1; then
     docker volume create "$maven_volume" >/dev/null
 fi
 
+ensure_build_image()
+{
+    if docker image inspect "$maven_image" >/dev/null 2>&1; then
+        return
+    fi
+
+    printf 'Preparing cached Docker build image %s...\n' "$maven_image"
+    docker build --quiet \
+        --tag "$maven_image" \
+        --tag "$maven_image_alias" \
+        "$script_dir/docker/cli-build" >/dev/null
+}
+
+ensure_build_image
+
 clear_tmp_build()
 {
     local build_root=$1
@@ -88,8 +106,6 @@ if [[ "$package_linux" == true ]]; then
         -w /workspace \
         "$maven_image" \
         bash -lc 'set -euo pipefail
-            apt-get update -qq
-            apt-get install -y -qq libgtk-3-0 xvfb >/dev/null
             Xvfb :99 -screen 0 1280x1024x24 >/tmp/xvfb.log 2>&1 &
             export DISPLAY=:99
             mvn -q -f portfolio-app/pom.xml -Ppackage-distro -DskipTests install'
@@ -126,8 +142,6 @@ if [[ "$build_linux" == true || "$run_linux" == true ]]; then
         -w /workspace \
         "$maven_image" \
         bash -lc 'set -euo pipefail
-            apt-get update -qq
-            apt-get install -y -qq libgtk-3-0 xvfb >/dev/null
             Xvfb :99 -screen 0 1280x1024x24 >/tmp/xvfb.log 2>&1 &
             export DISPLAY=:99
             mvn -q -f portfolio-app/pom.xml -Ppackage-distro -DskipTests package'; then

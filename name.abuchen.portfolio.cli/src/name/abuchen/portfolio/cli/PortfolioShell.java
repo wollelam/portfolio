@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -197,8 +198,10 @@ public class PortfolioShell
                 break;
             case "SUMMARY": //$NON-NLS-1$
                 var summaryOptions = performanceOptions(words, "SUMMARY"); //$NON-NLS-1$
-                SummaryReport.render(requireClient(), Interval.of(summaryOptions.from(), summaryOptions.to()))
-                                .forEach(this::println);
+                var summary = SummaryReport.renderReport(requireClient(),
+                                Interval.of(summaryOptions.from(), summaryOptions.to()));
+                var summaryScales = ValueColourScale.forLines(summary.lines());
+                summary.lines().forEach(cliLine -> println(cliLine, summaryScales));
                 break;
             case "TPERF": //$NON-NLS-1$
                 topPerformers(words);
@@ -383,26 +386,33 @@ public class PortfolioShell
         }
 
         int count = Math.min(options.limit(), performers.size());
+        var bestTtwror = performerRows(performers, count, false);
+        var worstTtwror = performerRows(performers, count, true);
+        var currencyPerformers = PerformerRanking.sortByCurrencyPerformance(performers);
+        var bestCurrency = performerRows(currencyPerformers, count, false);
+        var worstCurrency = performerRows(currencyPerformers, count, true);
+        var performerLines = new ArrayList<CliLine>();
+        bestTtwror.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), false)));
+        worstTtwror.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), false)));
+        bestCurrency.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), true)));
+        worstCurrency.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), true)));
+        var performerScales = ValueColourScale.forLines(performerLines);
+
         println("Best performers (TTWROR):"); //$NON-NLS-1$
         printPerformerHeader("TTWROR"); //$NON-NLS-1$
-        for (int index = 0; index < count; index++)
-            printPerformer(performers.get(index), loaded.getBaseCurrency(), false);
+        bestTtwror.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), false), performerScales));
 
         println("Worst performers (TTWROR):"); //$NON-NLS-1$
         printPerformerHeader("TTWROR"); //$NON-NLS-1$
-        for (int index = performers.size() - 1; index >= performers.size() - count; index--)
-            printPerformer(performers.get(index), loaded.getBaseCurrency(), false);
+        worstTtwror.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), false), performerScales));
 
-        var currencyPerformers = PerformerRanking.sortByCurrencyPerformance(performers);
         println("Best performers (currency performance):"); //$NON-NLS-1$
         printPerformerHeader("Abs. return"); //$NON-NLS-1$
-        for (int index = 0; index < count; index++)
-            printPerformer(currencyPerformers.get(index), loaded.getBaseCurrency(), true);
+        bestCurrency.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), true), performerScales));
 
         println("Worst performers (currency performance):"); //$NON-NLS-1$
         printPerformerHeader("Abs. return"); //$NON-NLS-1$
-        for (int index = currencyPerformers.size() - 1; index >= currencyPerformers.size() - count; index--)
-            printPerformer(currencyPerformers.get(index), loaded.getBaseCurrency(), true);
+        worstCurrency.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), true), performerScales));
 
         if (!warnings.isEmpty())
             println(warnings.size() + " performance calculation warning(s)."); //$NON-NLS-1$
@@ -670,15 +680,37 @@ public class PortfolioShell
         }
     }
 
-    private void printPerformer(PerformerRanking.Performer performer, String currency, boolean absoluteReturn)
+    private List<PerformerRanking.Performer> performerRows(List<PerformerRanking.Performer> performers, int count,
+                    boolean reverse)
     {
-        println(CliFormatter.format("  %-36s %16s %10s %10s %18s %18s", abbreviate(performer.name(), 36), //$NON-NLS-1$
-                        performer.quote(),
-                        formattedPercent(absoluteReturn ? performer.currencyPerformancePercent()
-                                        : performer.performance()),
-                        CliFormatter.irr(performer.irr()),
-                        signedMoney(Money.of(currency, performer.currencyPerformance())),
-                        CliFormatter.money(Money.of(currency, performer.value()))));
+        var rows = new ArrayList<PerformerRanking.Performer>(count);
+        if (reverse)
+        {
+            for (int index = performers.size() - 1; index >= performers.size() - count; index--)
+                rows.add(performers.get(index));
+        }
+        else
+        {
+            for (int index = 0; index < count; index++)
+                rows.add(performers.get(index));
+        }
+        return rows;
+    }
+
+    private CliLine performerLine(PerformerRanking.Performer performer, String currency, boolean absoluteReturn)
+    {
+        double returnValue = absoluteReturn ? performer.currencyPerformancePercent() : performer.performance();
+        String formattedReturn = formattedPercent(returnValue);
+        String formattedIrr = CliFormatter.irr(performer.irr());
+        String formattedContribution = signedMoney(Money.of(currency, performer.currencyPerformance()));
+        String formattedValue = CliFormatter.money(Money.of(currency, performer.value()));
+
+        return CliLine.builder().append("  ").appendLeft(abbreviate(performer.name(), 36), 36).append(" ") //$NON-NLS-1$ //$NON-NLS-2$
+                        .appendRight(performer.quote(), 16).append(" ") //$NON-NLS-1$
+                        .appendValue(formattedReturn, 10, returnValue, CliLine.Metric.RETURN).append(" ") //$NON-NLS-1$
+                        .appendValue(formattedIrr, 10, performer.irr(), CliLine.Metric.IRR).append(" ") //$NON-NLS-1$
+                        .appendValue(formattedContribution, 18, performer.currencyPerformance(), CliLine.Metric.CONTRIBUTION)
+                        .append(" ").appendRight(formattedValue, 18).build(); //$NON-NLS-1$
     }
 
     private void printPerformerHeader(String returnLabel)
@@ -838,6 +870,12 @@ public class PortfolioShell
         terminal.flush();
     }
 
+    private void println(CliLine line, Map<CliLine.Metric, ValueColourScale> scales)
+    {
+        terminal.writer().println(styleOutput(line, scales));
+        terminal.flush();
+    }
+
     private String styleOutput(String message)
     {
         if (!supportsColour())
@@ -851,6 +889,19 @@ public class PortfolioShell
             return prefix + ANSI_BOLD_CYAN + message + ANSI_RESET;
 
         return prefix + colourValues(message);
+    }
+
+    private String styleOutput(CliLine line, Map<CliLine.Metric, ValueColourScale> scales)
+    {
+        if (!supportsColour())
+            return line.text();
+
+        String prefix = ANSI_DIM_CYAN + "│ " + ANSI_RESET; //$NON-NLS-1$
+        if (isHeading(line.text()))
+            return prefix + ANSI_BOLD_CYAN + line.text() + ANSI_RESET;
+        if (line.values().isEmpty())
+            return prefix + colourValues(line.text());
+        return prefix + ValueColourScale.apply(line, scales);
     }
 
     static String colourValues(String message)

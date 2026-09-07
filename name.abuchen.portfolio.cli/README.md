@@ -156,6 +156,12 @@ binary directly with an optional client file, for example:
 It includes its own Java runtime, so Java does not need to be installed on the
 host.
 
+The first build prepares a cached `portfolio-cli-build` Docker image containing
+Maven, Java 21, GTK, and Xvfb. The build container itself is temporary and is
+removed after the build; the image and `portfolio-cli-m2` dependency cache are
+kept for subsequent builds. The image is automatically refreshed when
+`docker/cli-build/Dockerfile` changes.
+
 To rebuild and launch it in one step, optionally opening a portfolio file:
 
 ```
