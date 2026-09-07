@@ -40,7 +40,7 @@ public final class SummaryReport
         lines.add("Base currency: " + client.getBaseCurrency() + " | valuation date: " + interval.getEnd());
         lines.add("Total value       " + CliFormatter.money(snapshot.getMonetaryAssets()));
         lines.add(CliFormatter.format("Return (TTWROR)   %+.2f%%", index.getFinalAccumulatedPercentage() * 100));
-        lines.add("Return (IRR, annualized) " + percent(index.getPerformanceIRR()));
+        lines.add("Return (IRR, annualized) " + CliFormatter.irr(index.getPerformanceIRR()));
         lines.add("Performance       " + CliFormatter.money(performance.getAbsoluteDelta()));
         lines.add("Net deposits      " + CliFormatter.money(performance.getValue(CategoryType.TRANSFERS)));
         lines.add("Cash              " + CliFormatter.money(Money.of(client.getBaseCurrency(), cash)));
@@ -65,8 +65,8 @@ public final class SummaryReport
                     String currency, long totalPerformance, double portfolioReturn, boolean positive)
     {
         lines.add(positive ? "Top contributors:" : "Top detractors:");
-        lines.add(CliFormatter.format("  %-32s %10s %10s %18s %10s", "Instrument", "Return", "IRR p.a.",
-                        "Contribution", "Impact"));
+        lines.add(CliFormatter.format("  %-32s %16s %10s %10s %18s %10s", "Instrument", "Quote", "Return",
+                        "IRR p.a.", "Contribution", "Impact"));
         var matching = contributors.stream().filter(p -> positive ? p.currencyPerformance() > 0
                         : p.currencyPerformance() < 0).toList();
         if (matching.isEmpty())
@@ -81,8 +81,8 @@ public final class SummaryReport
             int position = positive ? index : matching.size() - index - 1;
             var contributor = matching.get(position);
             String impact = portfolioImpact(contributor.currencyPerformance(), totalPerformance, portfolioReturn);
-            lines.add(CliFormatter.format("  %-32s %10s %10s %18s %10s", abbreviate(contributor.name(), 32),
-                            percent(contributor.currencyPerformancePercent()), percent(contributor.irr()),
+            lines.add(CliFormatter.format("  %-32s %16s %10s %10s %18s %10s", abbreviate(contributor.name(), 32),
+                            contributor.quote(), percent(contributor.currencyPerformancePercent()), CliFormatter.irr(contributor.irr()),
                             signedMoney(Money.of(currency, contributor.currencyPerformance())), impact));
         }
     }

@@ -2,6 +2,7 @@ package name.abuchen.portfolio.cli;
 
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertThrows;
 
@@ -13,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.Arrays;
+import java.util.Optional;
 
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.jline.reader.LineReader;
@@ -24,7 +26,11 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import name.abuchen.portfolio.model.ClientFactory;
-import name.abuchen.portfolio.snapshot.ReportingPeriod;
+import name.abuchen.portfolio.model.LatestSecurityPrice;
+import name.abuchen.portfolio.model.Security;
+import name.abuchen.portfolio.online.QuoteFeed;
+import name.abuchen.portfolio.online.QuoteFeedData;
+import name.abuchen.portfolio.util.Interval;
 
 /**
  * Command-level tests for the interactive prototype. As a fragment, this test
@@ -53,6 +59,41 @@ public class PortfolioShellTest
             assertThat(output, containsString("BASF")); //$NON-NLS-1$
             assertThat(output, containsString("Account EUR")); //$NON-NLS-1$
             assertThat(output, containsString("Account USD")); //$NON-NLS-1$
+        }
+    }
+
+    @Test
+    public void quoteUpdateReportsPortfolioValueChange() throws Exception
+    {
+        Path file = copyFixture("scenarios/currency_sample.xml"); //$NON-NLS-1$
+        var quoteUpdater = new LatestQuoteUpdater(feedId -> new FixedQuoteFeed());
+        try (ShellHarness harness = new ShellHarness("", quoteUpdater)) //$NON-NLS-1$
+        {
+            harness.execute("OPEN " + file); //$NON-NLS-1$
+            harness.execute("QUPD"); //$NON-NLS-1$
+
+            assertThat(harness.output(), containsString("Quotes: ")); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("Portfolio value: ")); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("(change ")); //$NON-NLS-1$
+        }
+    }
+
+    @Test
+    public void holdingsExcludeRetiredAccounts() throws Exception
+    {
+        Path file = copyFixture("scenarios/currency_sample.xml"); //$NON-NLS-1$
+        var client = ClientFactory.load(file.toFile(), null, new NullProgressMonitor());
+        client.getAccounts().stream().filter(account -> "Account EUR".equals(account.getName())).findFirst()
+                        .orElseThrow().setRetired(true);
+        ClientFactory.save(client, file.toFile());
+
+        try (ShellHarness harness = new ShellHarness())
+        {
+            harness.execute("OPEN " + file); //$NON-NLS-1$
+            harness.execute("HOLD 2015-01-16"); //$NON-NLS-1$
+
+            assertThat(harness.output(), not(containsString("Account EUR"))); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("Account USD")); //$NON-NLS-1$
         }
     }
 
@@ -96,10 +137,11 @@ public class PortfolioShellTest
     public void colourizerDoesNotMistakeAnInstrumentSuffixForACurrency()
     {
         String styled = PortfolioShell.colourValues(
-                        "  Fundsmith Equity T INC               -0.45%       CHF -2,668.29   -0.08 pp"); //$NON-NLS-1$
+                        "  Fundsmith Equity T INC               -0.45%       CHF -2,668.29   -0.08 pp   >1000.00%"); //$NON-NLS-1$
 
         assertThat(styled, containsString("INC               \033[31m-0.45%\033[0m")); //$NON-NLS-1$
         assertThat(styled, containsString("\033[31mCHF -2,668.29\033[0m")); //$NON-NLS-1$
+        assertThat(styled, containsString("\033[32m>1000.00%\033[0m")); //$NON-NLS-1$
     }
 
     @Test
@@ -121,17 +163,29 @@ public class PortfolioShellTest
     }
 
     @Test
-    public void commandsWithoutAPeriodUseThePreviousTradingDay() throws Exception
+    public void commandsWithoutAPeriodUseTheMostRecentTradingDay() throws Exception
     {
         Path file = copyFixture("scenarios/currency_sample.xml"); //$NON-NLS-1$
-        var interval = new ReportingPeriod.PreviousTradingDay().toInterval(LocalDate.now());
+        var interval = PortfolioShell.mostRecentTradingDayInterval(LocalDate.now());
         try (ShellHarness harness = new ShellHarness())
         {
             harness.execute("OPEN " + file); //$NON-NLS-1$
             harness.execute("PERF"); //$NON-NLS-1$
+            harness.execute("TPERF"); //$NON-NLS-1$
 
             assertThat(harness.output(), containsString(interval.getStart() + " to " + interval.getEnd())); //$NON-NLS-1$
         }
+    }
+
+    @Test
+    public void defaultPerformanceIntervalUsesCurrentOrPreviousTradingDay()
+    {
+        assertInterval(PortfolioShell.mostRecentTradingDayInterval(LocalDate.of(2026, 9, 4)), "2026-09-03",
+                        "2026-09-04"); //$NON-NLS-1$ //$NON-NLS-2$
+        assertInterval(PortfolioShell.mostRecentTradingDayInterval(LocalDate.of(2026, 9, 5)), "2026-09-03",
+                        "2026-09-04"); //$NON-NLS-1$ //$NON-NLS-2$
+        assertInterval(PortfolioShell.mostRecentTradingDayInterval(LocalDate.of(2026, 9, 6)), "2026-09-03",
+                        "2026-09-04"); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     @Test
@@ -149,6 +203,7 @@ public class PortfolioShellTest
             assertThat(harness.output(), containsString("Best performers (currency performance):")); //$NON-NLS-1$
             assertThat(harness.output(), containsString("Worst performers (currency performance):")); //$NON-NLS-1$
             assertThat(harness.output(), containsString("IRR p.a.")); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("Quote")); //$NON-NLS-1$
         }
     }
 
@@ -339,6 +394,12 @@ public class PortfolioShellTest
         return target;
     }
 
+    private void assertInterval(Interval interval, String start, String end)
+    {
+        assertThat(interval.getStart(), is(LocalDate.parse(start)));
+        assertThat(interval.getEnd(), is(LocalDate.parse(end)));
+    }
+
     private final class ShellHarness implements AutoCloseable
     {
         private final ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -353,13 +414,18 @@ public class PortfolioShellTest
 
         private ShellHarness(String input)
         {
+            this(input, new LatestQuoteUpdater());
+        }
+
+        private ShellHarness(String input, LatestQuoteUpdater quoteUpdater)
+        {
             try
             {
                 terminal = new DumbTerminal(
                                 new ByteArrayInputStream(input.getBytes(java.nio.charset.StandardCharsets.UTF_8)),
                                 output);
                 reader = LineReaderBuilder.builder().terminal(terminal).build();
-                shell = new PortfolioShell(terminal);
+                shell = new PortfolioShell(terminal, quoteUpdater);
             }
             catch (IOException e)
             {
@@ -392,6 +458,35 @@ public class PortfolioShellTest
         public void close() throws Exception
         {
             terminal.close();
+        }
+    }
+
+    private static final class FixedQuoteFeed implements QuoteFeed
+    {
+        @Override
+        public String getId()
+        {
+            return "TEST"; //$NON-NLS-1$
+        }
+
+        @Override
+        public String getName()
+        {
+            return getId();
+        }
+
+        @Override
+        public Optional<LatestSecurityPrice> getLatestQuote(Security security)
+        {
+            return Optional.of(new LatestSecurityPrice(LocalDate.now(), 200_000L));
+        }
+
+        @Override
+        public QuoteFeedData getHistoricalQuotes(Security security, boolean collectRawResponse)
+        {
+            QuoteFeedData data = new QuoteFeedData();
+            data.addPrice(new LatestSecurityPrice(LocalDate.now(), 200_000L));
+            return data;
         }
     }
 }

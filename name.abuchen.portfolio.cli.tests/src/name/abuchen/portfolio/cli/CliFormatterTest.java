@@ -22,6 +22,10 @@ public class CliFormatterTest
 
             assertThat(CliFormatter.money(Money.of("EUR", 435_438L)), is("EUR 4,354.38"));
             assertThat(CliFormatter.percent(0.1234d), is("12.34%"));
+            assertThat(CliFormatter.irr(10.0d), is("+1000.00%"));
+            assertThat(CliFormatter.irr(10.0001d), is(">1000.00%"));
+            assertThat(CliFormatter.irr(Double.POSITIVE_INFINITY), is(">1000.00%"));
+            assertThat(CliFormatter.irr(Double.NaN), is("n/a"));
             assertThat(CliFormatter.format("%+.2f", 1.5d), is("+1.50"));
         }
         finally

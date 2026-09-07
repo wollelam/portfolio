@@ -256,6 +256,14 @@
 								<macosx>PortfolioPerformance.app</macosx>
 							</rootFolders>
 						</product>
+						<product>
+							<id>name.abuchen.portfolio.cli.product</id>
+							<rootFolder>portfolio-cli</rootFolder>
+							<archiveFileName>PortfolioPerformance-CLI-${project.version}</archiveFileName>
+							<rootFolders>
+								<macosx>PortfolioPerformance-CLI.app</macosx>
+							</rootFolders>
+						</product>
 					</products>
 					<parallel>true</parallel>
 				</configuration>
@@ -343,6 +351,15 @@
 									<archiveFileName>PortfolioPerformance-distro-${project.version}</archiveFileName>
 									<rootFolders>
 										<macosx>PortfolioPerformance.app</macosx>
+									</rootFolders>
+								</product>
+								<product>
+									<id>name.abuchen.portfolio.cli.product</id>
+									<attachId>name.abuchen.portfolio.cli.product</attachId>
+									<rootFolder>portfolio-cli</rootFolder>
+									<archiveFileName>PortfolioPerformance-CLI-${project.version}</archiveFileName>
+									<rootFolders>
+										<macosx>PortfolioPerformance-CLI.app</macosx>
 									</rootFolders>
 								</product>
 							</products>
