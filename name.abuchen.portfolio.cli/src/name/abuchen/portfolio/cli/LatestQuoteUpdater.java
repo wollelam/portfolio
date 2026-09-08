@@ -13,14 +13,16 @@ import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.model.SecurityProperty;
 import name.abuchen.portfolio.online.Factory;
 import name.abuchen.portfolio.online.QuoteFeed;
+import name.abuchen.portfolio.online.QuoteFeed.HistoricalUpdatePolicy;
+import name.abuchen.portfolio.online.QuoteFeedData;
 import name.abuchen.portfolio.online.QuoteFeedException;
 import name.abuchen.portfolio.online.RateLimitExceededException;
 
 /**
- * Updates the latest prices of a client's active securities without writing a
- * client file. The caller owns the supplied {@link Client}; consequently all
- * successful updates remain available for valuation until the client is
- * discarded or saved by a future command.
+ * Updates the historical and latest prices of a client's active securities
+ * without writing a client file. The caller owns the supplied {@link Client};
+ * consequently all successful updates remain available for valuation until the
+ * client is discarded or saved by a future command.
  * <p>
  * The updater deliberately performs requests sequentially. Apart from making
  * progress deterministic for a terminal, this avoids bypassing a provider's
@@ -111,7 +113,7 @@ public final class LatestQuoteUpdater
         this.feedResolver = Objects.requireNonNull(feedResolver, "feedResolver"); //$NON-NLS-1$
     }
 
-    /** Updates all non-retired securities configured with an automatic latest-price feed. */
+    /** Updates all non-retired securities configured with an automatic quote feed. */
     public Result update(Client client)
     {
         return update(client, NO_PROGRESS);
@@ -147,39 +149,102 @@ public final class LatestQuoteUpdater
     {
         Objects.requireNonNull(security, "security"); //$NON-NLS-1$
 
-        String feedId = security.getLatestFeed();
-        if (feedId == null)
-            feedId = security.getFeed();
+        String historicalFeedId = security.getFeed();
+        String latestFeedId = security.getLatestFeed();
+        if (latestFeedId == null)
+            latestFeedId = historicalFeedId;
+        String resultFeedId = latestFeedId != null ? latestFeedId : historicalFeedId;
 
         try
         {
-            QuoteFeed feed = feedId == null ? null : feedResolver.apply(feedId);
-            if (feed == null)
-                return new ResultEntry(security, feedId, Status.SKIPPED, "No quote feed is configured."); //$NON-NLS-1$
-            if (QuoteFeed.MANUAL.equals(feed.getId()))
-                return new ResultEntry(security, feedId, Status.SKIPPED, "The quote feed is manual."); //$NON-NLS-1$
+            QuoteFeed historicalFeed = resolve(historicalFeedId);
+            QuoteFeed latestFeed = Objects.equals(historicalFeedId, latestFeedId) ? historicalFeed
+                            : resolve(latestFeedId);
 
-            Optional<LatestSecurityPrice> latest = latestQuote(feed, security);
-            if (latest.isEmpty())
-                return new ResultEntry(security, feedId, Status.UNCHANGED, "The feed returned no latest quote."); //$NON-NLS-1$
+            boolean historicalAvailable = isAutomatic(historicalFeed);
+            boolean latestAvailable = isAutomatic(latestFeed);
+            if (!historicalAvailable && !latestAvailable)
+            {
+                String reason = historicalFeed == null && latestFeed == null
+                                ? "No quote feed is configured." //$NON-NLS-1$
+                                : "The quote feed is manual."; //$NON-NLS-1$
+                return new ResultEntry(security, resultFeedId, Status.SKIPPED, reason);
+            }
 
-            Status status = security.setLatest(latest.get()) ? Status.UPDATED : Status.UNCHANGED;
-            return new ResultEntry(security, feedId, status, null);
+            boolean updated = false;
+            List<String> errors = new ArrayList<>();
+
+            // Keep this separate from the latest update. The desktop client
+            // updates historical prices with the security's normal ticker and
+            // uses the optional alternate ticker only for the latest quote.
+            if (historicalAvailable)
+            {
+                try
+                {
+                    QuoteFeedData data = historicalQuotes(historicalFeed, security);
+                    updated |= applyHistoricalQuotes(historicalFeed, security, data);
+                    data.getErrors().stream().map(this::message).forEach(errors::add);
+                }
+                catch (QuoteFeedException | RuntimeException e)
+                {
+                    errors.add(message(e));
+                }
+            }
+
+            if (latestAvailable)
+            {
+                try
+                {
+                    Optional<LatestSecurityPrice> latest = latestQuote(latestFeed, fetchSecurity(security));
+                    if (latest.isPresent())
+                        updated |= security.setLatest(latest.get());
+                }
+                catch (QuoteFeedException | RuntimeException e)
+                {
+                    errors.add(message(e));
+                }
+            }
+
+            if (!errors.isEmpty() && !updated)
+                return new ResultEntry(security, resultFeedId, Status.FAILED, String.join("; ", errors)); //$NON-NLS-1$
+
+            String message = errors.isEmpty() ? null : String.join("; ", errors); //$NON-NLS-1$
+            return new ResultEntry(security, resultFeedId, updated ? Status.UPDATED : Status.UNCHANGED, message);
         }
-        catch (QuoteFeedException | RuntimeException e)
+        catch (RuntimeException e)
         {
-            return new ResultEntry(security, feedId, Status.FAILED, message(e));
+            return new ResultEntry(security, resultFeedId, Status.FAILED, message(e));
         }
     }
 
+    private QuoteFeed resolve(String feedId)
+    {
+        return feedId == null ? null : feedResolver.apply(feedId);
+    }
+
+    private boolean isAutomatic(QuoteFeed feed)
+    {
+        return feed != null && !QuoteFeed.MANUAL.equals(feed.getId());
+    }
+
+    private QuoteFeedData historicalQuotes(QuoteFeed feed, Security security) throws QuoteFeedException
+    {
+        return withRateLimitRetry(feed, () -> feed.getHistoricalQuotes(security, false));
+    }
+
     private Optional<LatestSecurityPrice> latestQuote(QuoteFeed feed, Security security) throws QuoteFeedException
+    {
+        return withRateLimitRetry(feed, () -> feed.getLatestQuote(security));
+    }
+
+    private <T> T withRateLimitRetry(QuoteFeed feed, QuoteRequest<T> request) throws QuoteFeedException
     {
         int retriesRemaining = feed.getMaxRateLimitAttempts();
         while (true)
         {
             try
             {
-                return feed.getLatestQuote(fetchSecurity(security));
+                return request.get();
             }
             catch (RateLimitExceededException e)
             {
@@ -197,6 +262,56 @@ public final class LatestQuoteUpdater
                 }
             }
         }
+    }
+
+    @FunctionalInterface
+    private interface QuoteRequest<T>
+    {
+        T get() throws QuoteFeedException;
+    }
+
+    private boolean applyHistoricalQuotes(QuoteFeed feed, Security security, QuoteFeedData data)
+    {
+        HistoricalUpdatePolicy updatePolicy = feed.getHistoricalUpdatePolicy(security);
+
+        if (updatePolicy == HistoricalUpdatePolicy.REPLACE)
+            return replaceHistoricalQuotes(security, data, null);
+
+        if (updatePolicy == HistoricalUpdatePolicy.REPLACE_IF_SOURCE_CHANGED)
+            return applyReplaceIfSourceChanged(feed, security, data);
+
+        return security.addAllPrices(data.getPrices());
+    }
+
+    private boolean applyReplaceIfSourceChanged(QuoteFeed feed, Security security, QuoteFeedData data)
+    {
+        var currentIdentity = feed.getHistoricalDataIdentity(security);
+        if (currentIdentity.isEmpty())
+            return security.addAllPrices(data.getPrices());
+
+        String storedIdentity = security
+                        .getPropertyValue(SecurityProperty.Type.FEED, QuoteFeed.HISTORICAL_DATA_IDENTITY)
+                        .orElse(null);
+
+        if (currentIdentity.get().equals(storedIdentity))
+            return security.addAllPrices(data.getPrices());
+
+        return replaceHistoricalQuotes(security, data, currentIdentity.get());
+    }
+
+    private boolean replaceHistoricalQuotes(Security security, QuoteFeedData data, String identity)
+    {
+        if (!data.getErrors().isEmpty() || data.getPrices().isEmpty())
+            return false;
+
+        boolean hadExistingPrices = !security.getPrices().isEmpty();
+        security.removeAllPrices();
+
+        boolean updated = security.addAllPrices(data.getPrices()) || hadExistingPrices;
+        if (security.setPropertyValue(SecurityProperty.Type.FEED, QuoteFeed.HISTORICAL_DATA_IDENTITY, identity))
+            updated = true;
+
+        return updated;
     }
 
     private Security fetchSecurity(Security security)

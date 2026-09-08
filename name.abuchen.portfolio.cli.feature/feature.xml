@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feature
+      id="name.abuchen.portfolio.cli.feature"
+      label="Portfolio Performance Command Line"
+      version="0.87.1.qualifier"
+      provider-name="Andreas Buchen">
+
+   <description>
+      The Portfolio Performance command-line application.
+   </description>
+
+   <plugin id="name.abuchen.portfolio.cli" version="0.0.0" unpack="false"/>
+   <plugin id="name.abuchen.portfolio.pdfbox1" version="0.0.0" unpack="false"/>
+   <plugin id="name.abuchen.portfolio.pdfbox3" version="0.0.0" unpack="false"/>
+   <plugin id="name.abuchen.portfolio" version="0.0.0" unpack="false"/>
+
+   <!-- Core persistence and image/service-provider dependencies. -->
+   <plugin id="org.apache.servicemix.bundles.xstream" version="0.0.0" unpack="false"/>
+   <plugin id="org.apache.servicemix.bundles.xpp3" version="0.0.0" unpack="false"/>
+   <plugin id="com.sun.activation.javax.activation" version="0.0.0" unpack="false"/>
+   <plugin id="com.twelvemonkeys.imageio.bmp" version="0.0.0" unpack="false"/>
+   <plugin id="org.apache.aries.spifly.dynamic.bundle" version="0.0.0" unpack="false"/>
+
+   <!-- JSON and terminal dependencies used by the CLI and core bundle. -->
+   <plugin id="com.fasterxml.jackson.core.jackson-core" version="0.0.0" unpack="false"/>
+   <plugin id="com.fasterxml.jackson.core.jackson-annotations" version="0.0.0" unpack="false"/>
+   <plugin id="com.fasterxml.jackson.core.jackson-databind" version="0.0.0" unpack="false"/>
+   <plugin id="org.jline" version="0.0.0" unpack="false"/>
+</feature>

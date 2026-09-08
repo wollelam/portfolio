@@ -71,12 +71,14 @@ EXIT
 ```
 
 `OPEN` supports quoted paths and prompts securely for encrypted files. `QUPD`
-fetches latest quotes into memory but never writes the client file. `VAL` and
+fetches historical and latest quotes into memory, matching the desktop update
+path, but never writes the client file. `VAL` and
 `HOLD` uses `ClientSnapshot`. `PERF` reports the dashboard-style portfolio
 performance breakdown. `TPERF` ranks current holdings by both cumulative
 TTWROR and portfolio-currency performance using the core performance engine.
 Purchases and other buy-ins are excluded from the currency-performance figure.
-`RELOAD` discards in-memory quote updates. `STORE` saves the loaded file using
+`RELOAD` discards in-memory quote updates. `QUPD` also reports the portfolio
+value before and after the in-memory quote update. `STORE` saves the loaded file using
 the same production `ClientFactory.save` writer used by the GUI, preserving its
 existing format and encryption settings. It first creates or replaces a
 sibling `.backup` file, matching the GUI's default Save protection. Each
@@ -119,8 +121,60 @@ mvn -f portfolio-app/pom.xml -Plocal-dev -DskipTests \
 
 In Eclipse, import the CLI project and run the generated
 `PortfolioPerformance_CLI` launch configuration. It starts the Equinox
-application directly without the SWT workbench. A distributable native
-launcher is intentionally left for the packaging milestone.
+application directly without the SWT workbench.
+
+The standalone product is assembled by Tycho with a native Equinox launcher
+and a bundled Java 21 runtime. Build all platform archives with:
+
+```
+mvn -f portfolio-app/pom.xml -Ppackage-distro -DskipTests install
+```
+
+The CLI archives are written to `portfolio-product/target/products/`, for
+example `PortfolioPerformance-CLI-0.87.1-SNAPSHOT-linux.gtk.x86_64.tar.gz`.
+Extract the archive and run `portfolio-cli` from its root directory. The
+archive contains its own platform-specific runtime, so Java does not need to
+be installed or present on `PATH`.
+
+When Maven or Java are not installed on the host, the repository script can
+run the product build in Docker. For a quick rebuild, without creating an
+archive, use:
+
+```
+./portfolio-cli.sh --build-linux
+```
+
+The quick-build output is kept in `/tmp/portfolio-cli-build/` and is recreated
+on each quick build. The script prints the exact executable path; run that
+binary directly with an optional client file, for example:
+
+```
+/tmp/portfolio-cli-build/portfolio-product/target/products/name.abuchen.portfolio.cli.product/linux/gtk/x86_64/portfolio-cli/portfolio-cli \
+    /path/to/client.portfolio
+```
+
+It includes its own Java runtime, so Java does not need to be installed on the
+host.
+
+The first build prepares a cached `portfolio-cli-build` Docker image containing
+Maven, Java 21, GTK, and Xvfb. The build container itself is temporary and is
+removed after the build; the image and `portfolio-cli-m2` dependency cache are
+kept for subsequent builds. The image is automatically refreshed when
+`docker/cli-build/Dockerfile` changes.
+
+To rebuild and launch it in one step, optionally opening a portfolio file:
+
+```
+./portfolio-cli.sh --run-linux /path/to/client.portfolio
+```
+
+Without a file, use `./portfolio-cli.sh --run-linux` and enter commands at the
+prompt.
+For a release-style Linux x86_64 archive, use:
+
+```
+./portfolio-cli.sh --package-linux
+```
 
 For a terminal-only development launch on a machine with Docker, run these
 commands from the `portfolio-cli` worktree:

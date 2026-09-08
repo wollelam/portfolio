@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -31,6 +32,7 @@ import org.jline.terminal.TerminalBuilder;
 
 import name.abuchen.portfolio.checks.Checker;
 import name.abuchen.portfolio.checks.Issue;
+import name.abuchen.portfolio.model.Account;
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.ClientFactory;
 import name.abuchen.portfolio.model.Security;
@@ -42,8 +44,8 @@ import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot.CategoryType;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
 import name.abuchen.portfolio.snapshot.PerformanceIndex;
-import name.abuchen.portfolio.snapshot.ReportingPeriod;
 import name.abuchen.portfolio.util.Interval;
+import name.abuchen.portfolio.util.TradeCalendarManager;
 
 /**
  * Interactive shell for a Portfolio Performance client file.
@@ -61,7 +63,7 @@ public class PortfolioShell
     private static final String ANSI_GREEN = "\033[32m"; //$NON-NLS-1$
     private static final String ANSI_RED = "\033[31m"; //$NON-NLS-1$
     private static final Pattern COLOUR_VALUE = Pattern.compile(
-                    "\\b[A-Z]{3} -?\\d[\\d.,'’]*|(?<![\\p{Alnum}_])[-+]\\d[\\d.,'’]*%?"); //$NON-NLS-1$
+                    "\\b[A-Z]{3} -?\\d[\\d.,'’]*|>1000\\.00%|(?<![\\p{Alnum}_])[-+]\\d[\\d.,'’]*%?"); //$NON-NLS-1$
     private static final Pattern NEGATIVE_PERIOD = Pattern.compile("^-([1-9][0-9]*)([DWMY])$"); //$NON-NLS-1$
 
     private static final List<String> COMMANDS = List.of("OPEN", "RELOAD", "QUPD", "STORE", "VAL", "HOLD", "PERF", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$
@@ -72,16 +74,23 @@ public class PortfolioShell
     private Client client;
     private Path clientFile;
     private Terminal terminal;
+    private final LatestQuoteUpdater quoteUpdater;
     private boolean modified;
 
     public PortfolioShell()
     {
-        // default constructor for the Equinox application
+        this(null, new LatestQuoteUpdater());
     }
 
     PortfolioShell(Terminal terminal)
     {
+        this(terminal, new LatestQuoteUpdater());
+    }
+
+    PortfolioShell(Terminal terminal, LatestQuoteUpdater quoteUpdater)
+    {
         this.terminal = terminal;
+        this.quoteUpdater = java.util.Objects.requireNonNull(quoteUpdater);
     }
 
     public int run() throws IOException
@@ -189,8 +198,10 @@ public class PortfolioShell
                 break;
             case "SUMMARY": //$NON-NLS-1$
                 var summaryOptions = performanceOptions(words, "SUMMARY"); //$NON-NLS-1$
-                SummaryReport.render(requireClient(), Interval.of(summaryOptions.from(), summaryOptions.to()))
-                                .forEach(this::println);
+                var summary = SummaryReport.renderReport(requireClient(),
+                                Interval.of(summaryOptions.from(), summaryOptions.to()));
+                var summaryScales = ValueColourScale.forLines(summary.lines());
+                summary.lines().forEach(cliLine -> println(cliLine, summaryScales));
                 break;
             case "TPERF": //$NON-NLS-1$
                 topPerformers(words);
@@ -280,14 +291,19 @@ public class PortfolioShell
     {
         requireArgumentCount(words, 1, "QUPD"); //$NON-NLS-1$
         Client loaded = requireClient();
-        println("Updating latest quotes in memory..."); //$NON-NLS-1$
+        LocalDate valuationDate = LocalDate.now();
+        Money valueBefore = snapshot(loaded, valuationDate).getMonetaryAssets();
+        println("Updating historical and latest quotes in memory..."); //$NON-NLS-1$
 
-        LatestQuoteUpdater.Result result = new LatestQuoteUpdater().update(loaded);
+        LatestQuoteUpdater.Result result = quoteUpdater.update(loaded);
         if (result.getUpdatedCount() > 0)
             modified = true;
 
         println(CliFormatter.format("Quotes: %d updated, %d unchanged, %d skipped, %d failed", result.getUpdatedCount(), //$NON-NLS-1$
                         result.getUnchangedCount(), result.getSkippedCount(), result.getFailedCount()));
+        Money valueAfter = snapshot(loaded, valuationDate).getMonetaryAssets();
+        println("Portfolio value: " + CliFormatter.money(valueBefore) + " -> " + CliFormatter.money(valueAfter) //$NON-NLS-1$ //$NON-NLS-2$
+                        + " (change " + signedMoney(valueAfter.subtract(valueBefore)) + ")"); //$NON-NLS-1$ //$NON-NLS-2$
         result.getEntries().stream().filter(entry -> entry.status() == LatestQuoteUpdater.Status.FAILED)
                         .forEach(entry -> println("- " + entry.security().getName() + ": " + entry.message())); //$NON-NLS-1$ //$NON-NLS-2$
     }
@@ -335,6 +351,8 @@ public class PortfolioShell
 
         println(CliFormatter.format("%-36s %14s %18s %8s", "Holding", "Shares", "Value", "Weight")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
         snapshot.getAssetPositions().sorted(Comparator.comparing(AssetPosition::getValuation).reversed())
+                        .filter(position -> !(position.getInvestmentVehicle() instanceof Account account)
+                                        || !account.isRetired())
                         .forEach(position -> printHolding(position, snapshot.getCurrencyCode()));
     }
 
@@ -368,26 +386,33 @@ public class PortfolioShell
         }
 
         int count = Math.min(options.limit(), performers.size());
+        var bestTtwror = performerRows(performers, count, false);
+        var worstTtwror = performerRows(performers, count, true);
+        var currencyPerformers = PerformerRanking.sortByCurrencyPerformance(performers);
+        var bestCurrency = performerRows(currencyPerformers, count, false);
+        var worstCurrency = performerRows(currencyPerformers, count, true);
+        var performerLines = new ArrayList<CliLine>();
+        bestTtwror.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), false)));
+        worstTtwror.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), false)));
+        bestCurrency.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), true)));
+        worstCurrency.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), true)));
+        var performerScales = ValueColourScale.forLines(performerLines);
+
         println("Best performers (TTWROR):"); //$NON-NLS-1$
         printPerformerHeader("TTWROR"); //$NON-NLS-1$
-        for (int index = 0; index < count; index++)
-            printPerformer(performers.get(index), loaded.getBaseCurrency(), false);
+        bestTtwror.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), false), performerScales));
 
         println("Worst performers (TTWROR):"); //$NON-NLS-1$
         printPerformerHeader("TTWROR"); //$NON-NLS-1$
-        for (int index = performers.size() - 1; index >= performers.size() - count; index--)
-            printPerformer(performers.get(index), loaded.getBaseCurrency(), false);
+        worstTtwror.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), false), performerScales));
 
-        var currencyPerformers = PerformerRanking.sortByCurrencyPerformance(performers);
         println("Best performers (currency performance):"); //$NON-NLS-1$
         printPerformerHeader("Abs. return"); //$NON-NLS-1$
-        for (int index = 0; index < count; index++)
-            printPerformer(currencyPerformers.get(index), loaded.getBaseCurrency(), true);
+        bestCurrency.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), true), performerScales));
 
         println("Worst performers (currency performance):"); //$NON-NLS-1$
         printPerformerHeader("Abs. return"); //$NON-NLS-1$
-        for (int index = currencyPerformers.size() - 1; index >= currencyPerformers.size() - count; index--)
-            printPerformer(currencyPerformers.get(index), loaded.getBaseCurrency(), true);
+        worstCurrency.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), true), performerScales));
 
         if (!warnings.isEmpty())
             println(warnings.size() + " performance calculation warning(s)."); //$NON-NLS-1$
@@ -505,7 +530,7 @@ public class PortfolioShell
 
         if (!periodSeen && explicitFrom == null && !endDateSpecified)
         {
-            Interval interval = new ReportingPeriod.PreviousTradingDay().toInterval(to);
+            Interval interval = mostRecentTradingDayInterval(to);
             return new PerformanceOptions(interval.getStart(), interval.getEnd(), limit);
         }
 
@@ -528,6 +553,16 @@ public class PortfolioShell
         if (!from.isBefore(to))
             throw new IllegalArgumentException("Performance start date must be before the end date."); //$NON-NLS-1$
         return new PerformanceOptions(from, to, limit);
+    }
+
+    static Interval mostRecentTradingDayInterval(LocalDate referenceDate)
+    {
+        LocalDate tradingDay = referenceDate;
+        var calendar = TradeCalendarManager.getDefaultInstance();
+        while (calendar.isHoliday(tradingDay))
+            tradingDay = tradingDay.minusDays(1);
+
+        return Interval.of(tradingDay.minusDays(1), tradingDay);
     }
 
     private Interval negativePeriod(String period, LocalDate relativeTo)
@@ -645,20 +680,43 @@ public class PortfolioShell
         }
     }
 
-    private void printPerformer(PerformerRanking.Performer performer, String currency, boolean absoluteReturn)
+    private List<PerformerRanking.Performer> performerRows(List<PerformerRanking.Performer> performers, int count,
+                    boolean reverse)
     {
-        println(CliFormatter.format("  %-36s %10s %10s %18s %18s", abbreviate(performer.name(), 36), //$NON-NLS-1$
-                        formattedPercent(absoluteReturn ? performer.currencyPerformancePercent()
-                                        : performer.performance()),
-                        formattedPercent(performer.irr()),
-                        signedMoney(Money.of(currency, performer.currencyPerformance())),
-                        CliFormatter.money(Money.of(currency, performer.value()))));
+        var rows = new ArrayList<PerformerRanking.Performer>(count);
+        if (reverse)
+        {
+            for (int index = performers.size() - 1; index >= performers.size() - count; index--)
+                rows.add(performers.get(index));
+        }
+        else
+        {
+            for (int index = 0; index < count; index++)
+                rows.add(performers.get(index));
+        }
+        return rows;
+    }
+
+    private CliLine performerLine(PerformerRanking.Performer performer, String currency, boolean absoluteReturn)
+    {
+        double returnValue = absoluteReturn ? performer.currencyPerformancePercent() : performer.performance();
+        String formattedReturn = formattedPercent(returnValue);
+        String formattedIrr = CliFormatter.irr(performer.irr());
+        String formattedContribution = signedMoney(Money.of(currency, performer.currencyPerformance()));
+        String formattedValue = CliFormatter.money(Money.of(currency, performer.value()));
+
+        return CliLine.builder().append("  ").appendLeft(abbreviate(performer.name(), 36), 36).append(" ") //$NON-NLS-1$ //$NON-NLS-2$
+                        .appendRight(performer.quote(), 16).append(" ") //$NON-NLS-1$
+                        .appendValue(formattedReturn, 10, returnValue, CliLine.Metric.RETURN).append(" ") //$NON-NLS-1$
+                        .appendValue(formattedIrr, 10, performer.irr(), CliLine.Metric.IRR).append(" ") //$NON-NLS-1$
+                        .appendValue(formattedContribution, 18, performer.currencyPerformance(), CliLine.Metric.CONTRIBUTION)
+                        .append(" ").appendRight(formattedValue, 18).build(); //$NON-NLS-1$
     }
 
     private void printPerformerHeader(String returnLabel)
     {
-        println(CliFormatter.format("  %-36s %10s %10s %18s %18s", "Instrument", returnLabel, "IRR p.a.", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                        "Contribution", "Current value")); //$NON-NLS-1$ //$NON-NLS-2$
+        println(CliFormatter.format("  %-36s %16s %10s %10s %18s %18s", "Instrument", "Quote", returnLabel, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                        "IRR p.a.", "Contribution", "Current value")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     }
 
     private void printPerformanceBreakdown(ClientPerformanceSnapshot snapshot)
@@ -780,7 +838,7 @@ public class PortfolioShell
     {
         println("OPEN <file>          Load a .portfolio, .xml, or .zip client file"); //$NON-NLS-1$
         println("RELOAD               Discard in-memory updates and reload the file"); //$NON-NLS-1$
-        println("QUPD                 Fetch latest quotes into memory (does not save)"); //$NON-NLS-1$
+        println("QUPD                 Fetch historical and latest quotes into memory (does not save)"); //$NON-NLS-1$
         println("STORE                Save in-memory updates using the production file writer"); //$NON-NLS-1$
         println("VAL [YYYY-MM-DD]     Show total value in the base currency"); //$NON-NLS-1$
         println("HOLD [YYYY-MM-DD]    List holdings, cash, values, and weights"); //$NON-NLS-1$
@@ -812,6 +870,12 @@ public class PortfolioShell
         terminal.flush();
     }
 
+    private void println(CliLine line, Map<CliLine.Metric, ValueColourScale> scales)
+    {
+        terminal.writer().println(styleOutput(line, scales));
+        terminal.flush();
+    }
+
     private String styleOutput(String message)
     {
         if (!supportsColour())
@@ -825,6 +889,19 @@ public class PortfolioShell
             return prefix + ANSI_BOLD_CYAN + message + ANSI_RESET;
 
         return prefix + colourValues(message);
+    }
+
+    private String styleOutput(CliLine line, Map<CliLine.Metric, ValueColourScale> scales)
+    {
+        if (!supportsColour())
+            return line.text();
+
+        String prefix = ANSI_DIM_CYAN + "│ " + ANSI_RESET; //$NON-NLS-1$
+        if (isHeading(line.text()))
+            return prefix + ANSI_BOLD_CYAN + line.text() + ANSI_RESET;
+        if (line.values().isEmpty())
+            return prefix + colourValues(line.text());
+        return prefix + ValueColourScale.apply(line, scales);
     }
 
     static String colourValues(String message)

@@ -54,6 +54,7 @@
 		<module>../name.abuchen.portfolio.ui</module>
 		<module>../name.abuchen.portfolio.ui.tests</module>
 		<module>../name.abuchen.portfolio.feature</module>
+		<module>../name.abuchen.portfolio.cli.feature</module>
 		<module>../features/org.eclipse.swt.patch</module>
 		<module>../name.abuchen.portfolio.bootstrap</module>
 		<module>../portfolio-build-tools</module>

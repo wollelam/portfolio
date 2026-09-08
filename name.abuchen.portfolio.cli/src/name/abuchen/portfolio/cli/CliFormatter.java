@@ -49,6 +49,13 @@ final class CliFormatter
         return decimal("0.00%", value); //$NON-NLS-1$
     }
 
+    static String irr(double value)
+    {
+        if (value > 10.0d)
+            return ">1000.00%"; //$NON-NLS-1$
+        return Double.isFinite(value) ? format("%+.2f%%", value * 100) : "n/a"; //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
     private static String decimal(String pattern, double value)
     {
         return new DecimalFormat(pattern, DecimalFormatSymbols.getInstance(Locale.ROOT)).format(value);

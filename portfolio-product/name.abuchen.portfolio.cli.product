@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?pde version="3.5"?>
+
+<product name="Portfolio Performance CLI"
+      uid="name.abuchen.portfolio.cli.product"
+      id="name.abuchen.portfolio.cli.product"
+      application="name.abuchen.portfolio.cli.application"
+      version="0.87.1.qualifier"
+      type="features"
+      includeLaunchers="true"
+      autoIncludeRequirements="true">
+
+   <configIni use="default"/>
+
+   <launcherArgs>
+      <vmArgs>-XX:+IgnoreUnrecognizedVMOptions -Dosgi.requiredJavaVersion=21 -Djdk.xml.elementAttributeLimit=0 --add-modules=ALL-SYSTEM -XX:+UseG1GC -XX:+UseStringDeduplication -Xms256m
+      </vmArgs>
+   </launcherArgs>
+
+   <launcher name="portfolio-cli"/>
+
+   <features>
+      <feature id="name.abuchen.portfolio.cli.feature"/>
+      <feature id="org.eclipse.equinox.p2.core.feature"/>
+      <feature id="name.abuchen.zulu.jre.feature"/>
+   </features>
+
+   <configurations>
+      <plugin id="name.abuchen.portfolio.cli" autoStart="true" startLevel="4" />
+      <plugin id="org.eclipse.core.runtime" autoStart="true" startLevel="4" />
+      <plugin id="org.apache.felix.scr" autoStart="true" startLevel="2" />
+      <plugin id="org.eclipse.equinox.common" autoStart="true" startLevel="2" />
+      <plugin id="org.eclipse.equinox.simpleconfigurator" autoStart="true" startLevel="1" />
+      <plugin id="org.apache.aries.spifly.dynamic.bundle" autoStart="true" startLevel="2" />
+      <plugin id="org.eclipse.osgi" autoStart="true" startLevel="-1" />
+      <property name="osgi.instance.area.default" value="$LOCALAPPDATA$/PortfolioPerformance/cli-workspace" os="win32" />
+      <property name="osgi.instance.area.default" value="@user.home/Library/Application Support/PortfolioPerformance/cli-workspace" os="macosx" />
+      <property name="osgi.instance.area.default" value="@user.home/.PortfolioPerformance/cli-workspace" os="linux" />
+      <property name="osgi.requiredJavaVersion" value="21" />
+      <property name="org.eclipse.update.reconcile" value="false" />
+      <property name="eclipse.buildId" value="${unqualifiedVersion}.${buildQualifier}" />
+   </configurations>
+</product>
