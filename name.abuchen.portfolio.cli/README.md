@@ -54,6 +54,7 @@ OPEN <file>
 SUMMARY [period]
 RELOAD
 QUPD
+ERRORS
 STORE
 VAL [YYYY-MM-DD]
 HOLD [YYYY-MM-DD]
@@ -72,7 +73,8 @@ EXIT
 
 `OPEN` supports quoted paths and prompts securely for encrypted files. `QUPD`
 fetches historical and latest quotes into memory, matching the desktop update
-path, but never writes the client file. `VAL` and
+path, but never writes the client file. Interactive terminals show an in-place
+progress bar while the securities are processed. `VAL` and
 `HOLD` uses `ClientSnapshot`. `PERF` reports the dashboard-style portfolio
 performance breakdown. `TPERF` ranks current holdings by both cumulative
 TTWROR and portfolio-currency performance using the core performance engine.
@@ -83,7 +85,8 @@ the same production `ClientFactory.save` writer used by the GUI, preserving its
 existing format and encryption settings. It first creates or replaces a
 sibling `.backup` file, matching the GUI's default Save protection. Each
 ranking row shows both measures. `CHK` invokes registered core consistency
-checks.
+checks. If a quote update encounters provider errors, `QUPD` reports the number
+of affected securities; `ERRORS` shows the details from the most recent update.
 
 The percentage beside portfolio-currency performance is the matching absolute
 performance percentage (`DeltaPercent`), not TTWROR. This keeps its sign and
@@ -220,7 +223,7 @@ docker run --rm -it \
   -jar /root/.m2/repository/p2/osgi/bundle/org.eclipse.equinox.launcher/1.7.100.v20251111-0406/org.eclipse.equinox.launcher-1.7.100.v20251111-0406.jar \
   -data /tmp/portfolio-cli-data \
   -configuration /workspace/name.abuchen.portfolio.cli.tests/target/work/configuration \
-  -application name.abuchen.portfolio.cli.application -consoleLog
+  -application name.abuchen.portfolio.cli.application
 ```
 
 The first command builds and tests the prototype while assembling a temporary

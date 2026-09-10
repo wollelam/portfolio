@@ -195,5 +195,4 @@ exec docker run "${docker_arguments[@]}" \
     -data /tmp/portfolio-cli-data \
     -configuration /workspace/name.abuchen.portfolio.cli.tests/target/work/configuration \
     -application name.abuchen.portfolio.cli.application \
-    -consoleLog \
     "${application_arguments[@]}"

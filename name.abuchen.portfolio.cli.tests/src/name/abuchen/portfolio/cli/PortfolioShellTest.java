@@ -30,6 +30,7 @@ import name.abuchen.portfolio.model.LatestSecurityPrice;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.online.QuoteFeed;
 import name.abuchen.portfolio.online.QuoteFeedData;
+import name.abuchen.portfolio.online.QuoteFeedException;
 import name.abuchen.portfolio.util.Interval;
 
 /**
@@ -75,6 +76,27 @@ public class PortfolioShellTest
             assertThat(harness.output(), containsString("Quotes: ")); //$NON-NLS-1$
             assertThat(harness.output(), containsString("Portfolio value: ")); //$NON-NLS-1$
             assertThat(harness.output(), containsString("(change ")); //$NON-NLS-1$
+        }
+    }
+
+    @Test
+    public void quoteUpdateSummarizesErrorsAndErrorsCommandShowsDetails() throws Exception
+    {
+        Path file = copyFixture("scenarios/currency_sample.xml"); //$NON-NLS-1$
+        var quoteUpdater = new LatestQuoteUpdater(feedId -> new FailingQuoteFeed());
+        try (ShellHarness harness = new ShellHarness("", quoteUpdater)) //$NON-NLS-1$
+        {
+            harness.execute("OPEN " + file); //$NON-NLS-1$
+            harness.execute("QUPD"); //$NON-NLS-1$
+
+            String summary = harness.output();
+            assertThat(summary, containsString("Warning: Errors encountered on ")); //$NON-NLS-1$
+            assertThat(summary, containsString("Use ERRORS to view details.")); //$NON-NLS-1$
+            assertThat(summary, not(containsString("unavailable"))); //$NON-NLS-1$
+
+            harness.execute("ERRORS"); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("QUOTE UPDATE ERRORS (")); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("unavailable")); //$NON-NLS-1$
         }
     }
 
@@ -487,6 +509,44 @@ public class PortfolioShellTest
             QuoteFeedData data = new QuoteFeedData();
             data.addPrice(new LatestSecurityPrice(LocalDate.now(), 200_000L));
             return data;
+        }
+    }
+
+    private static final class FailingQuoteFeed implements QuoteFeed
+    {
+        @Override
+        public String getId()
+        {
+            return "FAIL"; //$NON-NLS-1$
+        }
+
+        @Override
+        public String getName()
+        {
+            return getId();
+        }
+
+        @Override
+        public Optional<LatestSecurityPrice> getLatestQuote(Security security) throws QuoteFeedException
+        {
+            throw new UnavailableQuoteFeedException();
+        }
+
+        @Override
+        public QuoteFeedData getHistoricalQuotes(Security security, boolean collectRawResponse)
+                        throws QuoteFeedException
+        {
+            throw new UnavailableQuoteFeedException();
+        }
+    }
+
+    private static final class UnavailableQuoteFeedException extends QuoteFeedException
+    {
+        private static final long serialVersionUID = 1L;
+
+        private UnavailableQuoteFeedException()
+        {
+            super("unavailable"); //$NON-NLS-1$
         }
     }
 }
