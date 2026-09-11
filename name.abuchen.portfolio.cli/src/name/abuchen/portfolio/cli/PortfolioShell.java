@@ -37,6 +37,7 @@ import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.ClientFactory;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
+import name.abuchen.portfolio.money.ExchangeRate;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Money;
 import name.abuchen.portfolio.snapshot.AssetPosition;
@@ -63,37 +64,65 @@ public class PortfolioShell
     private static final String ANSI_GREEN = "\033[32m"; //$NON-NLS-1$
     private static final String ANSI_RED = "\033[31m"; //$NON-NLS-1$
     private static final int QUOTE_PROGRESS_BAR_WIDTH = 24;
+    private static final int QUOTE_PROGRESS_CHANGE_WIDTH = 12;
+    private static final long QUOTE_PROGRESS_REFRESH_MILLIS = 250L;
     private static final Pattern COLOUR_VALUE = Pattern.compile(
                     "\\b[A-Z]{3} -?\\d[\\d.,'’]*|>1000\\.00%|(?<![\\p{Alnum}_])[-+]\\d[\\d.,'’]*%?"); //$NON-NLS-1$
     private static final Pattern NEGATIVE_PERIOD = Pattern.compile("^-([1-9][0-9]*)([DWMY])$"); //$NON-NLS-1$
 
     private static final List<String> COMMANDS = List.of("OPEN", "RELOAD", "QUPD", "ERRORS", "STORE", "VAL", "HOLD", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$
-                    "PERF", "TPERF", "SEC", "FX", "ALLOC", "INCOME", "TXN", "DATA", "CHK", "HELP", "EXIT", "QUIT", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$ //$NON-NLS-8$ //$NON-NLS-9$ //$NON-NLS-10$ //$NON-NLS-11$ //$NON-NLS-12$ //$NON-NLS-13$
+                    "PERF", "TPERF", "SEC", "FX", "ALLOC", "INCOME", "TXN", "DATA", "CHK", "HELP", "EXIT", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$ //$NON-NLS-8$ //$NON-NLS-9$ //$NON-NLS-10$ //$NON-NLS-11$ //$NON-NLS-12$
                     "SUMMARY"); //$NON-NLS-1$
+    private static final Map<String, String> COMMAND_ABBREVIATIONS = Map.ofEntries(
+                    Map.entry("OP", "OPEN"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("RE", "RELOAD"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("QU", "QUPD"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("ER", "ERRORS"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("ST", "STORE"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("VA", "VAL"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("HO", "HOLD"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("PE", "PERF"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("TP", "TPERF"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("SE", "SEC"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("AL", "ALLOC"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("IN", "INCOME"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("TX", "TXN"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("DA", "DATA"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("CH", "CHK"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("HE", "HELP"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("EX", "EXIT"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("SU", "SUMMARY")); //$NON-NLS-1$ //$NON-NLS-2$
+    private static final List<String> COMMAND_COMPLETIONS = commandCompletions();
 
     private volatile boolean running = true;
     private Client client;
     private Path clientFile;
     private Terminal terminal;
     private final LatestQuoteUpdater quoteUpdater;
+    private final ExchangeRateCache exchangeRateCache;
     private LatestQuoteUpdater.Result lastQuoteUpdate;
-    private boolean quoteProgressVisible;
     private boolean modified;
 
     public PortfolioShell()
     {
-        this(null, new LatestQuoteUpdater());
+        this(null, new LatestQuoteUpdater(), new ExchangeRateCache());
     }
 
     PortfolioShell(Terminal terminal)
     {
-        this(terminal, new LatestQuoteUpdater());
+        this(terminal, new LatestQuoteUpdater(), ExchangeRateCache.disabled());
     }
 
     PortfolioShell(Terminal terminal, LatestQuoteUpdater quoteUpdater)
     {
+        this(terminal, quoteUpdater, ExchangeRateCache.disabled());
+    }
+
+    PortfolioShell(Terminal terminal, LatestQuoteUpdater quoteUpdater, ExchangeRateCache exchangeRateCache)
+    {
         this.terminal = terminal;
         this.quoteUpdater = java.util.Objects.requireNonNull(quoteUpdater);
+        this.exchangeRateCache = java.util.Objects.requireNonNull(exchangeRateCache);
     }
 
     public int run() throws IOException
@@ -111,9 +140,10 @@ public class PortfolioShell
         try
         {
             var reader = LineReaderBuilder.builder().terminal(terminal).parser(new DefaultParser())
-                            .completer(new StringsCompleter(COMMANDS)).build();
+                            .completer(new StringsCompleter(COMMAND_COMPLETIONS)).build();
 
             printWelcome();
+            loadExchangeRates();
             if (initialFile != null)
             {
                 try
@@ -175,7 +205,7 @@ public class PortfolioShell
         if (words.isEmpty())
             return;
 
-        String command = words.get(0).toUpperCase(Locale.ROOT);
+        String command = resolveCommand(words.get(0));
         switch (command)
         {
             case "OPEN": //$NON-NLS-1$
@@ -240,7 +270,6 @@ public class PortfolioShell
                 help();
                 break;
             case "EXIT": //$NON-NLS-1$
-            case "QUIT": //$NON-NLS-1$
                 if (modified)
                     println("Discarding unsaved in-memory quote updates."); //$NON-NLS-1$
                 running = false;
@@ -255,6 +284,19 @@ public class PortfolioShell
         Parser parser = new DefaultParser();
         ParsedLine parsed = parser.parse(line, line.length());
         return parsed.words();
+    }
+
+    private String resolveCommand(String value)
+    {
+        String command = value.toUpperCase(Locale.ROOT);
+        return COMMAND_ABBREVIATIONS.getOrDefault(command, command);
+    }
+
+    private static List<String> commandCompletions()
+    {
+        var completions = new ArrayList<>(COMMANDS);
+        completions.addAll(COMMAND_ABBREVIATIONS.keySet());
+        return List.copyOf(completions);
     }
 
     private void open(LineReader reader, List<String> words) throws IOException
@@ -298,23 +340,33 @@ public class PortfolioShell
     {
         requireArgumentCount(words, 1, "QUPD"); //$NON-NLS-1$
         Client loaded = requireClient();
+        refreshExchangeRates();
         LocalDate valuationDate = LocalDate.now();
         Money valueBefore = snapshot(loaded, valuationDate).getMonetaryAssets();
         println("Updating historical and latest quotes in memory..."); //$NON-NLS-1$
 
         lastQuoteUpdate = null;
         int total = loaded.getActiveSecurities().size();
-        if (total > 0)
-            showQuoteProgress(0, total, null);
+        QuoteProgressRenderer progressRenderer = total > 0 && supportsProgress()
+                        ? new QuoteProgressRenderer(terminal, total, loaded, valuationDate, valueBefore)
+                        : null;
+        if (progressRenderer != null)
+            progressRenderer.start();
 
         LatestQuoteUpdater.Result result;
         try
         {
-            result = quoteUpdater.update(loaded, this::showQuoteProgress);
+            LatestQuoteUpdater.ProgressListener progress = progressRenderer == null
+                            ? (completed, progressTotal, entry) -> {
+                                // intentionally empty
+                            }
+                            : progressRenderer::update;
+            result = quoteUpdater.update(loaded, progress);
         }
         finally
         {
-            clearQuoteProgress();
+            if (progressRenderer != null)
+                progressRenderer.close();
         }
         lastQuoteUpdate = result;
         if (result.getUpdatedCount() > 0)
@@ -330,32 +382,173 @@ public class PortfolioShell
                             result.getErrorCount()));
     }
 
-    private void showQuoteProgress(int completed, int total, LatestQuoteUpdater.ResultEntry entry)
+    private void loadExchangeRates()
     {
-        if (!supportsProgress())
-            return;
-
-        int safeTotal = Math.max(total, 1);
-        int safeCompleted = Math.max(0, Math.min(completed, total));
-        int percentage = safeCompleted * 100 / safeTotal;
-        int filled = (int) ((long) QUOTE_PROGRESS_BAR_WIDTH * safeCompleted / safeTotal);
-        String bar = "[" + "=".repeat(filled) + "-".repeat(QUOTE_PROGRESS_BAR_WIDTH - filled) + "]"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        String security = entry == null ? "" : " " + abbreviate(entry.security().getName(), 40); //$NON-NLS-1$
-        String progress = CliFormatter.format("%s %3d%% (%d/%d)%s", bar, percentage, completed, total, security); //$NON-NLS-1$
-
-        terminal.writer().print("\r\033[2K" + progress); //$NON-NLS-1$
-        terminal.flush();
-        quoteProgressVisible = true;
+        try
+        {
+            exchangeRateCache.load();
+        }
+        catch (IOException e)
+        {
+            println("Warning: " + e.getMessage()); //$NON-NLS-1$
+        }
     }
 
-    private void clearQuoteProgress()
+    private void refreshExchangeRates()
     {
-        if (!quoteProgressVisible)
-            return;
+        println("Refreshing cached exchange rates..."); //$NON-NLS-1$
+        try
+        {
+            exchangeRateCache.refresh();
+        }
+        catch (IOException e)
+        {
+            println("Warning: " + e.getMessage()); //$NON-NLS-1$
+        }
+    }
 
-        terminal.writer().print("\r\033[2K"); //$NON-NLS-1$
-        terminal.flush();
-        quoteProgressVisible = false;
+    private final class QuoteProgressRenderer implements AutoCloseable
+    {
+        private final Terminal progressTerminal;
+        private final int total;
+        private final Client progressClient;
+        private final LocalDate valuationDate;
+        private final Money valueBefore;
+        private final Thread rendererThread;
+        private volatile Progress latest;
+        private volatile boolean running;
+        private boolean progressVisible;
+
+        private QuoteProgressRenderer(Terminal progressTerminal, int total, Client progressClient,
+                        LocalDate valuationDate, Money valueBefore)
+        {
+            this.progressTerminal = progressTerminal;
+            this.total = total;
+            this.progressClient = progressClient;
+            this.valuationDate = valuationDate;
+            this.valueBefore = valueBefore;
+            this.latest = new Progress(0, total, null);
+            this.rendererThread = new Thread(this::renderLoop, "portfolio-cli-quote-progress"); //$NON-NLS-1$
+            this.rendererThread.setDaemon(true);
+        }
+
+        private void start()
+        {
+            running = true;
+            rendererThread.start();
+        }
+
+        private void update(int completed, int progressTotal, LatestQuoteUpdater.ResultEntry entry)
+        {
+            latest = new Progress(completed, progressTotal, entry == null ? null : entry.security().getName());
+        }
+
+        @Override
+        public void close()
+        {
+            update(total, total, null);
+            running = false;
+            rendererThread.interrupt();
+
+            boolean interrupted = false;
+            while (true)
+            {
+                try
+                {
+                    rendererThread.join();
+                    break;
+                }
+                catch (InterruptedException e)
+                {
+                    interrupted = true;
+                }
+            }
+            if (interrupted)
+                Thread.currentThread().interrupt();
+        }
+
+        private void renderLoop()
+        {
+            Progress rendered = null;
+            while (true)
+            {
+                Progress current = latest;
+                if (!current.equals(rendered))
+                {
+                    render(current);
+                    rendered = current;
+                }
+
+                if (!running)
+                {
+                    clear();
+                    return;
+                }
+
+                try
+                {
+                    Thread.sleep(QUOTE_PROGRESS_REFRESH_MILLIS);
+                }
+                catch (InterruptedException e)
+                {
+                    // Recheck the latest progress immediately when closing.
+                }
+            }
+        }
+
+        private void render(Progress progress)
+        {
+            int safeTotal = Math.max(progress.total(), 1);
+            int safeCompleted = Math.max(0, Math.min(progress.completed(), progress.total()));
+            int percentage = safeCompleted * 100 / safeTotal;
+            int filled = (int) ((long) QUOTE_PROGRESS_BAR_WIDTH * safeCompleted / safeTotal);
+            String bar = "[" + "=".repeat(filled) + "-".repeat(QUOTE_PROGRESS_BAR_WIDTH - filled) + "]"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            Money portfolioChange = portfolioChange();
+            String change = portfolioChange == null ? "n/a" //$NON-NLS-1$
+                            : signedMoney(portfolioChange);
+            String changeField = CliFormatter.format("%" + QUOTE_PROGRESS_CHANGE_WIDTH + "s", change); //$NON-NLS-1$
+            if (supportsColour() && portfolioChange != null && !portfolioChange.isZero())
+            {
+                String colour = portfolioChange.isPositive() ? ANSI_GREEN : ANSI_RED;
+                changeField = colour + changeField + ANSI_RESET;
+            }
+            String security = progress.security() == null ? "" : " " + abbreviate(progress.security(), 40); //$NON-NLS-1$
+            String message = CliFormatter.format("%s %3d%% (%d/%d) %s%s", bar, percentage, progress.completed(), //$NON-NLS-1$
+                            progress.total(), changeField, security);
+
+            progressTerminal.writer().print("\r\033[2K" + message); //$NON-NLS-1$
+            progressTerminal.flush();
+            progressVisible = true;
+        }
+
+        private void clear()
+        {
+            if (!progressVisible)
+                return;
+
+            progressTerminal.writer().print("\r\033[2K"); //$NON-NLS-1$
+            progressTerminal.flush();
+            progressVisible = false;
+        }
+
+        private Money portfolioChange()
+        {
+            try
+            {
+                return snapshot(progressClient, valuationDate).getMonetaryAssets().subtract(valueBefore);
+            }
+            catch (RuntimeException e)
+            {
+                // A quote update can briefly mutate the client while the
+                // renderer is calculating the display value. Try again on
+                // the next progress update instead of affecting the update.
+                return null;
+            }
+        }
+
+        private record Progress(int completed, int total, String security)
+        {
+        }
     }
 
     private void quoteUpdateErrors(List<String> words)
@@ -505,17 +698,44 @@ public class PortfolioShell
         Client loaded = requireClient();
         PerformanceOptions options = performanceOptions(words, "FX"); //$NON-NLS-1$
         var converter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(loaded), loaded.getBaseCurrency());
-        println("FX rates to " + loaded.getBaseCurrency() + " at " + options.to()); //$NON-NLS-1$ //$NON-NLS-2$
+        println("FX rates to " + loaded.getBaseCurrency() + " at " + options.to() //$NON-NLS-1$ //$NON-NLS-2$
+                        + " (change vs. previous available rate):"); //$NON-NLS-1$
         var currencies = new java.util.TreeSet<String>();
         loaded.getSecurities().stream().map(Security::getCurrencyCode).filter(java.util.Objects::nonNull)
                         .forEach(currencies::add);
         loaded.getAccounts().forEach(account -> currencies.add(account.getCurrencyCode()));
+
+        var lines = new ArrayList<CliLine>();
         for (String currency : currencies)
         {
             var rate = converter.getRateIfAvailable(options.to(), currency);
-            println(currency + ": " + rate.map(r -> r.getValue() + " (rate date " + r.getTime() + ")") //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                            .orElse("unavailable")); //$NON-NLS-1$
+            if (rate.isEmpty())
+            {
+                lines.add(CliLine.plain(CliFormatter.format("%-4s: %18s %10s (rate unavailable)", currency, "n/a", //$NON-NLS-1$ //$NON-NLS-2$
+                                "n/a"))); //$NON-NLS-1$
+                continue;
+            }
+
+            ExchangeRate current = rate.get();
+            double change = exchangeRateChange(converter, currency, current);
+            String formattedChange = CliFormatter.signedPercent(change);
+            String prefix = CliFormatter.format("%-4s: %18s ", currency, current.getValue().toPlainString()); //$NON-NLS-1$
+            lines.add(CliLine.builder().append(prefix).appendValue(formattedChange, 10, change, CliLine.Metric.FX_CHANGE)
+                            .append(" (rate date ").append(current.getTime().toString()).append(")").build()); //$NON-NLS-1$ //$NON-NLS-2$
         }
+
+        var scales = ValueColourScale.forLines(lines);
+        lines.forEach(line -> println(line, scales));
+    }
+
+    private double exchangeRateChange(CurrencyConverterImpl converter, String currency, ExchangeRate current)
+    {
+        var previous = converter.getRateIfAvailable(current.getTime().minusDays(1), currency);
+        if (previous.isEmpty() || !previous.get().getTime().isBefore(current.getTime())
+                        || previous.get().getValue().signum() == 0)
+            return Double.NaN;
+
+        return current.getValue().doubleValue() / previous.get().getValue().doubleValue() - 1d;
     }
 
     private void allocation(List<String> words)
@@ -912,7 +1132,7 @@ public class PortfolioShell
     {
         println("OPEN <file>          Load a .portfolio, .xml, or .zip client file"); //$NON-NLS-1$
         println("RELOAD               Discard in-memory updates and reload the file"); //$NON-NLS-1$
-        println("QUPD                 Fetch historical and latest quotes into memory (does not save)"); //$NON-NLS-1$
+        println("QUPD                 Refresh FX cache and fetch quotes into memory (client file not saved)"); //$NON-NLS-1$
         println("ERRORS               Show errors from the most recent quote update"); //$NON-NLS-1$
         println("STORE                Save in-memory updates using the production file writer"); //$NON-NLS-1$
         println("VAL [YYYY-MM-DD]     Show total value in the base currency"); //$NON-NLS-1$
@@ -930,6 +1150,10 @@ public class PortfolioShell
         println("CHK                  Run the registered consistency checks"); //$NON-NLS-1$
         println("HELP                 Show this help"); //$NON-NLS-1$
         println("EXIT                 Exit without changing the loaded file"); //$NON-NLS-1$
+        println("2-char aliases: OP=OPEN RE=RELOAD QU=QUPD ER=ERRORS ST=STORE"); //$NON-NLS-1$
+        println("                VA=VAL HO=HOLD PE=PERF TP=TPERF SE=SEC FX=FX"); //$NON-NLS-1$
+        println("                AL=ALLOC IN=INCOME TX=TXN DA=DATA CH=CHK"); //$NON-NLS-1$
+        println("                HE=HELP EX=EXIT SU=SUMMARY"); //$NON-NLS-1$
     }
 
     private String abbreviate(String value, int width)

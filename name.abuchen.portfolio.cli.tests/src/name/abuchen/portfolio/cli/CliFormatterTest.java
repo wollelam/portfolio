@@ -24,6 +24,8 @@ public class CliFormatterTest
 
             assertThat(CliFormatter.money(Money.of("EUR", 435_438L)), is("EUR 4,354.38"));
             assertThat(CliFormatter.percent(0.1234d), is("12.34%"));
+            assertThat(CliFormatter.signedPercent(0.1234d), is("+12.34%"));
+            assertThat(CliFormatter.signedPercent(-0.1234d), is("-12.34%"));
             assertThat(CliFormatter.irr(10.0d), is("+1000.00%"));
             assertThat(CliFormatter.irr(10.0001d), is(">1000.00%"));
             assertThat(CliFormatter.irr(Double.POSITIVE_INFINITY), is(">1000.00%"));
@@ -61,5 +63,16 @@ public class CliFormatterTest
 
         assertThat(ValueColourScale.apply(zero, scales), is("    +0.00%")); //$NON-NLS-1$
         assertThat(ValueColourScale.apply(missing, scales), is("       n/a")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void coloursForeignExchangeChanges()
+    {
+        var increase = CliLine.builder().appendValue("+1.00%", 10, 0.01d, CliLine.Metric.FX_CHANGE).build(); //$NON-NLS-1$
+        var decrease = CliLine.builder().appendValue("-1.00%", 10, -0.01d, CliLine.Metric.FX_CHANGE).build(); //$NON-NLS-1$
+        var scales = ValueColourScale.forLines(List.of(increase, decrease));
+
+        assertThat(ValueColourScale.apply(increase, scales), containsString(ValueColourScale.BRIGHT_GREEN));
+        assertThat(ValueColourScale.apply(decrease, scales), containsString(ValueColourScale.BRIGHT_RED));
     }
 }
