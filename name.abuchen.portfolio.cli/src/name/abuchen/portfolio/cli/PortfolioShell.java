@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
@@ -15,6 +16,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -33,9 +35,12 @@ import org.jline.terminal.TerminalBuilder;
 import name.abuchen.portfolio.checks.Checker;
 import name.abuchen.portfolio.checks.Issue;
 import name.abuchen.portfolio.model.Account;
+import name.abuchen.portfolio.model.AccountTransaction;
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.ClientFactory;
+import name.abuchen.portfolio.model.PortfolioTransaction;
 import name.abuchen.portfolio.model.Security;
+import name.abuchen.portfolio.model.SharedPortfolioCommand;
 import name.abuchen.portfolio.model.SharedPortfolioSession;
 import name.abuchen.portfolio.model.SharedPortfolioWorkspace;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
@@ -300,7 +305,8 @@ public class PortfolioShell
     private void sync(LineReader reader, List<String> words) throws IOException
     {
         requireArgumentCountAtLeast(words, 2,
-                        "SYNC STATUS|INIT <folder>|JOIN <folder> <new-local-file>|SUBMIT|REFRESH|PENDING|ACCEPT <id>"); //$NON-NLS-1$
+                        "SYNC STATUS|INIT <folder>|JOIN <folder> <new-local-file>|SUBMIT|REFRESH|PENDING|EVENTS|ACCEPT <id>" //$NON-NLS-1$
+                                        + "|ADD-QUOTE|ADD-ACCOUNT-TXN|ADD-PORTFOLIO-TXN"); //$NON-NLS-1$
         String action = words.get(1).toUpperCase(Locale.ROOT);
         switch (action)
         {
@@ -326,9 +332,25 @@ public class PortfolioShell
                 requireSharedSession();
                 store(List.of("STORE")); //$NON-NLS-1$
                 String submissionParent = sharedSession.getParentRevision();
-                String submission = sharedSession.submit();
-                println(submission == null ? "No local changes to submit." //$NON-NLS-1$
-                                : "Submitted " + submission + " based on " + submissionParent + "."); //$NON-NLS-1$ //$NON-NLS-2$
+                String submission = sharedSession.submitChanges(client);
+                if (submission == null)
+                    println("No local changes to submit."); //$NON-NLS-1$
+                else
+                {
+                    boolean command = Files.isRegularFile(sharedSession.getWorkspaceDirectory().resolve("commands") //$NON-NLS-1$
+                                    .resolve(submission + ".ppcmd")); //$NON-NLS-1$
+                    println("Submitted " + (command ? "additive command " : "complete-file proposal ") + submission //$NON-NLS-1$ //$NON-NLS-2$
+                                    + " based on " + submissionParent + "."); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                break;
+            case "ADD-QUOTE": //$NON-NLS-1$
+                submitQuoteCommand(words);
+                break;
+            case "ADD-ACCOUNT-TXN": //$NON-NLS-1$
+                submitAccountTransactionCommand(words);
+                break;
+            case "ADD-PORTFOLIO-TXN": //$NON-NLS-1$
+                submitPortfolioTransactionCommand(words);
                 break;
             case "REFRESH": //$NON-NLS-1$
                 requireArgumentCount(words, 2, "SYNC REFRESH"); //$NON-NLS-1$
@@ -349,29 +371,139 @@ public class PortfolioShell
                 println("Local parent: " + sharedSession.getParentRevision()); //$NON-NLS-1$
                 println("Master head: " + head); //$NON-NLS-1$
                 println("Pending submissions: " + sharedSession.pending().size()); //$NON-NLS-1$
+                println("Pending commands: " + sharedSession.pendingCommands().size()); //$NON-NLS-1$
+                println("Accepted events: " + sharedSession.events().size()); //$NON-NLS-1$
                 break;
             case "PENDING": //$NON-NLS-1$
                 requireArgumentCount(words, 2, "SYNC PENDING"); //$NON-NLS-1$
                 requireSharedSession();
                 var pending = sharedSession.pending();
-                if (pending.isEmpty())
-                    println("No pending submissions."); //$NON-NLS-1$
+                var pendingCommands = sharedSession.getWorkspace().pendingCommands();
+                if (pending.isEmpty() && pendingCommands.isEmpty())
+                    println("No pending commands or submissions."); //$NON-NLS-1$
                 else
-                    pending.forEach(item -> println(item.id() + " actor=" + item.actorId() + " parent=" //$NON-NLS-1$ //$NON-NLS-2$
+                {
+                    pendingCommands.forEach(item -> println("command " + item.id() + " actor=" + item.actorId() //$NON-NLS-1$ //$NON-NLS-2$
+                                    + " parent=" + item.parentRevision() + " operations=" + item.operations().size())); //$NON-NLS-1$ //$NON-NLS-2$
+                    pending.forEach(item -> println("submission " + item.id() + " actor=" + item.actorId() + " parent=" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                                     + item.parentRevision() + " content=" + item.contentHash())); //$NON-NLS-1$
+                }
+                break;
+            case "EVENTS": //$NON-NLS-1$
+                requireArgumentCount(words, 2, "SYNC EVENTS"); //$NON-NLS-1$
+                requireSharedSession();
+                var events = sharedSession.events();
+                if (events.isEmpty())
+                    println("No accepted command events."); //$NON-NLS-1$
+                else
+                    events.forEach(event -> println("event " + event.sequence() + " command=" + event.command().id() //$NON-NLS-1$ //$NON-NLS-2$
+                                    + " actor=" + event.command().actorId() + " revision=" + event.revision() //$NON-NLS-1$ //$NON-NLS-2$
+                                    + " operations=" + event.command().operations().size())); //$NON-NLS-1$
                 break;
             case "ACCEPT": //$NON-NLS-1$
                 requireArgumentCount(words, 3, "SYNC ACCEPT <submission-id>"); //$NON-NLS-1$
                 requireSharedSession();
                 if (modified)
                     throw new SharedPortfolioWorkspace.DirtyException("Save local changes before accepting a contribution."); //$NON-NLS-1$
-                String revision = sharedSession.accept(words.get(2));
-                open(reader, List.of("OPEN", clientFile.toString())); //$NON-NLS-1$
-                println("Accepted at revision " + revision + "."); //$NON-NLS-1$ //$NON-NLS-2$
+                String acceptanceId = words.get(2);
+                Path commandPath = sharedSession.getWorkspaceDirectory().resolve("commands") //$NON-NLS-1$
+                                .resolve(acceptanceId + ".ppcmd"); //$NON-NLS-1$
+                if (Files.isRegularFile(commandPath))
+                {
+                    SharedPortfolioWorkspace.CommandAcceptance acceptance = sharedSession.acceptCommand(client,
+                                    acceptanceId);
+                    modified = false;
+                    println("Accepted command " + acceptanceId + " as event " + acceptance.sequence() //$NON-NLS-1$ //$NON-NLS-2$
+                                    + " at revision " + acceptance.revision() + "."); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                else
+                {
+                    String revision = sharedSession.accept(acceptanceId);
+                    open(reader, List.of("OPEN", clientFile.toString())); //$NON-NLS-1$
+                    println("Accepted submission at revision " + revision + "."); //$NON-NLS-1$ //$NON-NLS-2$
+                }
                 break;
             default:
                 throw new IllegalArgumentException("Unknown SYNC action '" + words.get(1) + "'."); //$NON-NLS-1$ //$NON-NLS-2$
         }
+    }
+
+    private void submitQuoteCommand(List<String> words) throws IOException
+    {
+        requireArgumentCountAtLeast(words, 5, "SYNC ADD-QUOTE <security-id> <YYYY-MM-DD> <value> [high low volume]"); //$NON-NLS-1$
+        if (words.size() != 5 && words.size() != 8)
+            throw new IllegalArgumentException("Usage: SYNC ADD-QUOTE <security-id> <YYYY-MM-DD> <value> [high low volume]"); //$NON-NLS-1$
+        SharedPortfolioSession session = requireSharedSession();
+        String securityId = words.get(2);
+        if (requireClient().getSecurities().stream().noneMatch(security -> securityId.equals(security.getUUID())))
+            throw new IllegalArgumentException("Unknown security: " + securityId); //$NON-NLS-1$
+        LocalDate date = LocalDate.parse(words.get(3));
+        long value = Long.parseLong(words.get(4));
+        SharedPortfolioCommand.Operation operation;
+        if (words.size() == 8)
+        {
+            operation = new SharedPortfolioCommand.AddQuote(securityId, date, value, Long.parseLong(words.get(5)),
+                            Long.parseLong(words.get(6)), Long.parseLong(words.get(7)));
+        }
+        else
+        {
+            operation = new SharedPortfolioCommand.AddQuote(securityId, date, value);
+        }
+        SharedPortfolioCommand command = SharedPortfolioCommand.create(session.getWorkspace().getWorkspaceId(),
+                        session.getActorId(), session.getParentRevision(), List.of(operation));
+        println("Submitted command " + session.submitCommand(command) + "."); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private void submitAccountTransactionCommand(List<String> words) throws IOException
+    {
+        requireArgumentCountAtLeast(words, 7,
+                        "SYNC ADD-ACCOUNT-TXN <account-id> <type> <date-time> <currency> <amount> [security-id shares]"); //$NON-NLS-1$
+        if (words.size() != 7 && words.size() != 9)
+            throw new IllegalArgumentException("Usage: SYNC ADD-ACCOUNT-TXN <account-id> <type> <date-time> <currency> <amount> [security-id shares]"); //$NON-NLS-1$
+        SharedPortfolioSession session = requireSharedSession();
+        String accountId = words.get(2);
+        if (requireClient().getAccounts().stream().noneMatch(account -> accountId.equals(account.getUUID())))
+            throw new IllegalArgumentException("Unknown account: " + accountId); //$NON-NLS-1$
+        String securityId = words.size() == 9 && !"-".equals(words.get(7)) ? words.get(7) : null; //$NON-NLS-1$
+        long shares = words.size() == 9 ? Long.parseLong(words.get(8)) : 0;
+        if (securityId != null && requireClient().getSecurities().stream()
+                        .noneMatch(security -> securityId.equals(security.getUUID())))
+            throw new IllegalArgumentException("Unknown security: " + securityId); //$NON-NLS-1$
+        SharedPortfolioCommand.Operation operation = new SharedPortfolioCommand.AddAccountTransaction(
+                        UUID.randomUUID().toString(), accountId, LocalDateTime.parse(words.get(4)), words.get(5),
+                        Long.parseLong(words.get(6)), securityId, shares,
+                        AccountTransaction.Type.valueOf(words.get(3).toUpperCase(Locale.ROOT)), null, null, null);
+        submitCommand(session, operation);
+    }
+
+    private void submitPortfolioTransactionCommand(List<String> words) throws IOException
+    {
+        requireArgumentCountAtLeast(words, 7,
+                        "SYNC ADD-PORTFOLIO-TXN <portfolio-id> <type> <date-time> <currency> <amount> [security-id shares]"); //$NON-NLS-1$
+        if (words.size() != 7 && words.size() != 9)
+            throw new IllegalArgumentException("Usage: SYNC ADD-PORTFOLIO-TXN <portfolio-id> <type> <date-time> <currency> <amount> [security-id shares]"); //$NON-NLS-1$
+        SharedPortfolioSession session = requireSharedSession();
+        String portfolioId = words.get(2);
+        if (requireClient().getPortfolios().stream().noneMatch(portfolio -> portfolioId.equals(portfolio.getUUID())))
+            throw new IllegalArgumentException("Unknown portfolio: " + portfolioId); //$NON-NLS-1$
+        String securityId = words.size() == 9 && !"-".equals(words.get(7)) ? words.get(7) : null; //$NON-NLS-1$
+        long shares = words.size() == 9 ? Long.parseLong(words.get(8)) : 0;
+        if (securityId != null && requireClient().getSecurities().stream()
+                        .noneMatch(security -> securityId.equals(security.getUUID())))
+            throw new IllegalArgumentException("Unknown security: " + securityId); //$NON-NLS-1$
+        SharedPortfolioCommand.Operation operation = new SharedPortfolioCommand.AddPortfolioTransaction(
+                        UUID.randomUUID().toString(), portfolioId, LocalDateTime.parse(words.get(4)), words.get(5),
+                        Long.parseLong(words.get(6)), securityId, shares,
+                        PortfolioTransaction.Type.valueOf(words.get(3).toUpperCase(Locale.ROOT)), null, null);
+        submitCommand(session, operation);
+    }
+
+    private void submitCommand(SharedPortfolioSession session, SharedPortfolioCommand.Operation operation)
+                    throws IOException
+    {
+        SharedPortfolioCommand command = SharedPortfolioCommand.create(session.getWorkspace().getWorkspaceId(),
+                        session.getActorId(), session.getParentRevision(), List.of(operation));
+        println("Submitted command " + session.submitCommand(command) + "."); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private SharedPortfolioSession requireSharedSession()
@@ -936,7 +1068,10 @@ public class PortfolioShell
         println("STORE                Save in-memory updates using the production file writer"); //$NON-NLS-1$
         println("SYNC INIT <folder>   Create a shared workspace from the opened file"); //$NON-NLS-1$
         println("SYNC JOIN <folder> <new-local-file>  Join a shared workspace"); //$NON-NLS-1$
-        println("SYNC SUBMIT|REFRESH|STATUS|PENDING|ACCEPT <id>"); //$NON-NLS-1$
+        println("SYNC SUBMIT|REFRESH|STATUS|PENDING|EVENTS|ACCEPT <id>"); //$NON-NLS-1$
+        println("SYNC ADD-QUOTE <security-id> <date> <value> [high low volume]"); //$NON-NLS-1$
+        println("SYNC ADD-ACCOUNT-TXN <account-id> <type> <date-time> <currency> <amount> [security-id shares]"); //$NON-NLS-1$
+        println("SYNC ADD-PORTFOLIO-TXN <portfolio-id> <type> <date-time> <currency> <amount> [security-id shares]"); //$NON-NLS-1$
         println("VAL [YYYY-MM-DD]     Show total value in the base currency"); //$NON-NLS-1$
         println("HOLD [YYYY-MM-DD]    List holdings, cash, values, and weights"); //$NON-NLS-1$
         println("PERF [period] [--from DATE] [--to DATE]"); //$NON-NLS-1$

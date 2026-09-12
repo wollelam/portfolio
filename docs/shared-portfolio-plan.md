@@ -1,8 +1,9 @@
 # Shared portfolios: desktop and CLI
 
-Status: first implementation slice in progress, 2026-09-12. The transport,
-local session, CLI commands, and desktop menu workflow are implemented; semantic
-merging, background aggregation, and a dedicated review UI remain future work.
+Status: additive command/event slice in progress, 2026-09-12. The transport,
+local session, CLI commands, desktop menu workflow, command application and
+accepted event replay APIs are implemented; automatic change capture,
+background aggregation, and a dedicated review UI remain future work.
 
 - Checkout: `/home/ole/source/portfolio-shared-sync`
 - Branch: `feature/shared-portfolio-sync`
@@ -32,8 +33,11 @@ The shared directory contains:
 workspace.properties           protocol version, workspace ID, owner identity
 head                           hash of the owner's current master snapshot
 revisions/<sha256>.portfolio    immutable master snapshots
+commands/<uuid>.ppcmd          immutable additive command batches
+events/<sequence>-<uuid>.ppevent accepted command event log
 submissions/<uuid>.ppchange     immutable ZIP: metadata + proposed portfolio
-accepted/<uuid>                receipt written only by the owner
+accepted/<uuid>.ppreceipt       command receipt written only by the owner
+accepted/<uuid>                whole-file submission receipt
 ```
 
 The implementation also writes `master.portfolio` as a convenient current
@@ -54,19 +58,28 @@ file and rename. Readers verify format, workspace ID and payload checksum;
 partially delivered or damaged packages cannot become the master.
 
 Save always persists the working file first, retaining the app's encryption,
-format and local backup behavior. A contributor then submits that exact file,
-including its parent hash. Subsequent submissions form a chain, so the owner
-can apply several saves from the same client in order. The owner publishes
-directly only if its parent still matches the master.
+format and local backup behavior. Additive edits can then be published as an
+immutable command batch containing stable entity/transaction IDs and a parent
+revision. The owner validates and applies the batch to its in-memory master,
+publishes a full materialized snapshot, and appends an accepted event. The
+snapshot is still the convenient recovery artifact; the event stream is the
+replication/audit input. Existing complete-file submissions remain available
+for edits that are not yet representable as commands.
+
+Command envelopes and event metadata are currently plaintext mailbox files.
+Keep the synchronized folder within the same trust boundary as the portfolio;
+encryption of command payloads is a follow-up protocol item.
 
 Applying a submission requires the owner identity, an unchanged owner working
 file, a valid envelope/checksum, and a parent matching the current master.
 Publishing adds an immutable revision and updates the owner-only pointer. A
 receipt makes repeated delivery idempotent. A stale submission stays pending
 with its full payload intact. No last-writer-wins rule, text merge or
-force-accept exists. The first slice transports portfolio bytes opaquely; model
-validation and encrypted-candidate password handling are explicitly deferred
-to the coordinator/merge milestone.
+force-accept exists. Command envelopes are JSON with explicit date/time and
+money fields; they do not reflect over Java time types. The owner validates
+references, duplicate IDs, currency/unit constraints and quote conflicts before
+publication. Encrypted portfolio snapshots remain opaque to the mailbox and are
+handled by the local owner process with its already-open client.
 
 The owner must be a single machine. Local locking can serialize processes on
 that machine; a Drive file is not a distributed lock. If the owner is offline,
@@ -114,11 +127,14 @@ contributors can continue saving/submitting and aggregation waits for it.
 
 ## Boundaries of the first prototype
 
-Changes are whole-file proposals, not operations or live collaborative edits.
-Two clients starting from the same master can both submit; after one is applied,
-the other remains pending until manually reconciled. Automatic disjoint merging
-is milestone 3. Repeated encrypted saves can produce different byte hashes even
-when the model is unchanged.
+The command slice supports adding historic/latest quotes and standalone account
+or portfolio transactions that refer to existing entities. Transfers, linked
+buy/sell entries, security/account/portfolio creation, updates and deletions
+are rejected as command conflicts; use the complete-file fallback while those
+operations are being designed. Commands are applied exactly once by command ID,
+and accepted events are ordered by an owner-assigned sequence. Automatic
+disjoint merging and optimistic UI capture are milestone 3. Repeated encrypted
+saves can produce different byte hashes even when the model is unchanged.
 
 Local working files must be outside the shared workspace, and each process must
 use its own working file. Existing applications opening the original Drive file
@@ -141,17 +157,19 @@ The first slice keeps the protocol in the already exported
 
 | Component | Responsibility |
 | --- | --- |
-| `SharedPortfolioWorkspace` | Workspace identity, verified snapshots, immutable submissions, owner publication and receipts |
-| `SharedPortfolioSession` | Local working file association, parent revision, contributor/owner role and submission chain |
+| SharedPortfolioWorkspace | Workspace identity, verified snapshots, immutable command/event and whole-file mailboxes, owner publication and receipts |
+| SharedPortfolioSession | Local working file association, parent revision, contributor/owner role, command IDs and submission chain |
+| SharedPortfolioCommand | Explicit additive quote/transaction operations, JSON envelope, validation and idempotent model application |
 | `SharedPortfolioCoordinator` (later) | One local owner process at a time, pending queue, compatibility checks, acceptance and recovery journal |
 | `PortfolioChangeSet` (later) | Model-aware comparison and merge of base, proposal and current master |
 
 Reuse `ClientFactory.load/save/saveAs`; do not change the portfolio file format
-to introduce sharing. Treat serialization as opaque in the transport layer.
-The first slice applies size limits and verifies checksums before accepting a
-submission envelope. A future coordinator must deserialize and validate the
-candidate before publication, including encrypted-file password handling and
-supported model-version checks.
+to introduce sharing. Treat materialized snapshots as opaque in the transport
+layer, while command envelopes carry explicit model operations. The owner
+applies size limits and validates references, IDs, units and quote conflicts
+before publishing an event. A future coordinator must add linked transaction
+groups, entity creation/update/delete operations and stronger model-version
+checks.
 
 Desktop integration points:
 
@@ -171,9 +189,11 @@ Desktop integration points:
 
 CLI integration is in `name.abuchen.portfolio.cli/.../PortfolioShell.java`.
 Implemented commands are `SYNC INIT <folder>`, `SYNC JOIN <workspace>
-<new-local-file>`, `SYNC SUBMIT`, `SYNC REFRESH`, `SYNC STATUS`, `SYNC PENDING`
-and `SYNC ACCEPT <submission-id>`. `STORE` persists locally; `SYNC SUBMIT`
-publishes using the same session service used by desktop.
+<new-local-file>`, `SYNC SUBMIT`, `SYNC REFRESH`, `SYNC STATUS`, `SYNC PENDING`,
+`SYNC EVENTS`, `SYNC ACCEPT <id>`, `SYNC ADD-QUOTE`, `SYNC ADD-ACCOUNT-TXN`
+and `SYNC ADD-PORTFOLIO-TXN`. `STORE` persists locally; `SYNC SUBMIT` remains
+the complete-file fallback, while the additive commands publish through the
+same session service used by desktop.
 Errors must distinguish saved locally, submitted, accepted, conflict and delivery
 failure. Keep ordinary `OPEN`/`STORE` behavior for unconnected files.
 

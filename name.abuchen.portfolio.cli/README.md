@@ -66,6 +66,17 @@ INCOME [period]
 TXN [period]
 DATA [period]
 CHK
+SYNC INIT <folder>
+SYNC JOIN <folder> <new-local-file>
+SYNC SUBMIT
+SYNC REFRESH
+SYNC STATUS
+SYNC PENDING
+SYNC EVENTS
+SYNC ACCEPT <id>
+SYNC ADD-QUOTE <security-id> <date> <value> [high low volume]
+SYNC ADD-ACCOUNT-TXN <account-id> <type> <date-time> <currency> <amount> [security-id shares]
+SYNC ADD-PORTFOLIO-TXN <portfolio-id> <type> <date-time> <currency> <amount> [security-id shares]
 HELP
 EXIT
 ```
@@ -244,15 +255,25 @@ SYNC JOIN /path/to/shared-folder /path/to/client-local.portfolio
 ```
 
 Use `STORE` to save locally, then `SYNC SUBMIT` to publish an immutable whole
-file proposal. The owner reviews `SYNC PENDING` or `SYNC STATUS` and applies a
-proposal with `SYNC ACCEPT <submission-id>`. A proposal whose parent is no
-longer the master remains pending; it is never silently overwritten. A clean
-working copy can take the current owner master with `SYNC REFRESH`. The sidecar
-file ending in `.ppsync` is local metadata and must not be synchronized.
+file proposal when an edit is not yet representable as a command. For additive
+work, use `SYNC ADD-QUOTE`, `SYNC ADD-ACCOUNT-TXN`, or
+`SYNC ADD-PORTFOLIO-TXN`; these write JSON command batches under `commands/`
+without replacing the portfolio. The owner reviews `SYNC PENDING` or
+`SYNC STATUS` and applies either a command or a proposal with `SYNC ACCEPT
+<id>`. Accepted commands are recorded in sequence under `events/`; peers can
+inspect them with `SYNC EVENTS` and use the core replay API. Command IDs make
+retries idempotent, while a conflicting quote, duplicate transaction, missing
+reference, or unsupported linked transfer stays rejected for review. A clean
+working copy can take the current owner master with `SYNC REFRESH`. The
+sidecar file ending in `.ppsync` is local metadata and must not be synchronized.
+Command and event files are currently plaintext, so the shared folder should
+remain within the same trust boundary as the portfolio.
 
-The desktop application's Shared portfolio menu uses these same core services.
-Automatic semantic merging, background aggregation, and owner transfer are not
-implemented yet; the current workflow deliberately requires owner review.
+The desktop application's Shared portfolio menu uses these same core services,
+including owner review of command batches. Automatic capture of arbitrary editor
+mutations, linked transaction groups, background aggregation, and owner transfer
+are not implemented yet; the current workflow deliberately requires owner
+review.
 
 The shell persists quote updates only when `STORE` is explicitly issued.
 Transactions, `SAVE AS`, scripting, and a standalone packaged launcher are not

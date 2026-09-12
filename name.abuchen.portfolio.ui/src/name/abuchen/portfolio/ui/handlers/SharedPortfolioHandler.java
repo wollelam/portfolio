@@ -25,6 +25,7 @@ import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.Shell;
 
 import name.abuchen.portfolio.model.SharedPortfolioSession;
+import name.abuchen.portfolio.model.SharedPortfolioCommand;
 import name.abuchen.portfolio.model.SharedPortfolioWorkspace;
 import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.editor.ClientInput;
@@ -154,6 +155,22 @@ public class SharedPortfolioHandler
         requireInput(input);
         if (!input.getSharedPortfolioSession().isOwner())
             throw new IOException("Only the workspace owner can review submissions."); //$NON-NLS-1$
+        List<SharedPortfolioCommand> commands = input.pendingSharedCommands();
+        if (!commands.isEmpty())
+        {
+            String choices = commands.stream().map(item -> item.id() + " (" + item.actorId() + ", " //$NON-NLS-1$ //$NON-NLS-2$
+                            + item.operations().size() + " operation(s))").collect(Collectors.joining("\n")); //$NON-NLS-1$ //$NON-NLS-2$
+            InputDialog dialog = new InputDialog(shell, "Accept command", //$NON-NLS-1$
+                            "Enter a command ID from the pending list:\n\n" + choices, commands.get(0).id(), null);
+            if (dialog.open() == Window.OK)
+            {
+                SharedPortfolioWorkspace.CommandAcceptance acceptance = input.acceptSharedCommand(
+                                dialog.getValue().trim());
+                MessageDialog.openInformation(shell, "Shared portfolio", //$NON-NLS-1$
+                                "Command accepted at event " + acceptance.sequence() + "."); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            return;
+        }
         List<SharedPortfolioWorkspace.Submission> pending = input.getSharedPortfolioSession().pending();
         if (pending.isEmpty())
         {
@@ -179,7 +196,9 @@ public class SharedPortfolioHandler
                         + "\nWorkspace: " + session.getWorkspaceDirectory() //$NON-NLS-1$
                         + "\nLocal parent: " + session.getParentRevision() //$NON-NLS-1$
                         + "\nMaster head: " + session.getWorkspace().currentRevision() //$NON-NLS-1$
-                        + "\nPending submissions: " + session.pending().size(); //$NON-NLS-1$ //$NON-NLS-2$
+                        + "\nPending commands: " + session.pendingCommands().size() //$NON-NLS-1$
+                        + "\nPending submissions: " + session.pending().size() //$NON-NLS-1$ //$NON-NLS-2$
+                        + "\nAccepted events: " + session.events().size(); //$NON-NLS-1$
         MessageDialog.openInformation(shell, "Shared portfolio status", text); //$NON-NLS-1$
     }
 
