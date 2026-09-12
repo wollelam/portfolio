@@ -1,7 +1,8 @@
 # Shared portfolios: desktop and CLI
 
-Status: planning only, 2026-09-12. Implementation was paused at the user's
-request to conserve credits. This branch contains no application code changes.
+Status: first implementation slice in progress, 2026-09-12. The transport,
+local session, CLI commands, and desktop menu workflow are implemented; semantic
+merging, background aggregation, and a dedicated review UI remain future work.
 
 - Checkout: `/home/ole/source/portfolio-shared-sync`
 - Branch: `feature/shared-portfolio-sync`
@@ -28,19 +29,23 @@ future transport, not a requirement for this implementation.
 The shared directory contains:
 
 ```
-workspace.properties           protocol version, workspace ID, owner fingerprint
+workspace.properties           protocol version, workspace ID, owner identity
 head                           hash of the owner's current master snapshot
 revisions/<sha256>.portfolio    immutable master snapshots
 submissions/<uuid>.ppchange     immutable ZIP: metadata + proposed portfolio
 accepted/<uuid>                receipt written only by the owner
 ```
 
+The implementation also writes `master.portfolio` as a convenient current
+copy. The authoritative master is the verified snapshot named by `head`;
+contributors never open or edit `master.portfolio` directly.
+
 Each local working file has a `.ppsync` sidecar outside the shared directory.
 It records the workspace's path on that machine, workspace ID, parent snapshot
-hash, and (on the owner machine only) an owner token. The token prevents the
-application from accidentally giving contributors the owner role; it is not
+hash, and a per-device identity. The owner identity in the workspace metadata
+prevents an ordinary contributor session from accepting submissions; it is not
 a security boundary against someone with write access to the shared folder.
-Do not copy the owner's sidecar to another machine or put it in cloud storage.
+Do not copy a sidecar to another machine or put it in cloud storage.
 
 Opening a workspace verifies the hash of the referenced snapshot. A pointer
 whose snapshot has not arrived yet is reported as an incomplete sync.
@@ -54,11 +59,14 @@ including its parent hash. Subsequent submissions form a chain, so the owner
 can apply several saves from the same client in order. The owner publishes
 directly only if its parent still matches the master.
 
-Applying a submission requires the owner token, an unchanged owner working
-file, a valid portfolio, and a parent matching the current master. Publishing
-adds an immutable revision and updates the owner-only pointer. A receipt makes
-repeated delivery idempotent. A stale submission stays pending with its full
-payload intact. No last-writer-wins rule, text merge or force-accept exists.
+Applying a submission requires the owner identity, an unchanged owner working
+file, a valid envelope/checksum, and a parent matching the current master.
+Publishing adds an immutable revision and updates the owner-only pointer. A
+receipt makes repeated delivery idempotent. A stale submission stays pending
+with its full payload intact. No last-writer-wins rule, text merge or
+force-accept exists. The first slice transports portfolio bytes opaquely; model
+validation and encrypted-candidate password handling are explicitly deferred
+to the coordinator/merge milestone.
 
 The owner must be a single machine. Local locking can serialize processes on
 that machine; a Drive file is not a distributed lock. If the owner is offline,
@@ -66,10 +74,11 @@ contributors can continue saving/submitting and aggregation waits for it.
 
 ## Implementation milestones and acceptance criteria
 
-1. **First usable prototype (planned)**
+1. **First usable prototype (implemented in part)**
    - Common folder protocol, persisted local associations and ownership checks.
-   - Desktop workspace creation/opening and submissions applied by the owner.
-   - CLI equivalents, with ordinary Save/STORE using the common session.
+   - Desktop workspace creation/opening and manually applied owner submissions.
+   - CLI equivalents through explicit `SYNC` commands; ordinary `STORE` remains
+     a local save followed by `SYNC SUBMIT`.
    - Concurrent submissions survive; only a matching-parent submission applies.
    - Verify restart, out-of-order delivery, corruption, owner checks, local
      recovery on failure, encryption and preservation of existing local workflows.
@@ -120,35 +129,36 @@ the data should remain encrypted in Drive history.
 
 Prototype snapshots are limited to 50 MiB. Publication failures retain local
 files and immutable submissions; callers must not interpret local Save success
-as owner acceptance. The first version has manual acceptance and refresh,
-not unattended aggregation.
+as owner acceptance. Refresh only replaces a clean working copy whose parent is
+already a retained revision; a submitted-but-unaccepted proposal is kept for
+review instead of being silently discarded. The first version has manual
+acceptance and refresh, not unattended aggregation.
 
 ## Concrete implementation map
 
-Keep the protocol in a new `name.abuchen.portfolio.storage` package in the core
-bundle, exported in `name.abuchen.portfolio/META-INF/MANIFEST.MF`. Proposed
-classes and responsibilities:
+The first slice keeps the protocol in the already exported
+`name.abuchen.portfolio.model` package. Its classes and responsibilities are:
 
 | Component | Responsibility |
 | --- | --- |
 | `SharedPortfolioWorkspace` | Workspace identity, verified snapshots, immutable submissions, owner publication and receipts |
 | `SharedPortfolioSession` | Local working file association, parent revision, contributor/owner role and submission chain |
-| `SharedPortfolioCoordinator` | One local owner process at a time, pending queue, compatibility checks, acceptance and recovery journal |
+| `SharedPortfolioCoordinator` (later) | One local owner process at a time, pending queue, compatibility checks, acceptance and recovery journal |
 | `PortfolioChangeSet` (later) | Model-aware comparison and merge of base, proposal and current master |
 
 Reuse `ClientFactory.load/save/saveAs`; do not change the portfolio file format
 to introduce sharing. Treat serialization as opaque in the transport layer.
-Apply size limits and verify checksums before parsing proposals. The coordinator
-must deserialize and validate the candidate before publication, including
-encrypted-file password handling and supported model-version checks.
+The first slice applies size limits and verifies checksums before accepting a
+submission envelope. A future coordinator must deserialize and validate the
+candidate before publication, including encrypted-file password handling and
+supported model-version checks.
 
-Desktop integration points already inspected:
+Desktop integration points:
 
 - `name.abuchen.portfolio.ui/.../editor/ClientInput.java`: normal Save,
   Save As, backups, dirty state and autosave. Local save and shared submission
-  need separate success states. Autosave initially stays local. Save As must
-  explicitly detach or create a new association, never inherit owner credentials
-  silently or overwrite a different connected working copy.
+  have separate success states. Autosave stays local. Save As detaches a shared
+  association when it targets a different file, never inheriting it silently.
 - `.../editor/ClientInputFactory.java` and `LoadClientThread.java`: restore a
   session at open time and load a verified local working snapshot. Preserve the
   revision associated with the loaded model; do not reread newer sidecar metadata
@@ -160,9 +170,10 @@ Desktop integration points already inspected:
   `name.abuchen.portfolio.ui/.../handlers/` and standard JFace dialogs.
 
 CLI integration is in `name.abuchen.portfolio.cli/.../PortfolioShell.java`.
-Proposed commands are `SHARE <new-workspace>`, `JOIN <workspace> <new-local-file>`,
-`SYNC STATUS`, `SYNC REFRESH`, `SYNC PENDING` and `SYNC ACCEPT <submission-id>`.
-`STORE` persists locally then invokes the same session service used by desktop.
+Implemented commands are `SYNC INIT <folder>`, `SYNC JOIN <workspace>
+<new-local-file>`, `SYNC SUBMIT`, `SYNC REFRESH`, `SYNC STATUS`, `SYNC PENDING`
+and `SYNC ACCEPT <submission-id>`. `STORE` persists locally; `SYNC SUBMIT`
+publishes using the same session service used by desktop.
 Errors must distinguish saved locally, submitted, accepted, conflict and delivery
 failure. Keep ordinary `OPEN`/`STORE` behavior for unconnected files.
 
@@ -184,15 +195,17 @@ submission dependency means "waiting for sync", not permission to overwrite.
 
 ## Suggested small implementation slices
 
-1. Protocol types and fixtures; filesystem transport tests for two contributors,
-   a single owner, delayed dependencies, truncated packages and replay. No UI yet.
-2. Local session persistence, owner coordination and crash recovery. Test with
-   production XML, compressed, binary and encrypted portfolio fixtures.
-3. Desktop create/join and Save integration, including Save As/close/reopen,
-   local backup behavior and background modifications during save.
-4. CLI integration using the same services, plus desktop/CLI interoperability
-   tests and owner review/acceptance. Both clients must work before the prototype
-   is considered complete.
+1. Protocol types and fixtures (implemented): filesystem transport tests cover
+   two contributors, a single owner, chained/stale submissions and recovery
+   from malformed workspaces.
+2. Local session persistence and owner coordination (implemented in part):
+   sidecars, clean refresh checks and a local owner lock are present; durable
+   crash journaling and production-format validation remain.
+3. Desktop create/join and explicit submit/refresh/review actions (implemented
+   in part), including Save As detachment. Dedicated review/status UI and
+   lifecycle tests remain.
+4. CLI integration using the same services (implemented), plus broader
+   desktop/CLI interoperability tests and owner review/acceptance scenarios.
 5. Real two-machine Drive trial using sanitized sample data. Only then design
    semantic merge against the cases discovered during the trial.
 

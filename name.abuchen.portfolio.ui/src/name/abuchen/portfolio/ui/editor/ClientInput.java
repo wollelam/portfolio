@@ -44,6 +44,8 @@ import org.eclipse.swt.widgets.Shell;
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.ClientFactory;
 import name.abuchen.portfolio.model.SaveFlag;
+import name.abuchen.portfolio.model.SharedPortfolioSession;
+import name.abuchen.portfolio.model.SharedPortfolioWorkspace;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.ui.Messages;
@@ -69,6 +71,7 @@ public class ClientInput
     private String label;
     private File clientFile;
     private Client client;
+    private SharedPortfolioSession sharedPortfolioSession;
 
     private Navigation navigation;
 
@@ -99,6 +102,8 @@ public class ClientInput
     {
         this.label = label;
         this.clientFile = clientFile;
+        if (clientFile != null)
+            this.sharedPortfolioSession = SharedPortfolioSession.tryOpen(clientFile.toPath());
     }
 
     /**
@@ -117,6 +122,7 @@ public class ClientInput
 
         this.client = null;
         this.clientFile = null;
+        this.sharedPortfolioSession = null;
     }
 
     public void addListener(ClientInputListener listener)
@@ -203,6 +209,52 @@ public class ClientInput
     public File getFile()
     {
         return clientFile;
+    }
+
+    /** Returns the local shared-workspace association, if this file is connected. */
+    public SharedPortfolioSession getSharedPortfolioSession()
+    {
+        return sharedPortfolioSession;
+    }
+
+    /** Creates a shared workspace from the current local file and makes this machine the owner. */
+    public void createSharedWorkspace(Path workspaceDirectory) throws IOException
+    {
+        if (clientFile == null)
+            throw new IOException("Save the portfolio locally before creating a shared workspace."); //$NON-NLS-1$
+        if (isDirty)
+            throw new SharedPortfolioWorkspace.DirtyException("Save local changes before creating a shared workspace."); //$NON-NLS-1$
+        sharedPortfolioSession = SharedPortfolioSession.createOwner(workspaceDirectory, clientFile.toPath());
+    }
+
+    /** Publishes the local file as a complete shared-workspace submission. */
+    public String submitSharedChanges() throws IOException
+    {
+        if (sharedPortfolioSession == null)
+            throw new IOException("This portfolio is not connected to a shared workspace."); //$NON-NLS-1$
+        if (isDirty)
+            throw new SharedPortfolioWorkspace.DirtyException("Save local changes before submitting them."); //$NON-NLS-1$
+        return sharedPortfolioSession.submit();
+    }
+
+    /** Refreshes a clean local file; the caller should reopen the editor if true is returned. */
+    public boolean refreshSharedChanges() throws IOException
+    {
+        if (sharedPortfolioSession == null)
+            throw new IOException("This portfolio is not connected to a shared workspace."); //$NON-NLS-1$
+        if (isDirty)
+            throw new SharedPortfolioWorkspace.DirtyException("Save or submit local changes before refreshing."); //$NON-NLS-1$
+        return sharedPortfolioSession.refresh();
+    }
+
+    /** Applies an owner-approved submission and updates the local working file. */
+    public String acceptSharedChanges(String submissionId) throws IOException
+    {
+        if (sharedPortfolioSession == null)
+            throw new IOException("This portfolio is not connected to a shared workspace."); //$NON-NLS-1$
+        if (isDirty)
+            throw new SharedPortfolioWorkspace.DirtyException("Save or submit local changes before accepting a contribution."); //$NON-NLS-1$
+        return sharedPortfolioSession.accept(submissionId);
     }
 
     public Navigation getNavigation()
@@ -307,6 +359,9 @@ public class ClientInput
 
         clientFile = localFile;
         label = localFile.getName();
+        if (sharedPortfolioSession != null
+                        && !sharedPortfolioSession.getLocalFile().equals(localFile.toPath().toAbsolutePath().normalize()))
+            sharedPortfolioSession = null;
         char[] pwd = password;
 
         BusyIndicator.showWhile(shell.getDisplay(), () -> {

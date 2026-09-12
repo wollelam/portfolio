@@ -36,6 +36,8 @@ import name.abuchen.portfolio.model.Account;
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.ClientFactory;
 import name.abuchen.portfolio.model.Security;
+import name.abuchen.portfolio.model.SharedPortfolioSession;
+import name.abuchen.portfolio.model.SharedPortfolioWorkspace;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Money;
@@ -68,7 +70,7 @@ public class PortfolioShell
 
     private static final List<String> COMMANDS = List.of("OPEN", "RELOAD", "QUPD", "STORE", "VAL", "HOLD", "PERF", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$
                     "TPERF", "SEC", "FX", "ALLOC", "INCOME", "TXN", "DATA", "CHK", "HELP", "EXIT", "QUIT", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$ //$NON-NLS-8$ //$NON-NLS-9$ //$NON-NLS-10$ //$NON-NLS-11$
-                    "SUMMARY"); //$NON-NLS-1$
+                    "SUMMARY", "SYNC"); //$NON-NLS-1$ //$NON-NLS-2$
 
     private volatile boolean running = true;
     private Client client;
@@ -76,6 +78,7 @@ public class PortfolioShell
     private Terminal terminal;
     private final LatestQuoteUpdater quoteUpdater;
     private boolean modified;
+    private SharedPortfolioSession sharedSession;
 
     public PortfolioShell()
     {
@@ -203,6 +206,9 @@ public class PortfolioShell
                 var summaryScales = ValueColourScale.forLines(summary.lines());
                 summary.lines().forEach(cliLine -> println(cliLine, summaryScales));
                 break;
+            case "SYNC": //$NON-NLS-1$
+                sync(reader, words);
+                break;
             case "TPERF": //$NON-NLS-1$
                 topPerformers(words);
                 break;
@@ -272,6 +278,10 @@ public class PortfolioShell
             clientFile = file;
             modified = false;
             println("Opened " + file + " (" + client.getBaseCurrency() + ")"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+
+            sharedSession = SharedPortfolioSession.tryOpen(file);
+            if (sharedSession != null)
+                println("Shared workspace connected at " + sharedSession.getParentRevision() + "."); //$NON-NLS-1$ //$NON-NLS-2$
         }
         finally
         {
@@ -285,6 +295,90 @@ public class PortfolioShell
         requireArgumentCount(words, 1, "RELOAD"); //$NON-NLS-1$
         requireClient();
         open(reader, List.of("OPEN", clientFile.toString())); //$NON-NLS-1$
+    }
+
+    private void sync(LineReader reader, List<String> words) throws IOException
+    {
+        requireArgumentCountAtLeast(words, 2,
+                        "SYNC STATUS|INIT <folder>|JOIN <folder> <new-local-file>|SUBMIT|REFRESH|PENDING|ACCEPT <id>"); //$NON-NLS-1$
+        String action = words.get(1).toUpperCase(Locale.ROOT);
+        switch (action)
+        {
+            case "INIT": //$NON-NLS-1$
+                requireArgumentCount(words, 3, "SYNC INIT <folder>"); //$NON-NLS-1$
+                requireClient();
+                store(List.of("STORE")); //$NON-NLS-1$
+                sharedSession = SharedPortfolioSession.createOwner(Path.of(words.get(2)), clientFile);
+                println("Shared workspace created at " + sharedSession.getWorkspaceDirectory() //$NON-NLS-1$
+                                + " (owner). Parent revision: " + sharedSession.getParentRevision()); //$NON-NLS-1$
+                break;
+            case "JOIN": //$NON-NLS-1$
+                requireArgumentCount(words, 4, "SYNC JOIN <folder> <new-local-file>"); //$NON-NLS-1$
+                Path local = Path.of(words.get(3)).toAbsolutePath().normalize();
+                sharedSession = SharedPortfolioSession.join(Path.of(words.get(2)), local);
+                open(reader, List.of("OPEN", local.toString())); //$NON-NLS-1$
+                // OPEN may not have a sidecar association if loading failed;
+                // retain the session created above for a clear later error.
+                println("Joined shared workspace at " + sharedSession.getParentRevision() + "."); //$NON-NLS-1$ //$NON-NLS-2$
+                break;
+            case "SUBMIT": //$NON-NLS-1$
+                requireArgumentCount(words, 2, "SYNC SUBMIT"); //$NON-NLS-1$
+                requireSharedSession();
+                store(List.of("STORE")); //$NON-NLS-1$
+                String submissionParent = sharedSession.getParentRevision();
+                String submission = sharedSession.submit();
+                println(submission == null ? "No local changes to submit." //$NON-NLS-1$
+                                : "Submitted " + submission + " based on " + submissionParent + "."); //$NON-NLS-1$ //$NON-NLS-2$
+                break;
+            case "REFRESH": //$NON-NLS-1$
+                requireArgumentCount(words, 2, "SYNC REFRESH"); //$NON-NLS-1$
+                requireSharedSession();
+                if (modified)
+                    throw new SharedPortfolioWorkspace.DirtyException("Save or submit local in-memory changes before refreshing."); //$NON-NLS-1$
+                boolean refreshed = sharedSession.refresh();
+                if (refreshed)
+                    open(reader, List.of("OPEN", clientFile.toString())); //$NON-NLS-1$
+                println(refreshed ? "Working copy refreshed." : "Working copy is already current."); //$NON-NLS-1$ //$NON-NLS-2$
+                break;
+            case "STATUS": //$NON-NLS-1$
+                requireArgumentCount(words, 2, "SYNC STATUS"); //$NON-NLS-1$
+                requireSharedSession();
+                String head = sharedSession.getWorkspace().currentRevision();
+                println("Workspace: " + sharedSession.getWorkspace().getDirectory()); //$NON-NLS-1$
+                println("Role: " + (sharedSession.isOwner() ? "owner" : "contributor")); //$NON-NLS-1$ //$NON-NLS-2$
+                println("Local parent: " + sharedSession.getParentRevision()); //$NON-NLS-1$
+                println("Master head: " + head); //$NON-NLS-1$
+                println("Pending submissions: " + sharedSession.pending().size()); //$NON-NLS-1$
+                break;
+            case "PENDING": //$NON-NLS-1$
+                requireArgumentCount(words, 2, "SYNC PENDING"); //$NON-NLS-1$
+                requireSharedSession();
+                var pending = sharedSession.pending();
+                if (pending.isEmpty())
+                    println("No pending submissions."); //$NON-NLS-1$
+                else
+                    pending.forEach(item -> println(item.id() + " actor=" + item.actorId() + " parent=" //$NON-NLS-1$ //$NON-NLS-2$
+                                    + item.parentRevision() + " content=" + item.contentHash())); //$NON-NLS-1$
+                break;
+            case "ACCEPT": //$NON-NLS-1$
+                requireArgumentCount(words, 3, "SYNC ACCEPT <submission-id>"); //$NON-NLS-1$
+                requireSharedSession();
+                if (modified)
+                    throw new SharedPortfolioWorkspace.DirtyException("Save local changes before accepting a contribution."); //$NON-NLS-1$
+                String revision = sharedSession.accept(words.get(2));
+                open(reader, List.of("OPEN", clientFile.toString())); //$NON-NLS-1$
+                println("Accepted at revision " + revision + "."); //$NON-NLS-1$ //$NON-NLS-2$
+                break;
+            default:
+                throw new IllegalArgumentException("Unknown SYNC action '" + words.get(1) + "'."); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+    }
+
+    private SharedPortfolioSession requireSharedSession()
+    {
+        if (sharedSession == null)
+            throw new IllegalStateException("No shared workspace is connected. Use SYNC INIT or SYNC JOIN first."); //$NON-NLS-1$
+        return sharedSession;
     }
 
     private void updateQuotes(List<String> words)
@@ -840,6 +934,9 @@ public class PortfolioShell
         println("RELOAD               Discard in-memory updates and reload the file"); //$NON-NLS-1$
         println("QUPD                 Fetch historical and latest quotes into memory (does not save)"); //$NON-NLS-1$
         println("STORE                Save in-memory updates using the production file writer"); //$NON-NLS-1$
+        println("SYNC INIT <folder>   Create a shared workspace from the opened file"); //$NON-NLS-1$
+        println("SYNC JOIN <folder> <new-local-file>  Join a shared workspace"); //$NON-NLS-1$
+        println("SYNC SUBMIT|REFRESH|STATUS|PENDING|ACCEPT <id>"); //$NON-NLS-1$
         println("VAL [YYYY-MM-DD]     Show total value in the base currency"); //$NON-NLS-1$
         println("HOLD [YYYY-MM-DD]    List holdings, cash, values, and weights"); //$NON-NLS-1$
         println("PERF [period] [--from DATE] [--to DATE]"); //$NON-NLS-1$

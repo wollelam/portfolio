@@ -21,6 +21,7 @@
           <children xsi:type="menu:DynamicMenuContribution" xmi:id="_ww534BGnEe6zcsTRWurRkg" elementId="name.abuchen.portfolio.bootstrap.dynamicmenucontribution.5" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.NewDomainElementMenuContribution"/>
         </children>
         <children xsi:type="menu:HandledMenuItem" xmi:id="__5e1MBfHEeOders_POVQHQ" elementId="name.abuchen.portfolio.ui.menu.file.open" label="%command.openFile.name" tooltip="" mnemonics="%command.openFile.mnemonic" command="_3CjQwBfHEeOders_POVQHQ"/>
+        <children xsi:type="menu:HandledMenuItem" xmi:id="_SharedPortfolioMenuItem" elementId="name.abuchen.portfolio.ui.menu.file.sharedPortfolio" label="Shared portfolio..." tooltip="Use a synchronized folder to collect changes from multiple clients" mnemonics="" command="_SharedPortfolioCommand"/>
         <children xsi:type="menu:Menu" xmi:id="_alg1AARxEeaaR_cYBUBOZA" elementId="name.abuchen.portfolio.bootstrap.menu.recentFiles" label="%command.openRecentFile.name">
           <children xsi:type="menu:DynamicMenuContribution" xmi:id="_g05vcARxEeaaR_cYBUBOZA" elementId="name.abuchen.portfolio.bootstrap.dynamicmenucontribution.0" label="Recent Files" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.RecentFilesMenuContribution"/>
           <children xsi:type="menu:MenuSeparator" xmi:id="_hC1qB0ARxEeaaR_cYBUBOZA" elementId="name.abuchen.portfolio.bootstrap.menuseparator.3"/>
@@ -180,6 +181,7 @@
   <handlers xmi:id="_3eERwBi8EeO8gYEHAOvLsA" elementId="name.abuchen.portfolio.ui.handler.quit" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.QuitHandler" command="_1mco0Bi8EeO8gYEHAOvLsA"/>
   <handlers xmi:id="_PGzpABiOEeOR1rNFCzC82A" elementId="name.abuchen.portfolio.ui.handler.newclient" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.NewFileHandler" command="_LiZuIBiOEeOR1rNFCzC82A"/>
   <handlers xmi:id="_I4msUBfIEeOders_POVQHQ" elementId="name.abuchen.portfolio.ui.handler.open" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.OpenFileHandler" command="_3CjQwBfHEeOders_POVQHQ"/>
+  <handlers xmi:id="_SharedPortfolioHandler" elementId="name.abuchen.portfolio.ui.handler.sharedPortfolio" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.SharedPortfolioHandler" command="_SharedPortfolioCommand"/>
   <handlers xmi:id="_bpblsBfWEeOders_POVQHQ" elementId="name.abuchen.portfolio.ui.handler.export" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.ExportHandler" command="_lcgCQBfWEeOders_POVQHQ"/>
   <handlers xmi:id="_DRzO4BhXEeOR1rNFCzC82A" elementId="name.abuchen.portfolio.ui.handler.import" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.ImportCSVHandler" command="_GgTyQBhXEeOR1rNFCzC82A"/>
   <handlers xmi:id="_ftWRYLYaEeeT6Pb7tGT2uw" elementId="name.abuchen.portfolio.ui.handler.import.pdf" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.ImportPDFHandler" command="_pgC00EYREeSRXYVe298mXg"/>
@@ -272,6 +274,7 @@
   <commands xmi:id="_1mco0Bi8EeO8gYEHAOvLsA" elementId="org.eclipse.ui.file.exit" commandName="quitCommand"/>
   <commands xmi:id="_LiZuIBiOEeOR1rNFCzC82A" elementId="name.abuchen.portfolio.ui.command.newclient" commandName="newClientCommand"/>
   <commands xmi:id="_3CjQwBfHEeOders_POVQHQ" elementId="name.abuchen.portfolio.ui.command.open" commandName="openCommand"/>
+  <commands xmi:id="_SharedPortfolioCommand" elementId="name.abuchen.portfolio.ui.command.sharedPortfolio" commandName="Shared portfolio"/>
   <commands xmi:id="_D9tYMBiPEeOR1rNFCzC82A" elementId="name.abuchen.portfolio.ui.command.consistencychecks" commandName="consistencyChecksCommand"/>
   <commands xmi:id="_lcgCQBfWEeOders_POVQHQ" elementId="name.abuchen.portfolio.ui.command.export" commandName="exportCommand"/>
   <commands xmi:id="_GgTyQBhXEeOR1rNFCzC82A" elementId="name.abuchen.portfolio.ui.command.import" commandName="%command.csv">

@@ -134,6 +134,34 @@ public class PortfolioShellTest
     }
 
     @Test
+    public void syncCommandsCreateAndJoinAWorkspace() throws Exception
+    {
+        Path source = copyFixture("scenarios/currency_sample.xml"); //$NON-NLS-1$
+        Path workspace = temporaryFolder.newFolder("shared-workspace").toPath(); //$NON-NLS-1$
+        Path contributor = temporaryFolder.getRoot().toPath().resolve("contributor.xml"); //$NON-NLS-1$
+
+        try (ShellHarness owner = new ShellHarness())
+        {
+            owner.execute("OPEN " + source); //$NON-NLS-1$
+            owner.execute("SYNC INIT " + workspace); //$NON-NLS-1$
+            owner.execute("SYNC STATUS"); //$NON-NLS-1$
+            assertThat(owner.output(), containsString("Role: owner")); //$NON-NLS-1$
+            assertThat(owner.output(), containsString("Pending submissions: 0")); //$NON-NLS-1$
+        }
+
+        try (ShellHarness client = new ShellHarness())
+        {
+            client.execute("SYNC JOIN " + workspace + " " + contributor); //$NON-NLS-1$
+            client.execute("SYNC STATUS"); //$NON-NLS-1$
+            assertThat(client.output(), containsString("Joined shared workspace")); //$NON-NLS-1$
+            assertThat(client.output(), containsString("Role: contributor")); //$NON-NLS-1$
+            assertThat(client.output(), containsString("Pending submissions: 0")); //$NON-NLS-1$
+            client.execute("SYNC SUBMIT"); //$NON-NLS-1$
+            assertThat(client.output(), containsString("No local changes to submit.")); //$NON-NLS-1$
+        }
+    }
+
+    @Test
     public void colourizerDoesNotMistakeAnInstrumentSuffixForACurrency()
     {
         String styled = PortfolioShell.colourValues(

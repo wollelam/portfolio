@@ -229,6 +229,31 @@ run` command until the build output is cleaned.
 
 ## Prototype boundaries
 
+The `SYNC` commands use a synchronized folder such as Google Drive as a
+submission mailbox. They never make the shared folder's files the CLI's live
+working file. Create one owner workspace from an opened local portfolio:
+
+```
+SYNC INIT /path/to/shared-folder
+```
+
+On another machine, create a new local copy and join it as a contributor:
+
+```
+SYNC JOIN /path/to/shared-folder /path/to/client-local.portfolio
+```
+
+Use `STORE` to save locally, then `SYNC SUBMIT` to publish an immutable whole
+file proposal. The owner reviews `SYNC PENDING` or `SYNC STATUS` and applies a
+proposal with `SYNC ACCEPT <submission-id>`. A proposal whose parent is no
+longer the master remains pending; it is never silently overwritten. A clean
+working copy can take the current owner master with `SYNC REFRESH`. The sidecar
+file ending in `.ppsync` is local metadata and must not be synchronized.
+
+The desktop application's Shared portfolio menu uses these same core services.
+Automatic semantic merging, background aggregation, and owner transfer are not
+implemented yet; the current workflow deliberately requires owner review.
+
 The shell persists quote updates only when `STORE` is explicitly issued.
 Transactions, `SAVE AS`, scripting, and a standalone packaged launcher are not
 implemented yet. Valuation uses the exchange-rate data available to the
