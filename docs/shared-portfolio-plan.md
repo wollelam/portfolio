@@ -6,7 +6,7 @@ accepted event replay APIs are implemented; automatic change capture,
 background aggregation, and a dedicated review UI remain future work.
 
 - Checkout: `/home/ole/source/portfolio-shared-sync`
-- Branch: `feature/shared-portfolio-sync`
+- Branch: `feature/shared-sync`
 - Base: `personal/master` at `d4707123c` (includes both desktop and CLI).
 
 ## Problem and decision
