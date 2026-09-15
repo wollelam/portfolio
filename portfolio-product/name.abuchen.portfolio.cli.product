@@ -33,9 +33,10 @@
       <plugin id="org.eclipse.equinox.simpleconfigurator" autoStart="true" startLevel="1" />
       <plugin id="org.apache.aries.spifly.dynamic.bundle" autoStart="true" startLevel="2" />
       <plugin id="org.eclipse.osgi" autoStart="true" startLevel="-1" />
-      <property name="osgi.instance.area.default" value="$LOCALAPPDATA$/PortfolioPerformance/cli-workspace" os="win32" />
-      <property name="osgi.instance.area.default" value="@user.home/Library/Application Support/PortfolioPerformance/cli-workspace" os="macosx" />
-      <property name="osgi.instance.area.default" value="@user.home/.PortfolioPerformance/cli-workspace" os="linux" />
+      <!-- Keep the CLI's exchange-rate provider state in the desktop application's state area. -->
+      <property name="osgi.instance.area.default" value="$LOCALAPPDATA$/PortfolioPerformance/workspace" os="win32" />
+      <property name="osgi.instance.area.default" value="@user.home/Library/Application Support/name.abuchen.portfolio.product/workspace" os="macosx" />
+      <property name="osgi.instance.area.default" value="@user.home/.PortfolioPerformance/workspace" os="linux" />
       <property name="osgi.requiredJavaVersion" value="21" />
       <property name="org.eclipse.update.reconcile" value="false" />
       <property name="eclipse.buildId" value="${unqualifiedVersion}.${buildQualifier}" />

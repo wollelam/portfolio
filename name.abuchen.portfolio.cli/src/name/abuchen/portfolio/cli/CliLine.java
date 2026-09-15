@@ -8,7 +8,7 @@ final class CliLine
 {
     enum Metric
     {
-        RETURN, IRR, CONTRIBUTION, IMPACT
+        RETURN, IRR, CONTRIBUTION, IMPACT, FX_CHANGE
     }
 
     record Value(int start, int end, double value, Metric metric)

@@ -46,13 +46,18 @@ public final class LatestQuoteUpdater
         UPDATED, UNCHANGED, SKIPPED, FAILED
     }
 
-    /** One security's outcome. {@code message} explains skipped and failed entries. */
+    /** One security's outcome. {@code message} explains skipped entries and errors. */
     public record ResultEntry(Security security, String feedId, Status status, String message)
     {
         public ResultEntry
         {
             Objects.requireNonNull(security, "security"); //$NON-NLS-1$
             Objects.requireNonNull(status, "status"); //$NON-NLS-1$
+        }
+
+        public boolean hasError()
+        {
+            return status != Status.SKIPPED && message != null && !message.isBlank();
         }
     }
 
@@ -89,6 +94,16 @@ public final class LatestQuoteUpdater
         public long getFailedCount()
         {
             return count(Status.FAILED);
+        }
+
+        public long getErrorCount()
+        {
+            return entries.stream().filter(ResultEntry::hasError).count();
+        }
+
+        public List<ResultEntry> getErrorEntries()
+        {
+            return entries.stream().filter(ResultEntry::hasError).toList();
         }
 
         private long count(Status status)
