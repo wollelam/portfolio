@@ -67,6 +67,17 @@ INCOME [period]
 TXN [period]
 DATA [period]
 CHK
+SYNC INIT <folder>
+SYNC JOIN <folder> <new-local-file>
+SYNC SUBMIT
+SYNC REFRESH
+SYNC STATUS
+SYNC PENDING
+SYNC EVENTS
+SYNC ACCEPT <id>
+SYNC ADD-QUOTE <security-id> <date> <value> [high low volume]
+SYNC ADD-ACCOUNT-TXN <account-id> <type> <date-time> <currency> <amount> [security-id shares]
+SYNC ADD-PORTFOLIO-TXN <portfolio-id> <type> <date-time> <currency> <amount> [security-id shares]
 HELP
 EXIT
 ```
@@ -238,7 +249,44 @@ run` command until the build output is cleaned.
 
 ## Prototype boundaries
 
+The `SYNC` commands use a synchronized folder such as Google Drive as a
+submission mailbox. They never make the shared folder's files the CLI's live
+working file. Create one owner workspace from an opened local portfolio:
+
+```
+SYNC INIT /path/to/shared-folder
+```
+
+On another machine, create a new local copy and join it as a contributor:
+
+```
+SYNC JOIN /path/to/shared-folder /path/to/client-local.portfolio
+```
+
+Use `STORE` to save locally, then `SYNC SUBMIT` to publish an immutable whole
+file proposal when an edit is not yet representable as a command. For additive
+work, use `SYNC ADD-QUOTE`, `SYNC ADD-ACCOUNT-TXN`, or
+`SYNC ADD-PORTFOLIO-TXN`; these write JSON command batches under `commands/`
+without replacing the portfolio. The owner reviews `SYNC PENDING` or
+`SYNC STATUS` and applies either a command or a proposal with `SYNC ACCEPT
+<id>`. Accepted commands are recorded in sequence under `events/`; peers can
+inspect them with `SYNC EVENTS` and use the core replay API. Command IDs make
+retries idempotent, while a conflicting quote, duplicate transaction, missing
+reference, or unsupported linked transfer stays rejected for review. A clean
+working copy can take the current owner master with `SYNC REFRESH`. The
+sidecar file ending in `.ppsync` is local metadata and must not be synchronized.
+Command and event files are currently plaintext, so the shared folder should
+remain within the same trust boundary as the portfolio.
+
+The desktop application's Shared portfolio menu uses these same core services,
+including owner review of command batches. Automatic capture of arbitrary editor
+mutations, linked transaction groups, background aggregation, and owner transfer
+are not implemented yet; the current workflow deliberately requires owner
+review.
+
 The shell persists security quote updates only when `STORE` is explicitly
-issued. ECB exchange rates are persisted separately in the desktop application's
-configured state area when `QUPD` refreshes them. Transactions, `SAVE AS`,
-scripting, and a standalone packaged launcher are not implemented yet.
+issued. `QUPD` refreshes and persists ECB exchange rates separately from the
+client file; security quote updates remain in memory until `STORE`. Direct
+transaction editing, `SAVE AS`, and scripting are not implemented yet.
+Valuation uses the exchange-rate data available to the Equinox runtime
+workspace.

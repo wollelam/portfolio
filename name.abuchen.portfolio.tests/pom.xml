@@ -14,6 +14,14 @@
 	<artifactId>name.abuchen.portfolio.tests</artifactId>
 	<packaging>eclipse-test-plugin</packaging>
 
+	<dependencies>
+		<dependency>
+			<groupId>name.abuchen.portfolio</groupId>
+			<artifactId>name.abuchen.portfolio</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+	</dependencies>
+
 	<properties>
 		<sonar.skip>true</sonar.skip>
 	</properties>
