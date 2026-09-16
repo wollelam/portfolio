@@ -79,7 +79,7 @@ public final class PerformerRanking
                         : position.getSecurity().getCurrencyCode() + " " + CliFormatter.quote(price.getValue());
     }
 
-    /** Returns the supplied performers ordered from largest to smallest portfolio-currency performance. */
+    /** Returns the supplied performers ordered from largest to smallest portfolio-currency contribution. */
     public static List<Performer> sortByCurrencyPerformance(List<Performer> performers)
     {
         return performers.stream().sorted(Comparator.comparingLong(Performer::currencyPerformance).reversed()

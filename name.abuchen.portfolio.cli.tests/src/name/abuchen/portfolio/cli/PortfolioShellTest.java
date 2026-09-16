@@ -272,7 +272,7 @@ public class PortfolioShellTest
     }
 
     @Test
-    public void topPerformersListsBestAndWorstUsingCoreTtwror() throws Exception
+    public void tperfUsesPerformerAndContributorTerms() throws Exception
     {
         Path file = copyFixture("scenarios/currency_sample.xml"); //$NON-NLS-1$
         try (ShellHarness harness = new ShellHarness())
@@ -281,10 +281,11 @@ public class PortfolioShellTest
             harness.execute("TPERF --from 2014-01-01 --to 2015-01-16 --limit 2"); //$NON-NLS-1$
 
             assertThat(harness.output(), containsString("Top performers")); //$NON-NLS-1$
-            assertThat(harness.output(), containsString("Best performers (TTWROR):")); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("Top performers (TTWROR):")); //$NON-NLS-1$
             assertThat(harness.output(), containsString("Worst performers (TTWROR):")); //$NON-NLS-1$
-            assertThat(harness.output(), containsString("Best performers (currency performance):")); //$NON-NLS-1$
-            assertThat(harness.output(), containsString("Worst performers (currency performance):")); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("Top contributors:")); //$NON-NLS-1$
+            assertThat(harness.output(), containsString("Top detractors:")); //$NON-NLS-1$
+            assertThat(harness.output(), not(containsString("currency performance"))); //$NON-NLS-1$
             assertThat(harness.output(), containsString("IRR p.a.")); //$NON-NLS-1$
             assertThat(harness.output(), containsString("Quote")); //$NON-NLS-1$
         }

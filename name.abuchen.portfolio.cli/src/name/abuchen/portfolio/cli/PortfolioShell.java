@@ -653,33 +653,33 @@ public class PortfolioShell
         }
 
         int count = Math.min(options.limit(), performers.size());
-        var bestTtwror = performerRows(performers, count, false);
-        var worstTtwror = performerRows(performers, count, true);
+        var topPerformers = performerRows(performers, count, false);
+        var worstPerformers = performerRows(performers, count, true);
         var currencyPerformers = PerformerRanking.sortByCurrencyPerformance(performers);
-        var bestCurrency = performerRows(currencyPerformers, count, false);
-        var worstCurrency = performerRows(currencyPerformers, count, true);
+        var topContributors = performerRows(currencyPerformers, count, false);
+        var topDetractors = performerRows(currencyPerformers, count, true);
         var performerLines = new ArrayList<CliLine>();
-        bestTtwror.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), false)));
-        worstTtwror.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), false)));
-        bestCurrency.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), true)));
-        worstCurrency.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), true)));
+        topPerformers.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), false)));
+        worstPerformers.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), false)));
+        topContributors.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), true)));
+        topDetractors.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), true)));
         var performerScales = ValueColourScale.forLines(performerLines);
 
-        println("Best performers (TTWROR):"); //$NON-NLS-1$
+        println("Top performers (TTWROR):"); //$NON-NLS-1$
         printPerformerHeader("TTWROR"); //$NON-NLS-1$
-        bestTtwror.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), false), performerScales));
+        topPerformers.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), false), performerScales));
 
         println("Worst performers (TTWROR):"); //$NON-NLS-1$
         printPerformerHeader("TTWROR"); //$NON-NLS-1$
-        worstTtwror.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), false), performerScales));
+        worstPerformers.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), false), performerScales));
 
-        println("Best performers (currency performance):"); //$NON-NLS-1$
+        println("Top contributors:"); //$NON-NLS-1$
         printPerformerHeader("Abs. return"); //$NON-NLS-1$
-        bestCurrency.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), true), performerScales));
+        topContributors.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), true), performerScales));
 
-        println("Worst performers (currency performance):"); //$NON-NLS-1$
+        println("Top detractors:"); //$NON-NLS-1$
         printPerformerHeader("Abs. return"); //$NON-NLS-1$
-        worstCurrency.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), true), performerScales));
+        topDetractors.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), true), performerScales));
 
         if (!warnings.isEmpty())
             println(warnings.size() + " performance calculation warning(s)."); //$NON-NLS-1$

@@ -77,9 +77,10 @@ fetches historical and latest security quotes into memory. It never writes the
 client file. Interactive terminals show an in-place progress bar while the
 securities are processed. `VAL` and
 `HOLD` uses `ClientSnapshot`. `PERF` reports the dashboard-style portfolio
-performance breakdown. `TPERF` ranks current holdings by both cumulative
-TTWROR and portfolio-currency performance using the core performance engine.
-Purchases and other buy-ins are excluded from the currency-performance figure.
+performance breakdown. `TPERF` ranks current holdings as top performers by
+percentage TTWROR and as top contributors by absolute portfolio-currency
+contribution, using the core performance engine. Purchases and other buy-ins
+are excluded from the contribution figure.
 `RELOAD` discards in-memory quote updates. `QUPD` also reports the portfolio
 value before and after the in-memory quote update. `STORE` saves the loaded file using
 the same production `ClientFactory.save` writer used by the GUI, preserving its
