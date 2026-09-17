@@ -33,11 +33,13 @@ public final class WaterfallDataset
     {
         private final double periodReturn;
         private final double annualizedReturn;
+        private final double irr;
 
-        private InstrumentPerformance(double periodReturn, double annualizedReturn)
+        private InstrumentPerformance(double periodReturn, double annualizedReturn, double irr)
         {
             this.periodReturn = periodReturn;
             this.annualizedReturn = annualizedReturn;
+            this.irr = irr;
         }
 
         public double getPeriodReturn()
@@ -48,6 +50,11 @@ public final class WaterfallDataset
         public double getAnnualizedReturn()
         {
             return annualizedReturn;
+        }
+
+        public double getIrr()
+        {
+            return irr;
         }
     }
 
@@ -351,7 +358,7 @@ public final class WaterfallDataset
                 return null;
 
             return new InstrumentPerformance(record.getTrueTimeWeightedRateOfReturn(),
-                            record.getTrueTimeWeightedRateOfReturnAnnualized());
+                            record.getTrueTimeWeightedRateOfReturnAnnualized(), record.getIrr());
         };
     }
 

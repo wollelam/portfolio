@@ -121,5 +121,6 @@ public class WaterfallDatasetTest
                         is(record.getTrueTimeWeightedRateOfReturn()));
         assertThat(bar.getInstrumentPerformance().getAnnualizedReturn(),
                         is(record.getTrueTimeWeightedRateOfReturnAnnualized()));
+        assertThat(bar.getInstrumentPerformance().getIrr(), is(record.getIrr()));
     }
 }

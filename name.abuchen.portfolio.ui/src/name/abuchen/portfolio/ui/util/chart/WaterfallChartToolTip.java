@@ -42,6 +42,7 @@ public class WaterfallChartToolTip extends AbstractChartToolTip
         {
             add(data, Messages.ColumnTTWROR, Values.Percent2.format(performance.getPeriodReturn()));
             add(data, Messages.ColumnTTWRORpa, Values.Percent2.format(performance.getAnnualizedReturn()));
+            add(data, Messages.ColumnIRR, Values.AnnualizedPercent2.format(performance.getIrr()));
         }
 
         if (bar.getKind() == WaterfallDataset.EntryKind.CHANGE)
