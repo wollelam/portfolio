@@ -3,6 +3,7 @@ package name.abuchen.portfolio.ui.util.chart;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -30,8 +31,6 @@ public class WaterfallDatasetTest
         assertThat(WaterfallChart.formatCategoryLabel("Very Long Instrument Name"), is("Very Long\nInstrument Name"));
         assertThat(WaterfallChart.formatCategoryLabel("Very Long Instrument Name With More Details"),
                         is("Very Long\nInstrument Name…"));
-        assertThat(WaterfallChart.formatCategoryLabel("Instrument\n12.34% / 15.67% p.a."),
-                        is("Instrument\n12.34% / 15.67% p.a."));
         assertThat(WaterfallChart.formatCategoryLabel("abcdefghijklmnopqrst"), is("abcdefghijklmnop…"));
         assertThat(WaterfallChart.formatCategoryLabel("Short"), is("Short"));
     }
@@ -92,7 +91,7 @@ public class WaterfallDatasetTest
     }
 
     @Test
-    public void testInstrumentCategoryLabelsIncludePeriodAndAnnualizedReturns()
+    public void testInstrumentPerformanceIsAvailableForTooltips()
     {
         Client client = new Client();
         Security security = new SecurityBuilder() //
@@ -116,10 +115,11 @@ public class WaterfallDatasetTest
                                         entry && entry.getSecurity() == security)
                         .findFirst().orElseThrow();
 
-        String expected = security.getName() + "\n" + Values.Percent2.format(record.getTrueTimeWeightedRateOfReturn())
-                        + " / " + Values.AnnualizedPercent2
-                                        .format(record.getTrueTimeWeightedRateOfReturnAnnualized());
         assertThat(bar.getLabel(), is(security.getName()));
-        assertThat(bar.getCategoryLabel(), is(expected));
+        assertThat(bar.getInstrumentPerformance(), is(notNullValue()));
+        assertThat(bar.getInstrumentPerformance().getPeriodReturn(),
+                        is(record.getTrueTimeWeightedRateOfReturn()));
+        assertThat(bar.getInstrumentPerformance().getAnnualizedReturn(),
+                        is(record.getTrueTimeWeightedRateOfReturnAnnualized()));
     }
 }

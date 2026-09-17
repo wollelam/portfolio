@@ -117,7 +117,7 @@ public class WaterfallChart extends PlainChart // NOSONAR
         toolTip.reset();
         this.dataset = dataset == null ? new WaterfallDataset("XXX", Collections.emptyList()) : dataset; //$NON-NLS-1$
 
-        var formattedCategories = this.dataset.getBars().stream().map(WaterfallDataset.Bar::getCategoryLabel)
+        var formattedCategories = this.dataset.getBars().stream().map(WaterfallDataset.Bar::getLabel)
                         .map(WaterfallChart::formatCategoryLabel).toArray(String[]::new);
         categoryFirstLines = new String[formattedCategories.length];
         categorySecondLines = new String[formattedCategories.length];
@@ -145,14 +145,6 @@ public class WaterfallChart extends PlainChart // NOSONAR
 
     static String formatCategoryLabel(String label)
     {
-        int newline = label.indexOf('\n');
-        if (newline >= 0)
-        {
-            String firstLine = limitCategoryLabel(label.substring(0, newline));
-            String secondLine = label.substring(newline + 1);
-            return firstLine + '\n' + secondLine;
-        }
-
         if (label.length() <= CATEGORY_LABEL_LINE_LENGTH)
             return label;
 

@@ -8,7 +8,6 @@ import java.util.Objects;
 import java.util.function.Function;
 
 import name.abuchen.portfolio.model.Security;
-import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.PerformanceBreakdown;
 import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceRecord;
@@ -20,7 +19,7 @@ import name.abuchen.portfolio.util.Interval;
  * <p>
  * Values are stored in the minor unit of {@link #getCurrencyCode()}, just like
  * {@code Money}. It remains useful for every additive monetary breakdown while
- * also supporting performance labels for instrument contributions.
+ * also supporting performance data for instrument contributions.
  */
 public final class WaterfallDataset
 {
@@ -29,27 +28,51 @@ public final class WaterfallDataset
         START, CHANGE, SUBTOTAL, TOTAL
     }
 
+    /** Reporting-period performance data for an instrument contribution. */
+    public static final class InstrumentPerformance
+    {
+        private final double periodReturn;
+        private final double annualizedReturn;
+
+        private InstrumentPerformance(double periodReturn, double annualizedReturn)
+        {
+            this.periodReturn = periodReturn;
+            this.annualizedReturn = annualizedReturn;
+        }
+
+        public double getPeriodReturn()
+        {
+            return periodReturn;
+        }
+
+        public double getAnnualizedReturn()
+        {
+            return annualizedReturn;
+        }
+    }
+
     /** A source entry used to create a dataset. */
     public static final class Entry
     {
         private final String label;
-        private final String categoryLabel;
         private final EntryKind kind;
         private final long value;
         private final Object source;
+        private final InstrumentPerformance instrumentPerformance;
 
         private Entry(String label, EntryKind kind, long value, Object source)
         {
-            this(label, label, kind, value, source);
+            this(label, kind, value, source, null);
         }
 
-        private Entry(String label, String categoryLabel, EntryKind kind, long value, Object source)
+        private Entry(String label, EntryKind kind, long value, Object source,
+                        InstrumentPerformance instrumentPerformance)
         {
             this.label = Objects.requireNonNull(label, "label"); //$NON-NLS-1$
-            this.categoryLabel = Objects.requireNonNull(categoryLabel, "categoryLabel"); //$NON-NLS-1$
             this.kind = Objects.requireNonNull(kind, "kind"); //$NON-NLS-1$
             this.value = value;
             this.source = source;
+            this.instrumentPerformance = instrumentPerformance;
         }
 
         public static Entry start(String label, long value)
@@ -85,14 +108,9 @@ public final class WaterfallDataset
             return label;
         }
 
-        /**
-         * Label used for the category axis. It can contain presentation-only
-         * details while {@link #getLabel()} remains the semantic label used by
-         * tooltips and exports.
-         */
-        public String getCategoryLabel()
+        public InstrumentPerformance getInstrumentPerformance()
         {
-            return categoryLabel;
+            return instrumentPerformance;
         }
 
         public EntryKind getKind()
@@ -141,9 +159,9 @@ public final class WaterfallDataset
             return entry.getLabel();
         }
 
-        public String getCategoryLabel()
+        public InstrumentPerformance getInstrumentPerformance()
         {
-            return entry.getCategoryLabel();
+            return entry.getInstrumentPerformance();
         }
 
         public EntryKind getKind()
@@ -273,18 +291,18 @@ public final class WaterfallDataset
 
     /**
      * Convenience constructor for instrument contribution waterfalls. The
-     * category labels include each instrument's reporting-period and
-     * annualized true time-weighted return.
+     * instrument bars include reporting-period and annualized true
+     * time-weighted return data for their tooltips.
      */
     public WaterfallDataset(PerformanceBreakdown breakdown, int topN, ClientPerformanceSnapshot snapshot)
     {
-        this(breakdown.limitContributions(topN), instrumentLabelProvider(snapshot));
+        this(breakdown.limitContributions(topN), instrumentPerformanceProvider(snapshot));
     }
 
     private WaterfallDataset(PerformanceBreakdown breakdown,
-                    Function<PerformanceBreakdown.Entry, String> categoryLabelProvider)
+                    Function<PerformanceBreakdown.Entry, InstrumentPerformance> performanceProvider)
     {
-        this(currencyCodeOf(breakdown), entriesOf(breakdown, categoryLabelProvider));
+        this(currencyCodeOf(breakdown), entriesOf(breakdown, performanceProvider));
     }
 
     private static String currencyCodeOf(PerformanceBreakdown breakdown)
@@ -296,22 +314,22 @@ public final class WaterfallDataset
 
     private static List<Entry> entriesOf(PerformanceBreakdown breakdown)
     {
-        return entriesOf(breakdown, PerformanceBreakdown.Entry::getLabel);
+        return entriesOf(breakdown, entry -> null);
     }
 
     private static List<Entry> entriesOf(PerformanceBreakdown breakdown,
-                    Function<PerformanceBreakdown.Entry, String> categoryLabelProvider)
+                    Function<PerformanceBreakdown.Entry, InstrumentPerformance> performanceProvider)
     {
         Objects.requireNonNull(breakdown, "breakdown"); //$NON-NLS-1$
-        Objects.requireNonNull(categoryLabelProvider, "categoryLabelProvider"); //$NON-NLS-1$
+        Objects.requireNonNull(performanceProvider, "performanceProvider"); //$NON-NLS-1$
         return breakdown.getEntries().stream()
-                        .map(entry -> new Entry(entry.getLabel(), categoryLabelProvider.apply(entry),
+                        .map(entry -> new Entry(entry.getLabel(),
                                         EntryKind.valueOf(entry.getKind().name()), entry.getAmount().getAmount(),
-                                        entry))
+                                        entry, performanceProvider.apply(entry)))
                         .toList();
     }
 
-    private static Function<PerformanceBreakdown.Entry, String> instrumentLabelProvider(
+    private static Function<PerformanceBreakdown.Entry, InstrumentPerformance> instrumentPerformanceProvider(
                     ClientPerformanceSnapshot snapshot)
     {
         Objects.requireNonNull(snapshot, "snapshot"); //$NON-NLS-1$
@@ -326,16 +344,14 @@ public final class WaterfallDataset
 
         return entry -> {
             if (entry.getSecurity() == null)
-                return entry.getLabel();
+                return null;
 
             var record = records.get(entry.getSecurity());
             if (record == null)
-                return entry.getLabel();
+                return null;
 
-            String period = Values.Percent2.format(record.getTrueTimeWeightedRateOfReturn());
-            String annualized = Values.AnnualizedPercent2
-                            .format(record.getTrueTimeWeightedRateOfReturnAnnualized());
-            return entry.getLabel() + "\n" + period + " / " + annualized; //$NON-NLS-1$ //$NON-NLS-2$
+            return new InstrumentPerformance(record.getTrueTimeWeightedRateOfReturn(),
+                            record.getTrueTimeWeightedRateOfReturnAnnualized());
         };
     }
 
