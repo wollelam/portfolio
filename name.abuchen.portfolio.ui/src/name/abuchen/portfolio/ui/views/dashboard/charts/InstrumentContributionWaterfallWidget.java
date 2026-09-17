@@ -95,9 +95,9 @@ public class InstrumentContributionWaterfallWidget extends AbstractPerformanceWa
     }
 
     @Override
-    protected WaterfallDataset createDataset(PerformanceBreakdown breakdown)
+    protected WaterfallDataset createDataset(PerformanceBreakdown breakdown, ClientPerformanceSnapshot snapshot)
     {
-        return new WaterfallDataset(breakdown, get(InstrumentCountConfig.class).getCount());
+        return new WaterfallDataset(breakdown, get(InstrumentCountConfig.class).getCount(), snapshot);
     }
 
     @Override

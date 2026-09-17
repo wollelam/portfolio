@@ -20,7 +20,7 @@ public class PerformanceContributionWaterfallWidget extends AbstractPerformanceW
     }
 
     @Override
-    protected WaterfallDataset createDataset(PerformanceBreakdown breakdown)
+    protected WaterfallDataset createDataset(PerformanceBreakdown breakdown, ClientPerformanceSnapshot snapshot)
     {
         return new WaterfallDataset(breakdown);
     }

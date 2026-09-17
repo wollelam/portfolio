@@ -240,7 +240,7 @@ public class PerformanceWaterfallView extends AbstractHistoricView
         {
             chart.getTitle().setVisible(false);
             chart.setIncludeZeroInRange(mode != Mode.CALCULATION || rangeMode == RangeMode.ABSOLUTE);
-            chart.setDataset(mode == Mode.INSTRUMENTS ? new WaterfallDataset(breakdown, topN)
+            chart.setDataset(mode == Mode.INSTRUMENTS ? new WaterfallDataset(breakdown, topN, snapshot)
                             : new WaterfallDataset(breakdown));
             chart.setBarColorProvider(null);
             chart.setBarImageProvider(mode == Mode.INSTRUMENTS ? this::getInstrumentLogo : null);

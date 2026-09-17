@@ -2,17 +2,25 @@ package name.abuchen.portfolio.ui.util.chart;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 
+import name.abuchen.portfolio.model.Security;
+import name.abuchen.portfolio.money.Values;
+import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.PerformanceBreakdown;
+import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceRecord;
+import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceSnapshot;
+import name.abuchen.portfolio.util.Interval;
 
 /**
  * Immutable data model for a waterfall chart.
  * <p>
  * Values are stored in the minor unit of {@link #getCurrencyCode()}, just like
- * {@code Money}. Keeping this class independent of the performance snapshot
- * makes it useful for every additive monetary breakdown.
+ * {@code Money}. It remains useful for every additive monetary breakdown while
+ * also supporting performance labels for instrument contributions.
  */
 public final class WaterfallDataset
 {
@@ -25,13 +33,20 @@ public final class WaterfallDataset
     public static final class Entry
     {
         private final String label;
+        private final String categoryLabel;
         private final EntryKind kind;
         private final long value;
         private final Object source;
 
         private Entry(String label, EntryKind kind, long value, Object source)
         {
+            this(label, label, kind, value, source);
+        }
+
+        private Entry(String label, String categoryLabel, EntryKind kind, long value, Object source)
+        {
             this.label = Objects.requireNonNull(label, "label"); //$NON-NLS-1$
+            this.categoryLabel = Objects.requireNonNull(categoryLabel, "categoryLabel"); //$NON-NLS-1$
             this.kind = Objects.requireNonNull(kind, "kind"); //$NON-NLS-1$
             this.value = value;
             this.source = source;
@@ -68,6 +83,16 @@ public final class WaterfallDataset
         public String getLabel()
         {
             return label;
+        }
+
+        /**
+         * Label used for the category axis. It can contain presentation-only
+         * details while {@link #getLabel()} remains the semantic label used by
+         * tooltips and exports.
+         */
+        public String getCategoryLabel()
+        {
+            return categoryLabel;
         }
 
         public EntryKind getKind()
@@ -114,6 +139,11 @@ public final class WaterfallDataset
         public String getLabel()
         {
             return entry.getLabel();
+        }
+
+        public String getCategoryLabel()
+        {
+            return entry.getCategoryLabel();
         }
 
         public EntryKind getKind()
@@ -241,6 +271,22 @@ public final class WaterfallDataset
         this(breakdown.limitContributions(topN));
     }
 
+    /**
+     * Convenience constructor for instrument contribution waterfalls. The
+     * category labels include each instrument's reporting-period and
+     * annualized true time-weighted return.
+     */
+    public WaterfallDataset(PerformanceBreakdown breakdown, int topN, ClientPerformanceSnapshot snapshot)
+    {
+        this(breakdown.limitContributions(topN), instrumentLabelProvider(snapshot));
+    }
+
+    private WaterfallDataset(PerformanceBreakdown breakdown,
+                    Function<PerformanceBreakdown.Entry, String> categoryLabelProvider)
+    {
+        this(currencyCodeOf(breakdown), entriesOf(breakdown, categoryLabelProvider));
+    }
+
     private static String currencyCodeOf(PerformanceBreakdown breakdown)
     {
         Objects.requireNonNull(breakdown, "breakdown"); //$NON-NLS-1$
@@ -250,11 +296,47 @@ public final class WaterfallDataset
 
     private static List<Entry> entriesOf(PerformanceBreakdown breakdown)
     {
+        return entriesOf(breakdown, PerformanceBreakdown.Entry::getLabel);
+    }
+
+    private static List<Entry> entriesOf(PerformanceBreakdown breakdown,
+                    Function<PerformanceBreakdown.Entry, String> categoryLabelProvider)
+    {
         Objects.requireNonNull(breakdown, "breakdown"); //$NON-NLS-1$
+        Objects.requireNonNull(categoryLabelProvider, "categoryLabelProvider"); //$NON-NLS-1$
         return breakdown.getEntries().stream()
-                        .map(entry -> new Entry(entry.getLabel(), EntryKind.valueOf(entry.getKind().name()),
-                                        entry.getAmount().getAmount(), entry))
+                        .map(entry -> new Entry(entry.getLabel(), categoryLabelProvider.apply(entry),
+                                        EntryKind.valueOf(entry.getKind().name()), entry.getAmount().getAmount(),
+                                        entry))
                         .toList();
+    }
+
+    private static Function<PerformanceBreakdown.Entry, String> instrumentLabelProvider(
+                    ClientPerformanceSnapshot snapshot)
+    {
+        Objects.requireNonNull(snapshot, "snapshot"); //$NON-NLS-1$
+
+        var start = snapshot.getStartClientSnapshot();
+        var end = snapshot.getEndClientSnapshot();
+        var interval = Interval.of(start.getTime(), end.getTime());
+        var records = new HashMap<Security, LazySecurityPerformanceRecord>();
+
+        LazySecurityPerformanceSnapshot.create(snapshot.getClient(), start.getCurrencyConverter(), interval, start, end)
+                        .getRecords().forEach(record -> records.put(record.getSecurity(), record));
+
+        return entry -> {
+            if (entry.getSecurity() == null)
+                return entry.getLabel();
+
+            var record = records.get(entry.getSecurity());
+            if (record == null)
+                return entry.getLabel();
+
+            String period = Values.Percent2.format(record.getTrueTimeWeightedRateOfReturn());
+            String annualized = Values.AnnualizedPercent2
+                            .format(record.getTrueTimeWeightedRateOfReturnAnnualized());
+            return entry.getLabel() + "\n" + period + " / " + annualized; //$NON-NLS-1$ //$NON-NLS-2$
+        };
     }
 
     public String getCurrencyCode()

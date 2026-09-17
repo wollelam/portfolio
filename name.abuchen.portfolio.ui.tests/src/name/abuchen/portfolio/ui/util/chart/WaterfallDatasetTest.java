@@ -4,11 +4,22 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.is;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import org.junit.Test;
 
+import name.abuchen.portfolio.junit.AccountBuilder;
+import name.abuchen.portfolio.junit.PortfolioBuilder;
+import name.abuchen.portfolio.junit.SecurityBuilder;
+import name.abuchen.portfolio.junit.TestCurrencyConverter;
+import name.abuchen.portfolio.model.Client;
+import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.money.Values;
+import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
+import name.abuchen.portfolio.snapshot.PerformanceBreakdown;
+import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceSnapshot;
+import name.abuchen.portfolio.util.Interval;
 
 @SuppressWarnings("nls")
 public class WaterfallDatasetTest
@@ -19,6 +30,8 @@ public class WaterfallDatasetTest
         assertThat(WaterfallChart.formatCategoryLabel("Very Long Instrument Name"), is("Very Long\nInstrument Name"));
         assertThat(WaterfallChart.formatCategoryLabel("Very Long Instrument Name With More Details"),
                         is("Very Long\nInstrument Name…"));
+        assertThat(WaterfallChart.formatCategoryLabel("Instrument\n12.34% / 15.67% p.a."),
+                        is("Instrument\n12.34% / 15.67% p.a."));
         assertThat(WaterfallChart.formatCategoryLabel("abcdefghijklmnopqrst"), is("abcdefghijklmnop…"));
         assertThat(WaterfallChart.formatCategoryLabel("Short"), is("Short"));
     }
@@ -76,5 +89,37 @@ public class WaterfallDatasetTest
         assertThat(dataset.getMaximum(), is(10_000L));
         assertThat(dataset.getMinimumValue(), is(7_000L));
         assertThat(dataset.getMaximumValue(), is(10_000L));
+    }
+
+    @Test
+    public void testInstrumentCategoryLabelsIncludePeriodAndAnnualizedReturns()
+    {
+        Client client = new Client();
+        Security security = new SecurityBuilder() //
+                        .addPrice("2010-12-31", Values.Quote.factorize(100)) //
+                        .addPrice("2011-12-31", Values.Quote.factorize(110)) //
+                        .addTo(client);
+        var account = new AccountBuilder().deposit_("2010-01-01", 100_00).addTo(client);
+        new PortfolioBuilder(account).buy(security, "2010-01-01", Values.Share.factorize(1), 100_00).addTo(client);
+
+        Interval interval = Interval.of(LocalDate.of(2010, 12, 31), LocalDate.of(2011, 12, 31));
+        var converter = new TestCurrencyConverter();
+        var snapshot = new ClientPerformanceSnapshot(client, converter, interval);
+        var breakdown = PerformanceBreakdown.createContributions(snapshot);
+        var dataset = new WaterfallDataset(breakdown, 10, snapshot);
+
+        var record = LazySecurityPerformanceSnapshot.create(client, converter, interval,
+                        snapshot.getStartClientSnapshot(), snapshot.getEndClientSnapshot()).getRecord(security)
+                        .orElseThrow();
+        var bar = dataset.getBars().stream()
+                        .filter(candidate -> candidate.getSource() instanceof PerformanceBreakdown.Entry
+                                        entry && entry.getSecurity() == security)
+                        .findFirst().orElseThrow();
+
+        String expected = security.getName() + "\n" + Values.Percent2.format(record.getTrueTimeWeightedRateOfReturn())
+                        + " / " + Values.AnnualizedPercent2
+                                        .format(record.getTrueTimeWeightedRateOfReturnAnnualized());
+        assertThat(bar.getLabel(), is(security.getName()));
+        assertThat(bar.getCategoryLabel(), is(expected));
     }
 }
