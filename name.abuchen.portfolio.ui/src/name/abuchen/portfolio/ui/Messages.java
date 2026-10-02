@@ -848,6 +848,8 @@ public class Messages extends NLS
     public static String LabelPerformanceWaterfallInstrumentContributionWidget;
     public static String LabelPerformanceWaterfallInstruments;
     public static String LabelPerformanceWaterfallMode;
+    public static String LabelPerformanceWaterfallNextPeriod;
+    public static String LabelPerformanceWaterfallPreviousPeriod;
     public static String LabelPerformanceWaterfallRange;
     public static String LabelPerformanceWaterfallRelative;
     public static String LabelPerformanceWaterfallStart;

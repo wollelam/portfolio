@@ -34,6 +34,8 @@ import name.abuchen.portfolio.ui.util.Colors;
 import name.abuchen.portfolio.ui.util.DropDown;
 import name.abuchen.portfolio.ui.util.LabelOnly;
 import name.abuchen.portfolio.ui.util.LogoManager;
+import name.abuchen.portfolio.ui.util.ReportingPeriodNavigation;
+import name.abuchen.portfolio.ui.util.ReportingPeriodNavigation.Unit;
 import name.abuchen.portfolio.ui.util.SimpleAction;
 import name.abuchen.portfolio.ui.util.chart.WaterfallChart;
 import name.abuchen.portfolio.ui.util.chart.WaterfallChartCSVExporter;
@@ -107,6 +109,8 @@ public class PerformanceWaterfallView extends AbstractHistoricView
 
     private WaterfallChart chart;
     private ClientFilterDropDown clientFilter;
+    private final ReportingPeriodNavigation navigation = new ReportingPeriodNavigation();
+    private DropDown navigationUnit;
 
     private Mode mode = Mode.CALCULATION;
     private RangeMode rangeMode = RangeMode.ABSOLUTE;
@@ -166,12 +170,53 @@ public class PerformanceWaterfallView extends AbstractHistoricView
     {
         super.addButtons(toolBar);
 
+        navigation.synchronize(getReportingPeriod(), LocalDate.now());
+        toolBar.add(new SimpleAction(Messages.LabelPerformanceWaterfallPreviousPeriod, Images.PREVIOUS, a -> {
+            setReportingPeriod(navigation.move(-1));
+            reportingPeriodUpdated();
+        }));
+        navigationUnit = new DropDown(unitLabel(navigation.getUnit()), null, SWT.NONE, manager -> {
+            for (Unit unit : Unit.values())
+            {
+                var action = new SimpleAction(unitLabel(unit), Action.AS_RADIO_BUTTON, a -> {
+                    LocalDate today = LocalDate.now();
+                    Interval interval = getReportingPeriod().toInterval(today);
+                    LocalDate anchor = interval.contains(today) ? today : interval.getEnd();
+                    setReportingPeriod(navigation.select(unit, anchor));
+                    reportingPeriodUpdated();
+                });
+                action.setChecked(unit == navigation.getUnit());
+                manager.add(action);
+            }
+        });
+        toolBar.add(navigationUnit);
+        toolBar.add(new SimpleAction(Messages.LabelPerformanceWaterfallNextPeriod, Images.NEXT, a -> {
+            setReportingPeriod(navigation.move(1));
+            reportingPeriodUpdated();
+        }));
+        toolBar.add(new SimpleAction(Messages.LabelToday, a -> {
+            setReportingPeriod(navigation.select(navigation.getUnit(), LocalDate.now()));
+            reportingPeriodUpdated();
+        }));
+
         clientFilter = new ClientFilterDropDown(getClient(), getPreferenceStore(), getClass().getSimpleName(),
                         filter -> reportingPeriodUpdated());
         toolBar.add(clientFilter);
 
         toolBar.add(new ExportDropDown());
         toolBar.add(new DropDown(Messages.MenuConfigureView, Images.CONFIG, SWT.NONE, this::configureMenuAboutToShow));
+    }
+
+    private static String unitLabel(Unit unit)
+    {
+        return switch (unit)
+        {
+            case DAY -> Messages.LabelReportingDialogDay;
+            case WEEK -> Messages.LabelReportingDialogWeek;
+            case MONTH -> Messages.LabelReportingDialogMonth;
+            case QUARTER -> Messages.LabelReportingDialogQuarter;
+            case YEAR -> Messages.LabelReportingDialogYear;
+        };
     }
 
     @Override
@@ -212,6 +257,9 @@ public class PerformanceWaterfallView extends AbstractHistoricView
     @Override
     public void reportingPeriodUpdated()
     {
+        navigation.synchronize(getReportingPeriod(), LocalDate.now());
+        navigationUnit.setLabel(unitLabel(navigation.getUnit()));
+
         if (chart == null || chart.isDisposed())
             return;
 
