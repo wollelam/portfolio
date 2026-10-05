@@ -141,7 +141,7 @@ mvn -f portfolio-app/pom.xml -Ppackage-distro -DskipTests install
 ```
 
 The CLI archives are written to `portfolio-product/target/products/`, for
-example `PortfolioPerformance-CLI-0.87.1-SNAPSHOT-linux.gtk.x86_64.tar.gz`.
+example `PortfolioPerformance-CLI-0.88.1-SNAPSHOT-linux.gtk.x86_64.tar.gz`.
 Extract the archive and run `portfolio-cli` from its root directory. The
 archive contains its own platform-specific runtime, so Java does not need to
 be installed or present on `PATH`.
