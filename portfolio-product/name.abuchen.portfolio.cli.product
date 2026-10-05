@@ -5,7 +5,7 @@
       uid="name.abuchen.portfolio.cli.product"
       id="name.abuchen.portfolio.cli.product"
       application="name.abuchen.portfolio.cli.application"
-      version="0.87.1.qualifier"
+      version="0.88.1.qualifier"
       type="features"
       includeLaunchers="true"
       autoIncludeRequirements="true">
