@@ -23,6 +23,7 @@ public class PDFImportAssistant
     private final List<File> files;
     private final List<Extractor> extractors = new ArrayList<>();
     private final Map<File, PDFInputFile> failedInputFiles = new HashMap<>();
+    private final Map<String, Extractor> labeledExtractors = new HashMap<>();
 
     public PDFImportAssistant(Client client, List<File> files)
     {
@@ -43,6 +44,7 @@ public class PDFImportAssistant
         extractors.add(new AyvensBankPDFExtractor(client));
         extractors.add(new BaaderBankPDFExtractor(client));
         extractors.add(new Bank11PDFExtractor(client));
+        extractors.add(new Bank99PDFExtractor(client));
         extractors.add(new BancoBilbaoVizcayaArgentariaPDFExtractor(client));
         extractors.add(new BankSLMPDFExtractor(client));
         extractors.add(new BarclaysBankIrelandPLCPDFExtractor(client));
@@ -129,12 +131,14 @@ public class PDFImportAssistant
         extractors.add(new RelaiPDFExtractor(client));
         extractors.add(new RenaultBankDirektPDFExtractor(client));
         extractors.add(new RevolutLtdPDFExtractor(client));
+        extractors.add(new RobinhoodPDFExtractor(client));
         extractors.add(new SantanderConsumerBankPDFExtractor(client));
         extractors.add(new SaxoBankPDFExtractor(client));
         extractors.add(new SberbankEuropeAGPDFExtractor(client));
         extractors.add(new SBrokerPDFExtractor(client));
         extractors.add(new ScalableCapitalPDFExtractor(client));
         extractors.add(new SchelhammerCapitalBankAG(client));
+        extractors.add(new SchwabPDFExtractor(client));
         extractors.add(new ScorePriorityIncPDFExtractor(client));
         extractors.add(new SelfWealthPDFExtractor(client));
         extractors.add(new SimpelPDFExtractor(client));
@@ -203,7 +207,8 @@ public class PDFImportAssistant
                     if (!items.isEmpty())
                     {
                         extracted = true;
-                        itemsByExtractor.computeIfAbsent(extractor, e -> new ArrayList<Item>()).addAll(items);
+                        var key = lookupExtractor(extractor, inputFile);
+                        itemsByExtractor.computeIfAbsent(key, e -> new ArrayList<Item>()).addAll(items);
                         break;
                     }
                 }
@@ -220,7 +225,8 @@ public class PDFImportAssistant
                             if (!items.isEmpty())
                             {
                                 extracted = true;
-                                itemsByExtractor.computeIfAbsent(extractor, e -> new ArrayList<Item>()).addAll(items);
+                                var key = lookupExtractor(extractor, inputFile);
+                                itemsByExtractor.computeIfAbsent(key, e -> new ArrayList<Item>()).addAll(items);
                                 break;
                             }
                         }
@@ -274,5 +280,65 @@ public class PDFImportAssistant
     public Map<File, PDFInputFile> getFailedInputFiles()
     {
         return failedInputFiles;
+    }
+
+    /**
+     * Returns the extractor under which the extracted items are grouped. If
+     * the extractor returns a document specific label (see
+     * {@link AbstractPDFExtractor#getLabel(PDFInputFile)}), the items
+     * are grouped per label. The import wizard creates one page per group and
+     * remembers the target portfolio and account per label.
+     */
+    private Extractor lookupExtractor(Extractor extractor, PDFInputFile inputFile)
+    {
+        if (!(extractor instanceof AbstractPDFExtractor pdfExtractor))
+            return extractor;
+
+        var label = pdfExtractor.getLabel(inputFile);
+
+        if (label == null || label.equals(extractor.getLabel()))
+            return extractor;
+
+        return labeledExtractors.computeIfAbsent(label, l -> new LabeledExtractor(extractor, l));
+    }
+
+    /**
+     * Delegates to the original extractor but returns a document specific
+     * label.
+     */
+    private static final class LabeledExtractor implements Extractor
+    {
+        private final Extractor delegate;
+        private final String label;
+
+        private LabeledExtractor(Extractor delegate, String label)
+        {
+            this.delegate = delegate;
+            this.label = label;
+        }
+
+        @Override
+        public String getLabel()
+        {
+            return label;
+        }
+
+        @Override
+        public List<Item> extract(SecurityCache securityCache, InputFile file, List<Exception> errors)
+        {
+            return delegate.extract(securityCache, file, errors);
+        }
+
+        @Override
+        public List<Item> extract(List<InputFile> files, List<Exception> errors)
+        {
+            return delegate.extract(files, errors);
+        }
+
+        @Override
+        public void postProcessing(List<Item> items)
+        {
+            delegate.postProcessing(items);
+        }
     }
 }
