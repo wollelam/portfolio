@@ -33,8 +33,20 @@ import name.abuchen.portfolio.ui.views.dashboard.WidgetConfig;
 import name.abuchen.portfolio.ui.views.dashboard.WidgetDelegate;
 import name.abuchen.portfolio.util.TextUtil;
 
-abstract class AbstractPerformanceWaterfallWidget extends WidgetDelegate<PerformanceBreakdown>
+abstract class AbstractPerformanceWaterfallWidget extends WidgetDelegate<AbstractPerformanceWaterfallWidget.Data>
 {
+    static final class Data
+    {
+        private final PerformanceBreakdown breakdown;
+        private final WaterfallDataset dataset;
+
+        Data(PerformanceBreakdown breakdown, WaterfallDataset dataset)
+        {
+            this.breakdown = breakdown;
+            this.dataset = dataset;
+        }
+    }
+
     enum Range
     {
         ABSOLUTE(Messages.LabelPerformanceWaterfallAbsolute), RELATIVE(Messages.LabelPerformanceWaterfallRelative);
@@ -172,7 +184,7 @@ abstract class AbstractPerformanceWaterfallWidget extends WidgetDelegate<Perform
     }
 
     @Override
-    public Supplier<PerformanceBreakdown> getUpdateTask()
+    public Supplier<Data> getUpdateTask()
     {
         var interval = get(ReportingPeriodConfig.class).getReportingPeriod().toInterval(LocalDate.now());
         var filter = get(ClientFilterConfig.class).getSelectedFilter();
@@ -186,22 +198,26 @@ abstract class AbstractPerformanceWaterfallWidget extends WidgetDelegate<Perform
             var converter = new CurrencyConverterImpl(getDashboardData().getExchangeRateProviderFactory(),
                             getClient().getBaseCurrency());
             var snapshot = new ClientPerformanceSnapshot(client, converter, interval, useFifo);
-            return createBreakdown(snapshot);
+            var breakdown = createBreakdown(snapshot);
+            var dataset = breakdown != null && breakdown.isReconciled() ? createDataset(breakdown, snapshot) : null;
+            return new Data(breakdown, dataset);
         };
     }
 
     protected abstract PerformanceBreakdown createBreakdown(ClientPerformanceSnapshot snapshot);
 
-    protected abstract WaterfallDataset createDataset(PerformanceBreakdown breakdown);
+    protected abstract WaterfallDataset createDataset(PerformanceBreakdown breakdown,
+                    ClientPerformanceSnapshot snapshot);
 
     @Override
-    public void update(PerformanceBreakdown breakdown)
+    public void update(Data data)
     {
         title.setText(TextUtil.tooltip(getWidget().getLabel()));
         get(ChartHeightConfig.class).updateGridData(chart, title.getParent());
         chart.getTitle().setText(title.getText());
         chart.setShowValueLabels(get(ShowValuesConfig.class).getValue());
 
+        PerformanceBreakdown breakdown = data == null ? null : data.breakdown;
         if (breakdown == null || !breakdown.isReconciled())
         {
             chart.setDataset(null);
@@ -211,7 +227,7 @@ abstract class AbstractPerformanceWaterfallWidget extends WidgetDelegate<Perform
         else
         {
             chart.getTitle().setVisible(false);
-            chart.setDataset(createDataset(breakdown));
+            chart.setDataset(data.dataset);
         }
 
         chart.setIncludeZeroInRange(includeZeroInRange());

@@ -2,23 +2,60 @@ package name.abuchen.portfolio.ui.util.chart;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 
+import name.abuchen.portfolio.model.Security;
+import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.PerformanceBreakdown;
+import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceRecord;
+import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceSnapshot;
+import name.abuchen.portfolio.util.Interval;
 
 /**
  * Immutable data model for a waterfall chart.
  * <p>
  * Values are stored in the minor unit of {@link #getCurrencyCode()}, just like
- * {@code Money}. Keeping this class independent of the performance snapshot
- * makes it useful for every additive monetary breakdown.
+ * {@code Money}. It remains useful for every additive monetary breakdown while
+ * also supporting performance data for instrument contributions.
  */
 public final class WaterfallDataset
 {
     public enum EntryKind
     {
         START, CHANGE, SUBTOTAL, TOTAL
+    }
+
+    /** Reporting-period performance data for an instrument contribution. */
+    public static final class InstrumentPerformance
+    {
+        private final double periodReturn;
+        private final double annualizedReturn;
+        private final double irr;
+
+        private InstrumentPerformance(double periodReturn, double annualizedReturn, double irr)
+        {
+            this.periodReturn = periodReturn;
+            this.annualizedReturn = annualizedReturn;
+            this.irr = irr;
+        }
+
+        public double getPeriodReturn()
+        {
+            return periodReturn;
+        }
+
+        public double getAnnualizedReturn()
+        {
+            return annualizedReturn;
+        }
+
+        public double getIrr()
+        {
+            return irr;
+        }
     }
 
     /** A source entry used to create a dataset. */
@@ -28,13 +65,21 @@ public final class WaterfallDataset
         private final EntryKind kind;
         private final long value;
         private final Object source;
+        private final InstrumentPerformance instrumentPerformance;
 
         private Entry(String label, EntryKind kind, long value, Object source)
+        {
+            this(label, kind, value, source, null);
+        }
+
+        private Entry(String label, EntryKind kind, long value, Object source,
+                        InstrumentPerformance instrumentPerformance)
         {
             this.label = Objects.requireNonNull(label, "label"); //$NON-NLS-1$
             this.kind = Objects.requireNonNull(kind, "kind"); //$NON-NLS-1$
             this.value = value;
             this.source = source;
+            this.instrumentPerformance = instrumentPerformance;
         }
 
         public static Entry start(String label, long value)
@@ -68,6 +113,11 @@ public final class WaterfallDataset
         public String getLabel()
         {
             return label;
+        }
+
+        public InstrumentPerformance getInstrumentPerformance()
+        {
+            return instrumentPerformance;
         }
 
         public EntryKind getKind()
@@ -114,6 +164,11 @@ public final class WaterfallDataset
         public String getLabel()
         {
             return entry.getLabel();
+        }
+
+        public InstrumentPerformance getInstrumentPerformance()
+        {
+            return entry.getInstrumentPerformance();
         }
 
         public EntryKind getKind()
@@ -241,6 +296,22 @@ public final class WaterfallDataset
         this(breakdown.limitContributions(topN));
     }
 
+    /**
+     * Convenience constructor for instrument contribution waterfalls. The
+     * instrument bars include reporting-period and annualized true
+     * time-weighted return data for their tooltips.
+     */
+    public WaterfallDataset(PerformanceBreakdown breakdown, int topN, ClientPerformanceSnapshot snapshot)
+    {
+        this(breakdown.limitContributions(topN), instrumentPerformanceProvider(snapshot));
+    }
+
+    private WaterfallDataset(PerformanceBreakdown breakdown,
+                    Function<PerformanceBreakdown.Entry, InstrumentPerformance> performanceProvider)
+    {
+        this(currencyCodeOf(breakdown), entriesOf(breakdown, performanceProvider));
+    }
+
     private static String currencyCodeOf(PerformanceBreakdown breakdown)
     {
         Objects.requireNonNull(breakdown, "breakdown"); //$NON-NLS-1$
@@ -250,11 +321,45 @@ public final class WaterfallDataset
 
     private static List<Entry> entriesOf(PerformanceBreakdown breakdown)
     {
+        return entriesOf(breakdown, entry -> null);
+    }
+
+    private static List<Entry> entriesOf(PerformanceBreakdown breakdown,
+                    Function<PerformanceBreakdown.Entry, InstrumentPerformance> performanceProvider)
+    {
         Objects.requireNonNull(breakdown, "breakdown"); //$NON-NLS-1$
+        Objects.requireNonNull(performanceProvider, "performanceProvider"); //$NON-NLS-1$
         return breakdown.getEntries().stream()
-                        .map(entry -> new Entry(entry.getLabel(), EntryKind.valueOf(entry.getKind().name()),
-                                        entry.getAmount().getAmount(), entry))
+                        .map(entry -> new Entry(entry.getLabel(),
+                                        EntryKind.valueOf(entry.getKind().name()), entry.getAmount().getAmount(),
+                                        entry, performanceProvider.apply(entry)))
                         .toList();
+    }
+
+    private static Function<PerformanceBreakdown.Entry, InstrumentPerformance> instrumentPerformanceProvider(
+                    ClientPerformanceSnapshot snapshot)
+    {
+        Objects.requireNonNull(snapshot, "snapshot"); //$NON-NLS-1$
+
+        var start = snapshot.getStartClientSnapshot();
+        var end = snapshot.getEndClientSnapshot();
+        var interval = Interval.of(start.getTime(), end.getTime());
+        var records = new HashMap<Security, LazySecurityPerformanceRecord>();
+
+        LazySecurityPerformanceSnapshot.create(snapshot.getClient(), start.getCurrencyConverter(), interval, start, end)
+                        .getRecords().forEach(record -> records.put(record.getSecurity(), record));
+
+        return entry -> {
+            if (entry.getSecurity() == null)
+                return null;
+
+            var record = records.get(entry.getSecurity());
+            if (record == null)
+                return null;
+
+            return new InstrumentPerformance(record.getTrueTimeWeightedRateOfReturn(),
+                            record.getTrueTimeWeightedRateOfReturnAnnualized(), record.getIrr());
+        };
     }
 
     public String getCurrencyCode()

@@ -7,7 +7,7 @@
 	<parent>
 		<groupId>name.abuchen.portfolio</groupId>
 		<artifactId>portfolio-app</artifactId>
-		<version>0.87.1-SNAPSHOT</version>
+		<version>0.88.1-SNAPSHOT</version>
 		<relativePath>../portfolio-app</relativePath>
 	</parent>
 
@@ -119,7 +119,7 @@
 			<plugin>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>exec-maven-plugin</artifactId>
-				<version>3.6.3</version>
+				<version>3.6.4</version>
 				<executions>
 					<execution>
 						<id>sign-win-executables</id>
@@ -256,6 +256,14 @@
 								<macosx>PortfolioPerformance.app</macosx>
 							</rootFolders>
 						</product>
+						<product>
+							<id>name.abuchen.portfolio.cli.product</id>
+							<rootFolder>portfolio-cli</rootFolder>
+							<archiveFileName>PortfolioPerformance-CLI-${project.version}</archiveFileName>
+							<rootFolders>
+								<macosx>PortfolioPerformance-CLI.app</macosx>
+							</rootFolders>
+						</product>
 					</products>
 					<parallel>true</parallel>
 				</configuration>
@@ -345,6 +353,15 @@
 										<macosx>PortfolioPerformance.app</macosx>
 									</rootFolders>
 								</product>
+								<product>
+									<id>name.abuchen.portfolio.cli.product</id>
+									<attachId>name.abuchen.portfolio.cli.product</attachId>
+									<rootFolder>portfolio-cli</rootFolder>
+									<archiveFileName>PortfolioPerformance-CLI-${project.version}</archiveFileName>
+									<rootFolders>
+										<macosx>PortfolioPerformance-CLI.app</macosx>
+									</rootFolders>
+								</product>
 							</products>
 						</configuration>
 					</plugin>
@@ -377,7 +394,7 @@
 					<plugin>
 						<groupId>org.codehaus.mojo</groupId>
 						<artifactId>exec-maven-plugin</artifactId>
-						<version>3.6.3</version>
+						<version>3.6.4</version>
 						<executions>
 							<execution>
 								<id>check-p2-inf-files</id>
@@ -597,7 +614,7 @@
 					<plugin>
 						<groupId>org.codehaus.mojo</groupId>
 						<artifactId>build-helper-maven-plugin</artifactId>
-						<version>3.6.1</version>
+						<version>3.6.2</version>
 						<executions>
 							<execution>
 								<id>attach-dmg</id>

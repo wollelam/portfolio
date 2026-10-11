@@ -61,7 +61,6 @@ eclipse configuration PortfolioPerformance_CLI {
 
     memory min=512M max=2G;
     execution-environment 'JavaSE-21';
-    argument "-consoleLog";
     vm-argument "-XX:+IgnoreUnrecognizedVMOptions";
     vm-argument "-XX:+UseG1GC";
     vm-argument "-XX:+UseStringDeduplication";

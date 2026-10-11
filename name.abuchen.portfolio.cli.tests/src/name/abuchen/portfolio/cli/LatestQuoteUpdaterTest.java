@@ -35,7 +35,31 @@ public class LatestQuoteUpdaterTest
 
         assertThat(result.getUpdatedCount(), is(1L));
         assertThat(security.getLatest().getValue(), is(123_000L));
+        assertThat(feed.getHistoricalTicker(), is("MAIN")); //$NON-NLS-1$
+        assertThat(security.getPrices().size(), is(1));
+        assertThat(security.getPrices().get(0).getValue(), is(122_000L));
         assertThat(feed.getTicker(), is("LATEST")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void usesSeparateHistoricalAndLatestFeedsLikeTheDesktopClient()
+    {
+        Security security = security("ACME", "HISTORIC"); //$NON-NLS-1$ //$NON-NLS-2$
+        security.setLatestFeed("LATEST"); //$NON-NLS-1$
+        Client client = new Client();
+        client.addSecurity(security);
+
+        LatestQuoteFeed historical = new LatestQuoteFeed();
+        LatestQuoteFeed latest = new LatestQuoteFeed();
+        LatestQuoteUpdater updater = new LatestQuoteUpdater(
+                        feedId -> "HISTORIC".equals(feedId) ? historical : latest); //$NON-NLS-1$ //$NON-NLS-2$
+
+        LatestQuoteUpdater.Result result = updater.update(client);
+
+        assertThat(result.getUpdatedCount(), is(1L));
+        assertThat(historical.getHistoricalTicker(), is("MAIN")); //$NON-NLS-1$
+        assertThat(historical.getTicker(), is((String) null));
+        assertThat(latest.getTicker(), is("MAIN")); //$NON-NLS-1$
     }
 
     @Test
@@ -88,6 +112,7 @@ public class LatestQuoteUpdaterTest
     private static class LatestQuoteFeed implements QuoteFeed
     {
         private String ticker;
+        private String historicalTicker;
 
         @Override
         public String getId()
@@ -113,10 +138,19 @@ public class LatestQuoteUpdaterTest
             return ticker;
         }
 
+        public String getHistoricalTicker()
+        {
+            return historicalTicker;
+        }
+
         @Override
         public QuoteFeedData getHistoricalQuotes(Security security, boolean collectRawResponse)
+                        throws QuoteFeedException
         {
-            throw new UnsupportedOperationException();
+            historicalTicker = security.getTickerSymbol();
+            QuoteFeedData data = new QuoteFeedData();
+            data.addPrice(new LatestSecurityPrice(LocalDate.of(2026, 1, 1), 122_000L));
+            return data;
         }
     }
 
@@ -139,6 +173,13 @@ public class LatestQuoteUpdaterTest
 
         @Override
         public Optional<LatestSecurityPrice> getLatestQuote(Security security) throws QuoteFeedException
+        {
+            throw new TestQuoteFeedException();
+        }
+
+        @Override
+        public QuoteFeedData getHistoricalQuotes(Security security, boolean collectRawResponse)
+                        throws QuoteFeedException
         {
             throw new TestQuoteFeedException();
         }

@@ -14,6 +14,7 @@ import org.junit.Test;
 import name.abuchen.portfolio.model.Account;
 import name.abuchen.portfolio.model.AccountTransaction;
 import name.abuchen.portfolio.model.Client;
+import name.abuchen.portfolio.model.ClientFactory;
 import name.abuchen.portfolio.util.Interval;
 
 @SuppressWarnings("nls")
@@ -57,6 +58,20 @@ public class SummaryReportTest
         finally
         {
             Locale.setDefault(originalLocale);
+        }
+    }
+
+    @Test
+    public void overviewIncludesSecurityQuotes() throws Exception
+    {
+        try (var input = SummaryReportTest.class.getResourceAsStream("/scenarios/currency_sample.xml"))
+        {
+            var client = ClientFactory.load(input);
+            String output = String.join("\n", SummaryReport.render(client,
+                            Interval.of(LocalDate.of(2014, 1, 1), LocalDate.of(2015, 1, 16))));
+
+            assertThat(output, containsString("Quote"));
+            assertThat(output, containsString("USD 105.99"));
         }
     }
 }

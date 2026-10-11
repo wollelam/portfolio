@@ -7,12 +7,20 @@
 	<parent>
 		<groupId>name.abuchen.portfolio</groupId>
 		<artifactId>portfolio-app</artifactId>
-		<version>0.87.1-SNAPSHOT</version>
+		<version>0.88.1-SNAPSHOT</version>
 		<relativePath>../portfolio-app</relativePath>
 	</parent>
 
 	<artifactId>name.abuchen.portfolio.tests</artifactId>
 	<packaging>eclipse-test-plugin</packaging>
+
+	<dependencies>
+		<dependency>
+			<groupId>name.abuchen.portfolio</groupId>
+			<artifactId>name.abuchen.portfolio</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+	</dependencies>
 
 	<properties>
 		<sonar.skip>true</sonar.skip>

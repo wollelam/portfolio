@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
@@ -14,6 +15,8 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -31,10 +34,17 @@ import org.jline.terminal.TerminalBuilder;
 
 import name.abuchen.portfolio.checks.Checker;
 import name.abuchen.portfolio.checks.Issue;
+import name.abuchen.portfolio.model.Account;
+import name.abuchen.portfolio.model.AccountTransaction;
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.ClientFactory;
+import name.abuchen.portfolio.model.PortfolioTransaction;
 import name.abuchen.portfolio.model.Security;
+import name.abuchen.portfolio.model.SharedPortfolioCommand;
+import name.abuchen.portfolio.model.SharedPortfolioSession;
+import name.abuchen.portfolio.model.SharedPortfolioWorkspace;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
+import name.abuchen.portfolio.money.ExchangeRate;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Money;
 import name.abuchen.portfolio.snapshot.AssetPosition;
@@ -42,8 +52,8 @@ import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot.CategoryType;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
 import name.abuchen.portfolio.snapshot.PerformanceIndex;
-import name.abuchen.portfolio.snapshot.ReportingPeriod;
 import name.abuchen.portfolio.util.Interval;
+import name.abuchen.portfolio.util.TradeCalendarManager;
 
 /**
  * Interactive shell for a Portfolio Performance client file.
@@ -60,28 +70,68 @@ public class PortfolioShell
     private static final String ANSI_DIM_CYAN = "\033[2;36m"; //$NON-NLS-1$
     private static final String ANSI_GREEN = "\033[32m"; //$NON-NLS-1$
     private static final String ANSI_RED = "\033[31m"; //$NON-NLS-1$
+    private static final int QUOTE_PROGRESS_BAR_WIDTH = 24;
+    private static final int QUOTE_PROGRESS_CHANGE_WIDTH = 12;
+    private static final long QUOTE_PROGRESS_REFRESH_MILLIS = 250L;
     private static final Pattern COLOUR_VALUE = Pattern.compile(
-                    "\\b[A-Z]{3} -?\\d[\\d.,'’]*|(?<![\\p{Alnum}_])[-+]\\d[\\d.,'’]*%?"); //$NON-NLS-1$
+                    "\\b[A-Z]{3} -?\\d[\\d.,'’]*|>1000\\.00%|(?<![\\p{Alnum}_])[-+]\\d[\\d.,'’]*%?"); //$NON-NLS-1$
     private static final Pattern NEGATIVE_PERIOD = Pattern.compile("^-([1-9][0-9]*)([DWMY])$"); //$NON-NLS-1$
 
-    private static final List<String> COMMANDS = List.of("OPEN", "RELOAD", "QUPD", "STORE", "VAL", "HOLD", "PERF", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$
-                    "TPERF", "SEC", "FX", "ALLOC", "INCOME", "TXN", "DATA", "CHK", "HELP", "EXIT", "QUIT", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$ //$NON-NLS-8$ //$NON-NLS-9$ //$NON-NLS-10$ //$NON-NLS-11$
-                    "SUMMARY"); //$NON-NLS-1$
+    private static final List<String> COMMANDS = List.of("OPEN", "RELOAD", "QUPD", "ERRORS", "STORE", "VAL", "HOLD", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$
+                    "PERF", "TPERF", "SEC", "FX", "ALLOC", "INCOME", "TXN", "DATA", "CHK", "HELP", "EXIT", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$ //$NON-NLS-8$ //$NON-NLS-9$ //$NON-NLS-10$ //$NON-NLS-11$ //$NON-NLS-12$
+                    "SUMMARY", "SYNC"); //$NON-NLS-1$ //$NON-NLS-2$
+    private static final Map<String, String> COMMAND_ABBREVIATIONS = Map.ofEntries(
+                    Map.entry("OP", "OPEN"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("RE", "RELOAD"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("QU", "QUPD"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("ER", "ERRORS"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("SY", "SYNC"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("ST", "STORE"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("VA", "VAL"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("HO", "HOLD"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("PE", "PERF"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("TP", "TPERF"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("SE", "SEC"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("AL", "ALLOC"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("IN", "INCOME"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("TX", "TXN"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("DA", "DATA"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("CH", "CHK"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("HE", "HELP"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("EX", "EXIT"), //$NON-NLS-1$ //$NON-NLS-2$
+                    Map.entry("SU", "SUMMARY")); //$NON-NLS-1$ //$NON-NLS-2$
+    private static final List<String> COMMAND_COMPLETIONS = commandCompletions();
 
     private volatile boolean running = true;
     private Client client;
     private Path clientFile;
     private Terminal terminal;
+    private final LatestQuoteUpdater quoteUpdater;
+    private final ExchangeRateCache exchangeRateCache;
+    private LatestQuoteUpdater.Result lastQuoteUpdate;
     private boolean modified;
+    private SharedPortfolioSession sharedSession;
 
     public PortfolioShell()
     {
-        // default constructor for the Equinox application
+        this(null, new LatestQuoteUpdater(), new ExchangeRateCache());
     }
 
     PortfolioShell(Terminal terminal)
     {
+        this(terminal, new LatestQuoteUpdater(), ExchangeRateCache.disabled());
+    }
+
+    PortfolioShell(Terminal terminal, LatestQuoteUpdater quoteUpdater)
+    {
+        this(terminal, quoteUpdater, ExchangeRateCache.disabled());
+    }
+
+    PortfolioShell(Terminal terminal, LatestQuoteUpdater quoteUpdater, ExchangeRateCache exchangeRateCache)
+    {
         this.terminal = terminal;
+        this.quoteUpdater = java.util.Objects.requireNonNull(quoteUpdater);
+        this.exchangeRateCache = java.util.Objects.requireNonNull(exchangeRateCache);
     }
 
     public int run() throws IOException
@@ -99,9 +149,10 @@ public class PortfolioShell
         try
         {
             var reader = LineReaderBuilder.builder().terminal(terminal).parser(new DefaultParser())
-                            .completer(new StringsCompleter(COMMANDS)).build();
+                            .completer(new StringsCompleter(COMMAND_COMPLETIONS)).build();
 
             printWelcome();
+            loadExchangeRates();
             if (initialFile != null)
             {
                 try
@@ -163,7 +214,7 @@ public class PortfolioShell
         if (words.isEmpty())
             return;
 
-        String command = words.get(0).toUpperCase(Locale.ROOT);
+        String command = resolveCommand(words.get(0));
         switch (command)
         {
             case "OPEN": //$NON-NLS-1$
@@ -174,6 +225,9 @@ public class PortfolioShell
                 break;
             case "QUPD": //$NON-NLS-1$
                 updateQuotes(words);
+                break;
+            case "ERRORS": //$NON-NLS-1$
+                quoteUpdateErrors(words);
                 break;
             case "STORE": //$NON-NLS-1$
                 store(words);
@@ -189,8 +243,13 @@ public class PortfolioShell
                 break;
             case "SUMMARY": //$NON-NLS-1$
                 var summaryOptions = performanceOptions(words, "SUMMARY"); //$NON-NLS-1$
-                SummaryReport.render(requireClient(), Interval.of(summaryOptions.from(), summaryOptions.to()))
-                                .forEach(this::println);
+                var summary = SummaryReport.renderReport(requireClient(),
+                                Interval.of(summaryOptions.from(), summaryOptions.to()));
+                var summaryScales = ValueColourScale.forLines(summary.lines());
+                summary.lines().forEach(cliLine -> println(cliLine, summaryScales));
+                break;
+            case "SYNC": //$NON-NLS-1$
+                sync(reader, words);
                 break;
             case "TPERF": //$NON-NLS-1$
                 topPerformers(words);
@@ -223,7 +282,6 @@ public class PortfolioShell
                 help();
                 break;
             case "EXIT": //$NON-NLS-1$
-            case "QUIT": //$NON-NLS-1$
                 if (modified)
                     println("Discarding unsaved in-memory quote updates."); //$NON-NLS-1$
                 running = false;
@@ -238,6 +296,19 @@ public class PortfolioShell
         Parser parser = new DefaultParser();
         ParsedLine parsed = parser.parse(line, line.length());
         return parsed.words();
+    }
+
+    private String resolveCommand(String value)
+    {
+        String command = value.toUpperCase(Locale.ROOT);
+        return COMMAND_ABBREVIATIONS.getOrDefault(command, command);
+    }
+
+    private static List<String> commandCompletions()
+    {
+        var completions = new ArrayList<>(COMMANDS);
+        completions.addAll(COMMAND_ABBREVIATIONS.keySet());
+        return List.copyOf(completions);
     }
 
     private void open(LineReader reader, List<String> words) throws IOException
@@ -259,8 +330,13 @@ public class PortfolioShell
                 println("Discarded unsaved in-memory quote updates."); //$NON-NLS-1$
             client = loaded;
             clientFile = file;
+            lastQuoteUpdate = null;
             modified = false;
             println("Opened " + file + " (" + client.getBaseCurrency() + ")"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+
+            sharedSession = SharedPortfolioSession.tryOpen(file);
+            if (sharedSession != null)
+                println("Shared workspace connected at " + sharedSession.getParentRevision() + "."); //$NON-NLS-1$ //$NON-NLS-2$
         }
         finally
         {
@@ -276,20 +352,454 @@ public class PortfolioShell
         open(reader, List.of("OPEN", clientFile.toString())); //$NON-NLS-1$
     }
 
+    private void sync(LineReader reader, List<String> words) throws IOException
+    {
+        requireArgumentCountAtLeast(words, 2,
+                        "SYNC STATUS|INIT <folder>|JOIN <folder> <new-local-file>|SUBMIT|REFRESH|PENDING|EVENTS|ACCEPT <id>" //$NON-NLS-1$
+                                        + "|ADD-QUOTE|ADD-ACCOUNT-TXN|ADD-PORTFOLIO-TXN"); //$NON-NLS-1$
+        String action = words.get(1).toUpperCase(Locale.ROOT);
+        switch (action)
+        {
+            case "INIT": //$NON-NLS-1$
+                requireArgumentCount(words, 3, "SYNC INIT <folder>"); //$NON-NLS-1$
+                requireClient();
+                store(List.of("STORE")); //$NON-NLS-1$
+                sharedSession = SharedPortfolioSession.createOwner(Path.of(words.get(2)), clientFile);
+                println("Shared workspace created at " + sharedSession.getWorkspaceDirectory() //$NON-NLS-1$
+                                + " (owner). Parent revision: " + sharedSession.getParentRevision()); //$NON-NLS-1$
+                break;
+            case "JOIN": //$NON-NLS-1$
+                requireArgumentCount(words, 4, "SYNC JOIN <folder> <new-local-file>"); //$NON-NLS-1$
+                Path local = Path.of(words.get(3)).toAbsolutePath().normalize();
+                sharedSession = SharedPortfolioSession.join(Path.of(words.get(2)), local);
+                open(reader, List.of("OPEN", local.toString())); //$NON-NLS-1$
+                // OPEN may not have a sidecar association if loading failed;
+                // retain the session created above for a clear later error.
+                println("Joined shared workspace at " + sharedSession.getParentRevision() + "."); //$NON-NLS-1$ //$NON-NLS-2$
+                break;
+            case "SUBMIT": //$NON-NLS-1$
+                requireArgumentCount(words, 2, "SYNC SUBMIT"); //$NON-NLS-1$
+                requireSharedSession();
+                store(List.of("STORE")); //$NON-NLS-1$
+                String submissionParent = sharedSession.getParentRevision();
+                String submission = sharedSession.submitChanges(client);
+                if (submission == null)
+                    println("No local changes to submit."); //$NON-NLS-1$
+                else
+                {
+                    boolean command = Files.isRegularFile(sharedSession.getWorkspaceDirectory().resolve("commands") //$NON-NLS-1$
+                                    .resolve(submission + ".ppcmd")); //$NON-NLS-1$
+                    println("Submitted " + (command ? "additive command " : "complete-file proposal ") + submission //$NON-NLS-1$ //$NON-NLS-2$
+                                    + " based on " + submissionParent + "."); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                break;
+            case "ADD-QUOTE": //$NON-NLS-1$
+                submitQuoteCommand(words);
+                break;
+            case "ADD-ACCOUNT-TXN": //$NON-NLS-1$
+                submitAccountTransactionCommand(words);
+                break;
+            case "ADD-PORTFOLIO-TXN": //$NON-NLS-1$
+                submitPortfolioTransactionCommand(words);
+                break;
+            case "REFRESH": //$NON-NLS-1$
+                requireArgumentCount(words, 2, "SYNC REFRESH"); //$NON-NLS-1$
+                requireSharedSession();
+                if (modified)
+                    throw new SharedPortfolioWorkspace.DirtyException("Save or submit local in-memory changes before refreshing."); //$NON-NLS-1$
+                boolean refreshed = sharedSession.refresh();
+                if (refreshed)
+                    open(reader, List.of("OPEN", clientFile.toString())); //$NON-NLS-1$
+                println(refreshed ? "Working copy refreshed." : "Working copy is already current."); //$NON-NLS-1$ //$NON-NLS-2$
+                break;
+            case "STATUS": //$NON-NLS-1$
+                requireArgumentCount(words, 2, "SYNC STATUS"); //$NON-NLS-1$
+                requireSharedSession();
+                String head = sharedSession.getWorkspace().currentRevision();
+                println("Workspace: " + sharedSession.getWorkspace().getDirectory()); //$NON-NLS-1$
+                println("Role: " + (sharedSession.isOwner() ? "owner" : "contributor")); //$NON-NLS-1$ //$NON-NLS-2$
+                println("Local parent: " + sharedSession.getParentRevision()); //$NON-NLS-1$
+                println("Master head: " + head); //$NON-NLS-1$
+                println("Pending submissions: " + sharedSession.pending().size()); //$NON-NLS-1$
+                println("Pending commands: " + sharedSession.pendingCommands().size()); //$NON-NLS-1$
+                println("Accepted events: " + sharedSession.events().size()); //$NON-NLS-1$
+                break;
+            case "PENDING": //$NON-NLS-1$
+                requireArgumentCount(words, 2, "SYNC PENDING"); //$NON-NLS-1$
+                requireSharedSession();
+                var pending = sharedSession.pending();
+                var pendingCommands = sharedSession.getWorkspace().pendingCommands();
+                if (pending.isEmpty() && pendingCommands.isEmpty())
+                    println("No pending commands or submissions."); //$NON-NLS-1$
+                else
+                {
+                    pendingCommands.forEach(item -> println("command " + item.id() + " actor=" + item.actorId() //$NON-NLS-1$ //$NON-NLS-2$
+                                    + " parent=" + item.parentRevision() + " operations=" + item.operations().size())); //$NON-NLS-1$ //$NON-NLS-2$
+                    pending.forEach(item -> println("submission " + item.id() + " actor=" + item.actorId() + " parent=" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                                    + item.parentRevision() + " content=" + item.contentHash())); //$NON-NLS-1$
+                }
+                break;
+            case "EVENTS": //$NON-NLS-1$
+                requireArgumentCount(words, 2, "SYNC EVENTS"); //$NON-NLS-1$
+                requireSharedSession();
+                var events = sharedSession.events();
+                if (events.isEmpty())
+                    println("No accepted command events."); //$NON-NLS-1$
+                else
+                    events.forEach(event -> println("event " + event.sequence() + " command=" + event.command().id() //$NON-NLS-1$ //$NON-NLS-2$
+                                    + " actor=" + event.command().actorId() + " revision=" + event.revision() //$NON-NLS-1$ //$NON-NLS-2$
+                                    + " operations=" + event.command().operations().size())); //$NON-NLS-1$
+                break;
+            case "ACCEPT": //$NON-NLS-1$
+                requireArgumentCount(words, 3, "SYNC ACCEPT <submission-id>"); //$NON-NLS-1$
+                requireSharedSession();
+                if (modified)
+                    throw new SharedPortfolioWorkspace.DirtyException("Save local changes before accepting a contribution."); //$NON-NLS-1$
+                String acceptanceId = words.get(2);
+                Path commandPath = sharedSession.getWorkspaceDirectory().resolve("commands") //$NON-NLS-1$
+                                .resolve(acceptanceId + ".ppcmd"); //$NON-NLS-1$
+                if (Files.isRegularFile(commandPath))
+                {
+                    SharedPortfolioWorkspace.CommandAcceptance acceptance = sharedSession.acceptCommand(client,
+                                    acceptanceId);
+                    modified = false;
+                    println("Accepted command " + acceptanceId + " as event " + acceptance.sequence() //$NON-NLS-1$ //$NON-NLS-2$
+                                    + " at revision " + acceptance.revision() + "."); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                else
+                {
+                    String revision = sharedSession.accept(acceptanceId);
+                    open(reader, List.of("OPEN", clientFile.toString())); //$NON-NLS-1$
+                    println("Accepted submission at revision " + revision + "."); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                break;
+            default:
+                throw new IllegalArgumentException("Unknown SYNC action '" + words.get(1) + "'."); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+    }
+
+    private void submitQuoteCommand(List<String> words) throws IOException
+    {
+        requireArgumentCountAtLeast(words, 5, "SYNC ADD-QUOTE <security-id> <YYYY-MM-DD> <value> [high low volume]"); //$NON-NLS-1$
+        if (words.size() != 5 && words.size() != 8)
+            throw new IllegalArgumentException("Usage: SYNC ADD-QUOTE <security-id> <YYYY-MM-DD> <value> [high low volume]"); //$NON-NLS-1$
+        SharedPortfolioSession session = requireSharedSession();
+        String securityId = words.get(2);
+        if (requireClient().getSecurities().stream().noneMatch(security -> securityId.equals(security.getUUID())))
+            throw new IllegalArgumentException("Unknown security: " + securityId); //$NON-NLS-1$
+        LocalDate date = LocalDate.parse(words.get(3));
+        long value = Long.parseLong(words.get(4));
+        SharedPortfolioCommand.Operation operation;
+        if (words.size() == 8)
+        {
+            operation = new SharedPortfolioCommand.AddQuote(securityId, date, value, Long.parseLong(words.get(5)),
+                            Long.parseLong(words.get(6)), Long.parseLong(words.get(7)));
+        }
+        else
+        {
+            operation = new SharedPortfolioCommand.AddQuote(securityId, date, value);
+        }
+        SharedPortfolioCommand command = SharedPortfolioCommand.create(session.getWorkspace().getWorkspaceId(),
+                        session.getActorId(), session.getParentRevision(), List.of(operation));
+        println("Submitted command " + session.submitCommand(command) + "."); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private void submitAccountTransactionCommand(List<String> words) throws IOException
+    {
+        requireArgumentCountAtLeast(words, 7,
+                        "SYNC ADD-ACCOUNT-TXN <account-id> <type> <date-time> <currency> <amount> [security-id shares]"); //$NON-NLS-1$
+        if (words.size() != 7 && words.size() != 9)
+            throw new IllegalArgumentException("Usage: SYNC ADD-ACCOUNT-TXN <account-id> <type> <date-time> <currency> <amount> [security-id shares]"); //$NON-NLS-1$
+        SharedPortfolioSession session = requireSharedSession();
+        String accountId = words.get(2);
+        if (requireClient().getAccounts().stream().noneMatch(account -> accountId.equals(account.getUUID())))
+            throw new IllegalArgumentException("Unknown account: " + accountId); //$NON-NLS-1$
+        String securityId = words.size() == 9 && !"-".equals(words.get(7)) ? words.get(7) : null; //$NON-NLS-1$
+        long shares = words.size() == 9 ? Long.parseLong(words.get(8)) : 0;
+        if (securityId != null && requireClient().getSecurities().stream()
+                        .noneMatch(security -> securityId.equals(security.getUUID())))
+            throw new IllegalArgumentException("Unknown security: " + securityId); //$NON-NLS-1$
+        SharedPortfolioCommand.Operation operation = new SharedPortfolioCommand.AddAccountTransaction(
+                        UUID.randomUUID().toString(), accountId, LocalDateTime.parse(words.get(4)), words.get(5),
+                        Long.parseLong(words.get(6)), securityId, shares,
+                        AccountTransaction.Type.valueOf(words.get(3).toUpperCase(Locale.ROOT)), null, null, null);
+        submitCommand(session, operation);
+    }
+
+    private void submitPortfolioTransactionCommand(List<String> words) throws IOException
+    {
+        requireArgumentCountAtLeast(words, 7,
+                        "SYNC ADD-PORTFOLIO-TXN <portfolio-id> <type> <date-time> <currency> <amount> [security-id shares]"); //$NON-NLS-1$
+        if (words.size() != 7 && words.size() != 9)
+            throw new IllegalArgumentException("Usage: SYNC ADD-PORTFOLIO-TXN <portfolio-id> <type> <date-time> <currency> <amount> [security-id shares]"); //$NON-NLS-1$
+        SharedPortfolioSession session = requireSharedSession();
+        String portfolioId = words.get(2);
+        if (requireClient().getPortfolios().stream().noneMatch(portfolio -> portfolioId.equals(portfolio.getUUID())))
+            throw new IllegalArgumentException("Unknown portfolio: " + portfolioId); //$NON-NLS-1$
+        String securityId = words.size() == 9 && !"-".equals(words.get(7)) ? words.get(7) : null; //$NON-NLS-1$
+        long shares = words.size() == 9 ? Long.parseLong(words.get(8)) : 0;
+        if (securityId != null && requireClient().getSecurities().stream()
+                        .noneMatch(security -> securityId.equals(security.getUUID())))
+            throw new IllegalArgumentException("Unknown security: " + securityId); //$NON-NLS-1$
+        SharedPortfolioCommand.Operation operation = new SharedPortfolioCommand.AddPortfolioTransaction(
+                        UUID.randomUUID().toString(), portfolioId, LocalDateTime.parse(words.get(4)), words.get(5),
+                        Long.parseLong(words.get(6)), securityId, shares,
+                        PortfolioTransaction.Type.valueOf(words.get(3).toUpperCase(Locale.ROOT)), null, null);
+        submitCommand(session, operation);
+    }
+
+    private void submitCommand(SharedPortfolioSession session, SharedPortfolioCommand.Operation operation)
+                    throws IOException
+    {
+        SharedPortfolioCommand command = SharedPortfolioCommand.create(session.getWorkspace().getWorkspaceId(),
+                        session.getActorId(), session.getParentRevision(), List.of(operation));
+        println("Submitted command " + session.submitCommand(command) + "."); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private SharedPortfolioSession requireSharedSession()
+    {
+        if (sharedSession == null)
+            throw new IllegalStateException("No shared workspace is connected. Use SYNC INIT or SYNC JOIN first."); //$NON-NLS-1$
+        return sharedSession;
+    }
+
     private void updateQuotes(List<String> words)
     {
         requireArgumentCount(words, 1, "QUPD"); //$NON-NLS-1$
         Client loaded = requireClient();
-        println("Updating latest quotes in memory..."); //$NON-NLS-1$
+        refreshExchangeRates();
+        LocalDate valuationDate = LocalDate.now();
+        Money valueBefore = snapshot(loaded, valuationDate).getMonetaryAssets();
+        println("Updating historical and latest quotes in memory..."); //$NON-NLS-1$
 
-        LatestQuoteUpdater.Result result = new LatestQuoteUpdater().update(loaded);
+        lastQuoteUpdate = null;
+        int total = loaded.getActiveSecurities().size();
+        QuoteProgressRenderer progressRenderer = total > 0 && supportsProgress()
+                        ? new QuoteProgressRenderer(terminal, total, loaded, valuationDate, valueBefore)
+                        : null;
+        if (progressRenderer != null)
+            progressRenderer.start();
+
+        LatestQuoteUpdater.Result result;
+        try
+        {
+            LatestQuoteUpdater.ProgressListener progress = progressRenderer == null
+                            ? (completed, progressTotal, entry) -> {
+                                // intentionally empty
+                            }
+                            : progressRenderer::update;
+            result = quoteUpdater.update(loaded, progress);
+        }
+        finally
+        {
+            if (progressRenderer != null)
+                progressRenderer.close();
+        }
+        lastQuoteUpdate = result;
         if (result.getUpdatedCount() > 0)
             modified = true;
 
         println(CliFormatter.format("Quotes: %d updated, %d unchanged, %d skipped, %d failed", result.getUpdatedCount(), //$NON-NLS-1$
                         result.getUnchangedCount(), result.getSkippedCount(), result.getFailedCount()));
-        result.getEntries().stream().filter(entry -> entry.status() == LatestQuoteUpdater.Status.FAILED)
-                        .forEach(entry -> println("- " + entry.security().getName() + ": " + entry.message())); //$NON-NLS-1$ //$NON-NLS-2$
+        Money valueAfter = snapshot(loaded, valuationDate).getMonetaryAssets();
+        println("Portfolio value: " + CliFormatter.money(valueBefore) + " -> " + CliFormatter.money(valueAfter) //$NON-NLS-1$ //$NON-NLS-2$
+                        + " (change " + signedMoney(valueAfter.subtract(valueBefore)) + ")"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (result.getErrorCount() > 0)
+            println(CliFormatter.format("Warning: Errors encountered on %d securities. Use ERRORS to view details.", //$NON-NLS-1$
+                            result.getErrorCount()));
+    }
+
+    private void loadExchangeRates()
+    {
+        try
+        {
+            exchangeRateCache.load();
+        }
+        catch (IOException e)
+        {
+            println("Warning: " + e.getMessage()); //$NON-NLS-1$
+        }
+    }
+
+    private void refreshExchangeRates()
+    {
+        println("Refreshing cached exchange rates..."); //$NON-NLS-1$
+        try
+        {
+            exchangeRateCache.refresh();
+        }
+        catch (IOException e)
+        {
+            println("Warning: " + e.getMessage()); //$NON-NLS-1$
+        }
+    }
+
+    private final class QuoteProgressRenderer implements AutoCloseable
+    {
+        private final Terminal progressTerminal;
+        private final int total;
+        private final Client progressClient;
+        private final LocalDate valuationDate;
+        private final Money valueBefore;
+        private final Thread rendererThread;
+        private volatile Progress latest;
+        private volatile boolean running;
+        private boolean progressVisible;
+
+        private QuoteProgressRenderer(Terminal progressTerminal, int total, Client progressClient,
+                        LocalDate valuationDate, Money valueBefore)
+        {
+            this.progressTerminal = progressTerminal;
+            this.total = total;
+            this.progressClient = progressClient;
+            this.valuationDate = valuationDate;
+            this.valueBefore = valueBefore;
+            this.latest = new Progress(0, total, null);
+            this.rendererThread = new Thread(this::renderLoop, "portfolio-cli-quote-progress"); //$NON-NLS-1$
+            this.rendererThread.setDaemon(true);
+        }
+
+        private void start()
+        {
+            running = true;
+            rendererThread.start();
+        }
+
+        private void update(int completed, int progressTotal, LatestQuoteUpdater.ResultEntry entry)
+        {
+            latest = new Progress(completed, progressTotal, entry == null ? null : entry.security().getName());
+        }
+
+        @Override
+        public void close()
+        {
+            update(total, total, null);
+            running = false;
+            rendererThread.interrupt();
+
+            boolean interrupted = false;
+            while (true)
+            {
+                try
+                {
+                    rendererThread.join();
+                    break;
+                }
+                catch (InterruptedException e)
+                {
+                    interrupted = true;
+                }
+            }
+            if (interrupted)
+                Thread.currentThread().interrupt();
+        }
+
+        private void renderLoop()
+        {
+            Progress rendered = null;
+            while (true)
+            {
+                Progress current = latest;
+                if (!current.equals(rendered))
+                {
+                    render(current);
+                    rendered = current;
+                }
+
+                if (!running)
+                {
+                    clear();
+                    return;
+                }
+
+                try
+                {
+                    Thread.sleep(QUOTE_PROGRESS_REFRESH_MILLIS);
+                }
+                catch (InterruptedException e)
+                {
+                    // Recheck the latest progress immediately when closing.
+                }
+            }
+        }
+
+        private void render(Progress progress)
+        {
+            int safeTotal = Math.max(progress.total(), 1);
+            int safeCompleted = Math.max(0, Math.min(progress.completed(), progress.total()));
+            int percentage = safeCompleted * 100 / safeTotal;
+            int filled = (int) ((long) QUOTE_PROGRESS_BAR_WIDTH * safeCompleted / safeTotal);
+            String bar = "[" + "=".repeat(filled) + "-".repeat(QUOTE_PROGRESS_BAR_WIDTH - filled) + "]"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            Money portfolioChange = portfolioChange();
+            String change = portfolioChange == null ? "n/a" //$NON-NLS-1$
+                            : signedMoney(portfolioChange);
+            String changeField = CliFormatter.format("%" + QUOTE_PROGRESS_CHANGE_WIDTH + "s", change); //$NON-NLS-1$
+            if (supportsColour() && portfolioChange != null && !portfolioChange.isZero())
+            {
+                String colour = portfolioChange.isPositive() ? ANSI_GREEN : ANSI_RED;
+                changeField = colour + changeField + ANSI_RESET;
+            }
+            String security = progress.security() == null ? "" : " " + abbreviate(progress.security(), 40); //$NON-NLS-1$
+            String message = CliFormatter.format("%s %3d%% (%d/%d) %s%s", bar, percentage, progress.completed(), //$NON-NLS-1$
+                            progress.total(), changeField, security);
+
+            progressTerminal.writer().print("\r\033[2K" + message); //$NON-NLS-1$
+            progressTerminal.flush();
+            progressVisible = true;
+        }
+
+        private void clear()
+        {
+            if (!progressVisible)
+                return;
+
+            progressTerminal.writer().print("\r\033[2K"); //$NON-NLS-1$
+            progressTerminal.flush();
+            progressVisible = false;
+        }
+
+        private Money portfolioChange()
+        {
+            try
+            {
+                return snapshot(progressClient, valuationDate).getMonetaryAssets().subtract(valueBefore);
+            }
+            catch (RuntimeException e)
+            {
+                // A quote update can briefly mutate the client while the
+                // renderer is calculating the display value. Try again on
+                // the next progress update instead of affecting the update.
+                return null;
+            }
+        }
+
+        private record Progress(int completed, int total, String security)
+        {
+        }
+    }
+
+    private void quoteUpdateErrors(List<String> words)
+    {
+        requireArgumentCount(words, 1, "ERRORS"); //$NON-NLS-1$
+
+        if (lastQuoteUpdate == null)
+        {
+            println("No quote update has been run yet."); //$NON-NLS-1$
+            return;
+        }
+
+        List<LatestQuoteUpdater.ResultEntry> errors = lastQuoteUpdate.getErrorEntries();
+        if (errors.isEmpty())
+        {
+            println("No errors recorded for the last quote update."); //$NON-NLS-1$
+            return;
+        }
+
+        println("QUOTE UPDATE ERRORS (" + errors.size() + " securities):"); //$NON-NLS-1$ //$NON-NLS-2$
+        errors.forEach(entry -> {
+            String state = entry.status() == LatestQuoteUpdater.Status.FAILED ? "failed" : "updated with errors"; //$NON-NLS-1$ //$NON-NLS-2$
+            println("- " + entry.security().getName() + " [" + state + "]: " + entry.message()); //$NON-NLS-1$ //$NON-NLS-2$
+        });
     }
 
     private void store(List<String> words) throws IOException
@@ -335,6 +845,8 @@ public class PortfolioShell
 
         println(CliFormatter.format("%-36s %14s %18s %8s", "Holding", "Shares", "Value", "Weight")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
         snapshot.getAssetPositions().sorted(Comparator.comparing(AssetPosition::getValuation).reversed())
+                        .filter(position -> !(position.getInvestmentVehicle() instanceof Account account)
+                                        || !account.isRetired())
                         .forEach(position -> printHolding(position, snapshot.getCurrencyCode()));
     }
 
@@ -368,26 +880,33 @@ public class PortfolioShell
         }
 
         int count = Math.min(options.limit(), performers.size());
-        println("Best performers (TTWROR):"); //$NON-NLS-1$
+        var topPerformers = performerRows(performers, count, false);
+        var worstPerformers = performerRows(performers, count, true);
+        var currencyPerformers = PerformerRanking.sortByCurrencyPerformance(performers);
+        var topContributors = performerRows(currencyPerformers, count, false);
+        var topDetractors = performerRows(currencyPerformers, count, true);
+        var performerLines = new ArrayList<CliLine>();
+        topPerformers.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), false)));
+        worstPerformers.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), false)));
+        topContributors.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), true)));
+        topDetractors.forEach(performer -> performerLines.add(performerLine(performer, loaded.getBaseCurrency(), true)));
+        var performerScales = ValueColourScale.forLines(performerLines);
+
+        println("Top performers (TTWROR):"); //$NON-NLS-1$
         printPerformerHeader("TTWROR"); //$NON-NLS-1$
-        for (int index = 0; index < count; index++)
-            printPerformer(performers.get(index), loaded.getBaseCurrency(), false);
+        topPerformers.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), false), performerScales));
 
         println("Worst performers (TTWROR):"); //$NON-NLS-1$
         printPerformerHeader("TTWROR"); //$NON-NLS-1$
-        for (int index = performers.size() - 1; index >= performers.size() - count; index--)
-            printPerformer(performers.get(index), loaded.getBaseCurrency(), false);
+        worstPerformers.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), false), performerScales));
 
-        var currencyPerformers = PerformerRanking.sortByCurrencyPerformance(performers);
-        println("Best performers (currency performance):"); //$NON-NLS-1$
+        println("Top contributors:"); //$NON-NLS-1$
         printPerformerHeader("Abs. return"); //$NON-NLS-1$
-        for (int index = 0; index < count; index++)
-            printPerformer(currencyPerformers.get(index), loaded.getBaseCurrency(), true);
+        topContributors.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), true), performerScales));
 
-        println("Worst performers (currency performance):"); //$NON-NLS-1$
+        println("Top detractors:"); //$NON-NLS-1$
         printPerformerHeader("Abs. return"); //$NON-NLS-1$
-        for (int index = currencyPerformers.size() - 1; index >= currencyPerformers.size() - count; index--)
-            printPerformer(currencyPerformers.get(index), loaded.getBaseCurrency(), true);
+        topDetractors.forEach(performer -> println(performerLine(performer, loaded.getBaseCurrency(), true), performerScales));
 
         if (!warnings.isEmpty())
             println(warnings.size() + " performance calculation warning(s)."); //$NON-NLS-1$
@@ -406,17 +925,44 @@ public class PortfolioShell
         Client loaded = requireClient();
         PerformanceOptions options = performanceOptions(words, "FX"); //$NON-NLS-1$
         var converter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(loaded), loaded.getBaseCurrency());
-        println("FX rates to " + loaded.getBaseCurrency() + " at " + options.to()); //$NON-NLS-1$ //$NON-NLS-2$
+        println("FX rates to " + loaded.getBaseCurrency() + " at " + options.to() //$NON-NLS-1$ //$NON-NLS-2$
+                        + " (change vs. previous available rate):"); //$NON-NLS-1$
         var currencies = new java.util.TreeSet<String>();
         loaded.getSecurities().stream().map(Security::getCurrencyCode).filter(java.util.Objects::nonNull)
                         .forEach(currencies::add);
         loaded.getAccounts().forEach(account -> currencies.add(account.getCurrencyCode()));
+
+        var lines = new ArrayList<CliLine>();
         for (String currency : currencies)
         {
             var rate = converter.getRateIfAvailable(options.to(), currency);
-            println(currency + ": " + rate.map(r -> r.getValue() + " (rate date " + r.getTime() + ")") //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                            .orElse("unavailable")); //$NON-NLS-1$
+            if (rate.isEmpty())
+            {
+                lines.add(CliLine.plain(CliFormatter.format("%-4s: %18s %10s (rate unavailable)", currency, "n/a", //$NON-NLS-1$ //$NON-NLS-2$
+                                "n/a"))); //$NON-NLS-1$
+                continue;
+            }
+
+            ExchangeRate current = rate.get();
+            double change = exchangeRateChange(converter, currency, current);
+            String formattedChange = CliFormatter.signedPercent(change);
+            String prefix = CliFormatter.format("%-4s: %18s ", currency, current.getValue().toPlainString()); //$NON-NLS-1$
+            lines.add(CliLine.builder().append(prefix).appendValue(formattedChange, 10, change, CliLine.Metric.FX_CHANGE)
+                            .append(" (rate date ").append(current.getTime().toString()).append(")").build()); //$NON-NLS-1$ //$NON-NLS-2$
         }
+
+        var scales = ValueColourScale.forLines(lines);
+        lines.forEach(line -> println(line, scales));
+    }
+
+    private double exchangeRateChange(CurrencyConverterImpl converter, String currency, ExchangeRate current)
+    {
+        var previous = converter.getRateIfAvailable(current.getTime().minusDays(1), currency);
+        if (previous.isEmpty() || !previous.get().getTime().isBefore(current.getTime())
+                        || previous.get().getValue().signum() == 0)
+            return Double.NaN;
+
+        return current.getValue().doubleValue() / previous.get().getValue().doubleValue() - 1d;
     }
 
     private void allocation(List<String> words)
@@ -505,7 +1051,7 @@ public class PortfolioShell
 
         if (!periodSeen && explicitFrom == null && !endDateSpecified)
         {
-            Interval interval = new ReportingPeriod.PreviousTradingDay().toInterval(to);
+            Interval interval = mostRecentTradingDayInterval(to);
             return new PerformanceOptions(interval.getStart(), interval.getEnd(), limit);
         }
 
@@ -528,6 +1074,16 @@ public class PortfolioShell
         if (!from.isBefore(to))
             throw new IllegalArgumentException("Performance start date must be before the end date."); //$NON-NLS-1$
         return new PerformanceOptions(from, to, limit);
+    }
+
+    static Interval mostRecentTradingDayInterval(LocalDate referenceDate)
+    {
+        LocalDate tradingDay = referenceDate;
+        var calendar = TradeCalendarManager.getDefaultInstance();
+        while (calendar.isHoliday(tradingDay))
+            tradingDay = tradingDay.minusDays(1);
+
+        return Interval.of(tradingDay.minusDays(1), tradingDay);
     }
 
     private Interval negativePeriod(String period, LocalDate relativeTo)
@@ -645,20 +1201,43 @@ public class PortfolioShell
         }
     }
 
-    private void printPerformer(PerformerRanking.Performer performer, String currency, boolean absoluteReturn)
+    private List<PerformerRanking.Performer> performerRows(List<PerformerRanking.Performer> performers, int count,
+                    boolean reverse)
     {
-        println(CliFormatter.format("  %-36s %10s %10s %18s %18s", abbreviate(performer.name(), 36), //$NON-NLS-1$
-                        formattedPercent(absoluteReturn ? performer.currencyPerformancePercent()
-                                        : performer.performance()),
-                        formattedPercent(performer.irr()),
-                        signedMoney(Money.of(currency, performer.currencyPerformance())),
-                        CliFormatter.money(Money.of(currency, performer.value()))));
+        var rows = new ArrayList<PerformerRanking.Performer>(count);
+        if (reverse)
+        {
+            for (int index = performers.size() - 1; index >= performers.size() - count; index--)
+                rows.add(performers.get(index));
+        }
+        else
+        {
+            for (int index = 0; index < count; index++)
+                rows.add(performers.get(index));
+        }
+        return rows;
+    }
+
+    private CliLine performerLine(PerformerRanking.Performer performer, String currency, boolean absoluteReturn)
+    {
+        double returnValue = absoluteReturn ? performer.currencyPerformancePercent() : performer.performance();
+        String formattedReturn = formattedPercent(returnValue);
+        String formattedIrr = CliFormatter.irr(performer.irr());
+        String formattedContribution = signedMoney(Money.of(currency, performer.currencyPerformance()));
+        String formattedValue = CliFormatter.money(Money.of(currency, performer.value()));
+
+        return CliLine.builder().append("  ").appendLeft(abbreviate(performer.name(), 36), 36).append(" ") //$NON-NLS-1$ //$NON-NLS-2$
+                        .appendRight(performer.quote(), 16).append(" ") //$NON-NLS-1$
+                        .appendValue(formattedReturn, 10, returnValue, CliLine.Metric.RETURN).append(" ") //$NON-NLS-1$
+                        .appendValue(formattedIrr, 10, performer.irr(), CliLine.Metric.IRR).append(" ") //$NON-NLS-1$
+                        .appendValue(formattedContribution, 18, performer.currencyPerformance(), CliLine.Metric.CONTRIBUTION)
+                        .append(" ").appendRight(formattedValue, 18).build(); //$NON-NLS-1$
     }
 
     private void printPerformerHeader(String returnLabel)
     {
-        println(CliFormatter.format("  %-36s %10s %10s %18s %18s", "Instrument", returnLabel, "IRR p.a.", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                        "Contribution", "Current value")); //$NON-NLS-1$ //$NON-NLS-2$
+        println(CliFormatter.format("  %-36s %16s %10s %10s %18s %18s", "Instrument", "Quote", returnLabel, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                        "IRR p.a.", "Contribution", "Current value")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     }
 
     private void printPerformanceBreakdown(ClientPerformanceSnapshot snapshot)
@@ -780,8 +1359,15 @@ public class PortfolioShell
     {
         println("OPEN <file>          Load a .portfolio, .xml, or .zip client file"); //$NON-NLS-1$
         println("RELOAD               Discard in-memory updates and reload the file"); //$NON-NLS-1$
-        println("QUPD                 Fetch latest quotes into memory (does not save)"); //$NON-NLS-1$
+        println("QUPD                 Refresh FX cache and fetch quotes into memory (client file not saved)"); //$NON-NLS-1$
+        println("ERRORS               Show errors from the most recent quote update"); //$NON-NLS-1$
         println("STORE                Save in-memory updates using the production file writer"); //$NON-NLS-1$
+        println("SYNC INIT <folder>   Create a shared workspace from the opened file"); //$NON-NLS-1$
+        println("SYNC JOIN <folder> <new-local-file>  Join a shared workspace"); //$NON-NLS-1$
+        println("SYNC SUBMIT|REFRESH|STATUS|PENDING|EVENTS|ACCEPT <id>"); //$NON-NLS-1$
+        println("SYNC ADD-QUOTE <security-id> <date> <value> [high low volume]"); //$NON-NLS-1$
+        println("SYNC ADD-ACCOUNT-TXN <account-id> <type> <date-time> <currency> <amount> [security-id shares]"); //$NON-NLS-1$
+        println("SYNC ADD-PORTFOLIO-TXN <portfolio-id> <type> <date-time> <currency> <amount> [security-id shares]"); //$NON-NLS-1$
         println("VAL [YYYY-MM-DD]     Show total value in the base currency"); //$NON-NLS-1$
         println("HOLD [YYYY-MM-DD]    List holdings, cash, values, and weights"); //$NON-NLS-1$
         println("PERF [period] [--from DATE] [--to DATE]"); //$NON-NLS-1$
@@ -797,6 +1383,10 @@ public class PortfolioShell
         println("CHK                  Run the registered consistency checks"); //$NON-NLS-1$
         println("HELP                 Show this help"); //$NON-NLS-1$
         println("EXIT                 Exit without changing the loaded file"); //$NON-NLS-1$
+        println("2-char aliases: OP=OPEN RE=RELOAD QU=QUPD ER=ERRORS ST=STORE"); //$NON-NLS-1$
+        println("                VA=VAL HO=HOLD PE=PERF TP=TPERF SE=SEC FX=FX"); //$NON-NLS-1$
+        println("                AL=ALLOC IN=INCOME TX=TXN DA=DATA CH=CHK"); //$NON-NLS-1$
+        println("                HE=HELP EX=EXIT SU=SUMMARY SY=SYNC"); //$NON-NLS-1$
     }
 
     private String abbreviate(String value, int width)
@@ -809,6 +1399,12 @@ public class PortfolioShell
     private void println(String message)
     {
         terminal.writer().println(styleOutput(message));
+        terminal.flush();
+    }
+
+    private void println(CliLine line, Map<CliLine.Metric, ValueColourScale> scales)
+    {
+        terminal.writer().println(styleOutput(line, scales));
         terminal.flush();
     }
 
@@ -825,6 +1421,19 @@ public class PortfolioShell
             return prefix + ANSI_BOLD_CYAN + message + ANSI_RESET;
 
         return prefix + colourValues(message);
+    }
+
+    private String styleOutput(CliLine line, Map<CliLine.Metric, ValueColourScale> scales)
+    {
+        if (!supportsColour())
+            return line.text();
+
+        String prefix = ANSI_DIM_CYAN + "│ " + ANSI_RESET; //$NON-NLS-1$
+        if (isHeading(line.text()))
+            return prefix + ANSI_BOLD_CYAN + line.text() + ANSI_RESET;
+        if (line.values().isEmpty())
+            return prefix + colourValues(line.text());
+        return prefix + ValueColourScale.apply(line, scales);
     }
 
     static String colourValues(String message)
@@ -852,5 +1461,10 @@ public class PortfolioShell
     private boolean supportsColour()
     {
         return terminal != null && !"dumb".equalsIgnoreCase(terminal.getType()) && System.getenv("NO_COLOR") == null; //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private boolean supportsProgress()
+    {
+        return terminal != null && !"dumb".equalsIgnoreCase(terminal.getType()); //$NON-NLS-1$
     }
 }

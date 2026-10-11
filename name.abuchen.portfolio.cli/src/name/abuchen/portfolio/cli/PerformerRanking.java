@@ -24,7 +24,7 @@ public final class PerformerRanking
     }
 
     public record Performer(Security security, String name, double performance, long currencyPerformance,
-                    double currencyPerformancePercent, double irr, long value) {}
+                    double currencyPerformancePercent, double irr, long value, String quote) {}
 
     /**
      * Returns holdings ordered from best to worst by cumulative TTWROR over
@@ -63,7 +63,7 @@ public final class PerformerRanking
             double performanceInCurrencyPercent = currencyRecord.map(record -> record.getDeltaPercent()).orElse(0d);
             double irr = currencyRecord.map(record -> record.getIrr()).orElse(Double.NaN);
             result.add(new Performer(security, position.getDescription(), performance, performanceInCurrency,
-                            performanceInCurrencyPercent, irr, position.getValuation().getAmount()));
+                            performanceInCurrencyPercent, irr, position.getValuation().getAmount(), quote(position)));
         }
         result.sort(Comparator.comparingDouble(Performer::performance).reversed()
                         .thenComparing(Performer::name, String.CASE_INSENSITIVE_ORDER));
@@ -72,7 +72,14 @@ public final class PerformerRanking
         return List.copyOf(result);
     }
 
-    /** Returns the supplied performers ordered from largest to smallest portfolio-currency performance. */
+    private static String quote(AssetPosition position)
+    {
+        var price = position.getPosition().getPrice();
+        return price == null || price.getValue() == 0 ? "n/a"
+                        : position.getSecurity().getCurrencyCode() + " " + CliFormatter.quote(price.getValue());
+    }
+
+    /** Returns the supplied performers ordered from largest to smallest portfolio-currency contribution. */
     public static List<Performer> sortByCurrencyPerformance(List<Performer> performers)
     {
         return performers.stream().sorted(Comparator.comparingLong(Performer::currencyPerformance).reversed()

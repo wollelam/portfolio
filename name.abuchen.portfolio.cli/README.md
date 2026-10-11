@@ -54,6 +54,7 @@ OPEN <file>
 SUMMARY [period]
 RELOAD
 QUPD
+ERRORS
 STORE
 VAL [YYYY-MM-DD]
 HOLD [YYYY-MM-DD]
@@ -66,22 +67,44 @@ INCOME [period]
 TXN [period]
 DATA [period]
 CHK
+SYNC INIT <folder>
+SYNC JOIN <folder> <new-local-file>
+SYNC SUBMIT
+SYNC REFRESH
+SYNC STATUS
+SYNC PENDING
+SYNC EVENTS
+SYNC ACCEPT <id>
+SYNC ADD-QUOTE <security-id> <date> <value> [high low volume]
+SYNC ADD-ACCOUNT-TXN <account-id> <type> <date-time> <currency> <amount> [security-id shares]
+SYNC ADD-PORTFOLIO-TXN <portfolio-id> <type> <date-time> <currency> <amount> [security-id shares]
 HELP
 EXIT
 ```
 
 `OPEN` supports quoted paths and prompts securely for encrypted files. `QUPD`
-fetches latest quotes into memory but never writes the client file. `VAL` and
+refreshes the ECB exchange-rate cache used by the desktop application, then
+fetches historical and latest security quotes into memory. It never writes the
+client file. Interactive terminals show an in-place progress bar while the
+securities are processed. `VAL` and
 `HOLD` uses `ClientSnapshot`. `PERF` reports the dashboard-style portfolio
-performance breakdown. `TPERF` ranks current holdings by both cumulative
-TTWROR and portfolio-currency performance using the core performance engine.
-Purchases and other buy-ins are excluded from the currency-performance figure.
-`RELOAD` discards in-memory quote updates. `STORE` saves the loaded file using
+performance breakdown. `TPERF` ranks current holdings as top performers by
+percentage TTWROR and as top contributors by absolute portfolio-currency
+contribution, using the core performance engine. Purchases and other buy-ins
+are excluded from the contribution figure.
+`RELOAD` discards in-memory quote updates. `QUPD` also reports the portfolio
+value before and after the in-memory quote update. `STORE` saves the loaded file using
 the same production `ClientFactory.save` writer used by the GUI, preserving its
 existing format and encryption settings. It first creates or replaces a
 sibling `.backup` file, matching the GUI's default Save protection. Each
 ranking row shows both measures. `CHK` invokes registered core consistency
-checks.
+checks. If a quote update encounters provider errors, `QUPD` reports the number
+of affected securities; `ERRORS` shows the details from the most recent update.
+Every command accepts its first two letters as an abbreviation. For example,
+`QU` abbreviates `QUPD`, `PE` abbreviates `PERF`, and `TP` abbreviates `TPERF`.
+`FX` is already a two-letter command. `EXIT` is the shell's only exit command.
+`FX` shows the rate date and the percentage change from the previous available
+rate; positive and negative changes use the same colour scale as report returns.
 
 The percentage beside portfolio-currency performance is the matching absolute
 performance percentage (`DeltaPercent`), not TTWROR. This keeps its sign and
@@ -119,8 +142,60 @@ mvn -f portfolio-app/pom.xml -Plocal-dev -DskipTests \
 
 In Eclipse, import the CLI project and run the generated
 `PortfolioPerformance_CLI` launch configuration. It starts the Equinox
-application directly without the SWT workbench. A distributable native
-launcher is intentionally left for the packaging milestone.
+application directly without the SWT workbench.
+
+The standalone product is assembled by Tycho with a native Equinox launcher
+and a bundled Java 21 runtime. Build all platform archives with:
+
+```
+mvn -f portfolio-app/pom.xml -Ppackage-distro -DskipTests install
+```
+
+The CLI archives are written to `portfolio-product/target/products/`, for
+example `PortfolioPerformance-CLI-0.88.1-SNAPSHOT-linux.gtk.x86_64.tar.gz`.
+Extract the archive and run `portfolio-cli` from its root directory. The
+archive contains its own platform-specific runtime, so Java does not need to
+be installed or present on `PATH`.
+
+When Maven or Java are not installed on the host, the repository script can
+run the product build in Docker. For a quick rebuild, without creating an
+archive, use:
+
+```
+./portfolio-cli.sh --build-linux
+```
+
+The quick-build output is kept in `/tmp/portfolio-cli-build/` and is recreated
+on each quick build. The script prints the exact executable path; run that
+binary directly with an optional client file, for example:
+
+```
+/tmp/portfolio-cli-build/portfolio-product/target/products/name.abuchen.portfolio.cli.product/linux/gtk/x86_64/portfolio-cli/portfolio-cli \
+    /path/to/client.portfolio
+```
+
+It includes its own Java runtime, so Java does not need to be installed on the
+host.
+
+The first build prepares a cached `portfolio-cli-build` Docker image containing
+Maven, Java 21, GTK, and Xvfb. The build container itself is temporary and is
+removed after the build; the image and `portfolio-cli-m2` dependency cache are
+kept for subsequent builds. The image is automatically refreshed when
+`docker/cli-build/Dockerfile` changes.
+
+To rebuild and launch it in one step, optionally opening a portfolio file:
+
+```
+./portfolio-cli.sh --run-linux /path/to/client.portfolio
+```
+
+Without a file, use `./portfolio-cli.sh --run-linux` and enter commands at the
+prompt.
+For a release-style Linux x86_64 archive, use:
+
+```
+./portfolio-cli.sh --package-linux
+```
 
 For a terminal-only development launch on a machine with Docker, run these
 commands from the `portfolio-cli` worktree:
@@ -166,7 +241,7 @@ docker run --rm -it \
   -jar /root/.m2/repository/p2/osgi/bundle/org.eclipse.equinox.launcher/1.7.100.v20251111-0406/org.eclipse.equinox.launcher-1.7.100.v20251111-0406.jar \
   -data /tmp/portfolio-cli-data \
   -configuration /workspace/name.abuchen.portfolio.cli.tests/target/work/configuration \
-  -application name.abuchen.portfolio.cli.application -consoleLog
+  -application name.abuchen.portfolio.cli.application
 ```
 
 The first command builds and tests the prototype while assembling a temporary
@@ -175,7 +250,44 @@ run` command until the build output is cleaned.
 
 ## Prototype boundaries
 
-The shell persists quote updates only when `STORE` is explicitly issued.
-Transactions, `SAVE AS`, scripting, and a standalone packaged launcher are not
-implemented yet. Valuation uses the exchange-rate data available to the
-Equinox runtime workspace.
+The `SYNC` commands use a synchronized folder such as Google Drive as a
+submission mailbox. They never make the shared folder's files the CLI's live
+working file. Create one owner workspace from an opened local portfolio:
+
+```
+SYNC INIT /path/to/shared-folder
+```
+
+On another machine, create a new local copy and join it as a contributor:
+
+```
+SYNC JOIN /path/to/shared-folder /path/to/client-local.portfolio
+```
+
+Use `STORE` to save locally, then `SYNC SUBMIT` to publish an immutable whole
+file proposal when an edit is not yet representable as a command. For additive
+work, use `SYNC ADD-QUOTE`, `SYNC ADD-ACCOUNT-TXN`, or
+`SYNC ADD-PORTFOLIO-TXN`; these write JSON command batches under `commands/`
+without replacing the portfolio. The owner reviews `SYNC PENDING` or
+`SYNC STATUS` and applies either a command or a proposal with `SYNC ACCEPT
+<id>`. Accepted commands are recorded in sequence under `events/`; peers can
+inspect them with `SYNC EVENTS` and use the core replay API. Command IDs make
+retries idempotent, while a conflicting quote, duplicate transaction, missing
+reference, or unsupported linked transfer stays rejected for review. A clean
+working copy can take the current owner master with `SYNC REFRESH`. The
+sidecar file ending in `.ppsync` is local metadata and must not be synchronized.
+Command and event files are currently plaintext, so the shared folder should
+remain within the same trust boundary as the portfolio.
+
+The desktop application's Shared portfolio menu uses these same core services,
+including owner review of command batches. Automatic capture of arbitrary editor
+mutations, linked transaction groups, background aggregation, and owner transfer
+are not implemented yet; the current workflow deliberately requires owner
+review.
+
+The shell persists security quote updates only when `STORE` is explicitly
+issued. `QUPD` refreshes and persists ECB exchange rates separately from the
+client file; security quote updates remain in memory until `STORE`. Direct
+transaction editing, `SAVE AS`, and scripting are not implemented yet.
+Valuation uses the exchange-rate data available to the Equinox runtime
+workspace.
