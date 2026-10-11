@@ -116,7 +116,7 @@ public class PDFImportAssistant
         extractors.add(new OldenburgischeLandesbankAGPDFExtractor(client));
         extractors.add(new LGTBankPDFExtractor(client));
         extractors.add(new LibertyVorsorgeAGPDFExtractor(client));
-        extractors.add(new LiechtensteinischeLandesbankAGPDFExtractor(client));
+        extractors.add(new LiechtensteinischeLBPDFExtractor(client));
         extractors.add(new LimeTradingCorpPDFExtractor(client));
         extractors.add(new OnvistaPDFExtractor(client));
         extractors.add(new OpenBankSAPDFExtractor(client));
@@ -164,6 +164,7 @@ public class PDFImportAssistant
         extractors.add(new VanguardGroupEuropePDFExtractor(client));
         extractors.add(new VBankAGPDFExtractor(client));
         extractors.add(new VDKBankNVPDFExtractor(client));
+        extractors.add(new VolksbankWienPDFExtractor(client));
         extractors.add(new VolkswagenBankPDFExtractor(client));
         extractors.add(new VZVermoegenszentrumAGPDFExtractor(client));
         extractors.add(new WealthsimpleInvestmentsIncPDFExtractor(client));
