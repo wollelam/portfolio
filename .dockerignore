@@ -5,3 +5,6 @@
 **/target
 volume
 
+TempParse.java
+TempParse.py
+**/__pycache__

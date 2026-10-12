@@ -22,6 +22,7 @@ services:
       TZ: ${TZ:-Europe/Zurich}
       DISPLAY_WIDTH: ${DISPLAY_WIDTH:-1920}
       DISPLAY_HEIGHT: ${DISPLAY_HEIGHT:-1080}
+      WEBSOCKIFY_HEARTBEAT: ${WEBSOCKIFY_HEARTBEAT:-30}
     networks:
       - internal
 networks:

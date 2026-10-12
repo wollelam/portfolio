@@ -43,6 +43,13 @@ The defaults can be overridden with environment variables:
 | `TZ` | `Europe/Zurich` | Container timezone |
 | `DISPLAY_WIDTH` | `1920` | Virtual display width |
 | `DISPLAY_HEIGHT` | `1080` | Virtual display height |
+| `WEBSOCKIFY_HEARTBEAT` | `30` | WebSocket ping interval in seconds; set to `0` to disable |
+
+The browser GUI's `/websockify` endpoint is routed through a local
+`websockify` process. It bridges to the base image's private VNC Unix socket
+and sends WebSocket ping frames at the configured heartbeat interval. The
+process listens only on loopback; the VNC socket and port are not exposed by
+this relay.
 
 For example:
 

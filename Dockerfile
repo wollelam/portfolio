@@ -29,7 +29,8 @@ ENV APP_NAME="Portfolio Performance Development" \
 
 RUN add-pkg \
         openjdk-25-jre \
-        libwebkit2gtk-4.1-0 && \
+        libwebkit2gtk-4.1-0 \
+        websockify && \
     install_app_icon.sh "https://www.portfolio-performance.info/images/logo.png"
 
 COPY --from=builder \
@@ -38,4 +39,5 @@ COPY --from=builder \
 COPY docker/rootfs/ /
 
 RUN chmod -R a+rX /opt/portfolio && \
+    chmod +x /etc/services.d/websockify/run && \
     sed -i '1i-data\n/config/portfolio' /opt/portfolio/PortfolioPerformance.ini

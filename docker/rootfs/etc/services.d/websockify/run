@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+heartbeat="${WEBSOCKIFY_HEARTBEAT:-30}"
+case "$heartbeat" in
+    ''|*[!0-9]*)
+        echo "Invalid WEBSOCKIFY_HEARTBEAT: expected integer seconds" >&2
+        exit 64
+        ;;
+esac
+
+exec websockify \
+    --heartbeat "$heartbeat" \
+    --unix-target /tmp/vnc.sock \
+    127.0.0.1:6081
