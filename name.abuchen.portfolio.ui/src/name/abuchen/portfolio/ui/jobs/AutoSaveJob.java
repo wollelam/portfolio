@@ -11,7 +11,8 @@ import name.abuchen.portfolio.ui.editor.ClientInput;
 public final class AutoSaveJob extends AbstractClientJob
 {
     private ClientInput clientInput;
-    private long delay;
+    private volatile long delay;
+    private volatile boolean stopped;
 
     public AutoSaveJob(ClientInput clientInput, long delay)
     {
@@ -20,11 +21,23 @@ public final class AutoSaveJob extends AbstractClientJob
         this.delay = delay;
     }
 
+    public synchronized void stop()
+    {
+        stopped = true;
+        cancel();
+    }
+
+    private synchronized void scheduleNextSave()
+    {
+        if (!stopped && delay > 0L)
+            schedule(delay);
+    }
+
     @Override
     protected IStatus run(IProgressMonitor monitor)
     {
         // 0 means not to autosave at all
-        if (delay != 0L)
+        if (!stopped && delay != 0L)
         {
             try
             {
@@ -33,7 +46,7 @@ public final class AutoSaveJob extends AbstractClientJob
             }
             finally
             {
-                schedule(delay);
+                scheduleNextSave();
             }
         }
         return Status.OK_STATUS;

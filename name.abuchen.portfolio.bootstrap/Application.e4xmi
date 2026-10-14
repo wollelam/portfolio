@@ -31,6 +31,7 @@
         </children>
         <children xsi:type="menu:MenuSeparator" xmi:id="_Ks4qYPOjEeOtWc3KvKMOyw" elementId="name.abuchen.portfolio.ui.menuseparator.3"/>
         <children xsi:type="menu:HandledMenuItem" xmi:id="_NkTjcPOjEeOtWc3KvKMOyw" elementId="name.abuchen.portfolio.ui.menu.file.save" label="%command.save.name" tooltip="" mnemonics="%command.save.mnemonic" command="_rzHrcPOjEeOHHf_SGgPLVA"/>
+        <children xsi:type="menu:HandledMenuItem" xmi:id="_reloadFileMenu" elementId="name.abuchen.portfolio.ui.menu.file.reload" label="%command.reload.name" command="_reloadFileCommand"/>
         <children xsi:type="menu:Menu" xmi:id="_MdglYPOhEeOnWptkJg3Yig" elementId="name.abuchen.portfolio.ui.menu.file.saveAs" label="%command.saveAs.name">
           <children xsi:type="menu:HandledMenuItem" xmi:id="_KeMT4P0KEeuEto77o9qFWg" elementId="name.abuchen.portfolio.ui.menu.file.saveAs.passwordProtected" label="%command.saveAs.passwordProtected" tooltip="%command.saveAs.passwordProtected.tooltip" command="_48Q94POhEeOtWc3KvKMOyw">
             <parameters xmi:id="_KeMT4v0KEeuEto77o9qFWg" elementId="" name="name.abuchen.portfolio.ui.param.file-type" value="binary+aes256"/>
@@ -183,6 +184,7 @@
       </children>
     </mainMenu>
   </children>
+  <handlers xmi:id="_reloadFileHandler" elementId="name.abuchen.portfolio.ui.handler.reload" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.ReloadFileHandler" command="_reloadFileCommand"/>
   <handlers xmi:id="_3eERwBi8EeO8gYEHAOvLsA" elementId="name.abuchen.portfolio.ui.handler.quit" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.QuitHandler" command="_1mco0Bi8EeO8gYEHAOvLsA"/>
   <handlers xmi:id="_PGzpABiOEeOR1rNFCzC82A" elementId="name.abuchen.portfolio.ui.handler.newclient" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.NewFileHandler" command="_LiZuIBiOEeOR1rNFCzC82A"/>
   <handlers xmi:id="_I4msUBfIEeOders_POVQHQ" elementId="name.abuchen.portfolio.ui.handler.open" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.handlers.OpenFileHandler" command="_3CjQwBfHEeOders_POVQHQ"/>
@@ -277,6 +279,7 @@
     <tags>NoDetach</tags>
   </descriptors>
   <descriptors xmi:id="_4RiCMKz9EeOjzfbCEdp40A" elementId="name.abuchen.portfolio.ui.part.textviewer" label="%part.textviewer" allowMultiple="true" closeable="true" contributionURI="bundleclass://name.abuchen.portfolio.ui/name.abuchen.portfolio.ui.parts.TextViewerPart"/>
+  <commands xmi:id="_reloadFileCommand" elementId="name.abuchen.portfolio.ui.command.reload" commandName="reloadFileCommand"/>
   <commands xmi:id="_1mco0Bi8EeO8gYEHAOvLsA" elementId="org.eclipse.ui.file.exit" commandName="quitCommand"/>
   <commands xmi:id="_LiZuIBiOEeOR1rNFCzC82A" elementId="name.abuchen.portfolio.ui.command.newclient" commandName="newClientCommand"/>
   <commands xmi:id="_3CjQwBfHEeOders_POVQHQ" elementId="name.abuchen.portfolio.ui.command.open" commandName="openCommand"/>

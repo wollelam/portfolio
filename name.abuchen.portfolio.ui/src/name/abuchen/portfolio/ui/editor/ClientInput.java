@@ -8,8 +8,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.MessageFormat;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -18,6 +20,7 @@ import java.util.function.Consumer;
 import jakarta.inject.Inject;
 
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.jobs.Job;
@@ -69,10 +72,19 @@ public class ClientInput
 
     public static final String DEFAULT_RELATIVE_BACKUP_FOLDER = "backups"; //$NON-NLS-1$
 
+    private static final int FILE_CHECK_INTERVAL = 60000;
+
     private String label;
     private File clientFile;
     private Client client;
     private SharedPortfolioSession sharedPortfolioSession;
+
+    private byte[] diskContent;
+    private long diskVersion;
+    private boolean monitoringFile;
+    private FileChangeWatcher fileWatcher;
+    private final Runnable fileEventCheck = this::checkFileContent;
+    private final Runnable periodicFileCheck = this::pollFileContent;
 
     private Navigation navigation;
 
@@ -115,8 +127,10 @@ public class ClientInput
         // list of listeners might be modified during onDisposed callback
         new ArrayList<>(this.listeners).forEach(ClientInputListener::onDisposed);
 
-        for (Job job : regularJobs)
-            job.cancel();
+        stopRegularJobs();
+        closeFileWatcher();
+        Display.getDefault().timerExec(-1, fileEventCheck);
+        Display.getDefault().timerExec(-1, periodicFileCheck);
 
         for (Runnable runnable : disposeJobs)
             runnable.run();
@@ -124,6 +138,20 @@ public class ClientInput
         this.client = null;
         this.clientFile = null;
         this.sharedPortfolioSession = null;
+    }
+
+    private void stopRegularJobs()
+    {
+        for (Job job : regularJobs)
+        {
+            if (job instanceof AutoSaveJob autoSave)
+                autoSave.stop();
+            else if (job instanceof PeriodicUpdatePricesJob periodicUpdate)
+                periodicUpdate.stop();
+            else
+                job.cancel();
+        }
+        regularJobs.clear();
     }
 
     public void addListener(ClientInputListener listener)
@@ -347,6 +375,7 @@ public class ClientInput
                     createBackup(clientFile, "backup"); //$NON-NLS-1$
 
                 ClientFactory.save(client, clientFile);
+                rememberDiskContent();
                 storePreferences(false);
 
                 broker.post(UIConstants.Event.File.SAVED, clientFile.getAbsolutePath());
@@ -373,6 +402,176 @@ public class ClientInput
                                 new Status(IStatus.ERROR, PortfolioPlugin.PLUGIN_ID, e.getMessage(), e));
             }
         });
+    }
+
+    /** Reloads all editors sharing this input, retaining the current model on failure. */
+    public void reload(Shell shell)
+    {
+        if (clientFile == null || client == null)
+            return;
+        if (isDirty && !MessageDialog.openQuestion(shell, Messages.LabelReloadFile, Messages.MsgReloadDiscardChanges))
+            return;
+
+        char[] password = null;
+        if (ClientFactory.isEncrypted(clientFile))
+        {
+            PasswordDialog dialog = new PasswordDialog(shell);
+            if (dialog.open() != Window.OK)
+                return;
+            password = dialog.getPassword().toCharArray();
+        }
+        char[] pwd = password;
+        BusyIndicator.showWhile(shell.getDisplay(), () -> {
+            try
+            {
+                byte[] before = FileContentSnapshot.read(clientFile.toPath());
+                Client replacement = ClientFactory.load(clientFile, pwd, new NullProgressMonitor());
+                if (!Arrays.equals(before, FileContentSnapshot.read(clientFile.toPath())))
+                    throw new IOException(Messages.MsgFileChangedDuringReload);
+
+                listeners.forEach(ClientInputListener::onReloading);
+                storePreferences(false);
+                stopRegularJobs();
+                disposeJobs.forEach(Runnable::run);
+                disposeJobs.clear();
+                synchronized (pendingLock)
+                {
+                    pendingDirty = false;
+                    pendingRecalculate = false;
+                }
+                client = null;
+                reportingPeriods = null;
+                diskContent = before;
+                diskVersion++;
+                setDirty(false, false);
+                setClient(replacement);
+            }
+            catch (IOException e)
+            {
+                ErrorDialog.openError(shell, Messages.LabelError, e.getMessage(),
+                                new Status(IStatus.ERROR, PortfolioPlugin.PLUGIN_ID, e.getMessage(), e));
+            }
+        });
+    }
+
+    /* package */ void rememberDiskContent(byte[] content)
+    {
+        diskContent = content;
+        diskVersion++;
+    }
+
+    private void rememberDiskContent()
+    {
+        diskVersion++;
+        try
+        {
+            diskContent = clientFile == null ? null : FileContentSnapshot.read(clientFile.toPath());
+        }
+        catch (IOException e)
+        {
+            diskContent = null;
+        }
+        startFileMonitor();
+    }
+
+    private void startFileMonitor()
+    {
+        if (clientFile == null)
+            return;
+        if (!monitoringFile)
+        {
+            monitoringFile = true;
+            Display.getDefault().timerExec(FILE_CHECK_INTERVAL, periodicFileCheck);
+        }
+        Path path = clientFile.toPath().toAbsolutePath().normalize();
+        if (fileWatcher != null && fileWatcher.getFile().equals(path))
+            return;
+        closeFileWatcher();
+        Display display = Display.getDefault();
+        try
+        {
+            fileWatcher = new FileChangeWatcher(path, () -> {
+                if (!display.isDisposed())
+                    display.asyncExec(() -> {
+                        if (clientFile == null || !clientFile.toPath().toAbsolutePath().normalize().equals(path))
+                            return;
+                        // Coalesce bursts of events and allow the writer to finish.
+                        display.timerExec(-1, fileEventCheck);
+                        display.timerExec(1000, fileEventCheck);
+                    });
+            });
+        }
+        catch (IOException | UnsupportedOperationException e)
+        {
+            // The minute poll remains available on file systems without watching.
+        }
+    }
+
+    private void closeFileWatcher()
+    {
+        if (fileWatcher == null)
+            return;
+        try
+        {
+            fileWatcher.close();
+        }
+        catch (IOException e)
+        {
+            PortfolioPlugin.log(e);
+        }
+        fileWatcher = null;
+    }
+
+    private void pollFileContent()
+    {
+        if (clientFile == null || client == null)
+        {
+            monitoringFile = false;
+            return;
+        }
+        startFileMonitor();
+        checkFileContent();
+        Display.getDefault().timerExec(FILE_CHECK_INTERVAL, periodicFileCheck);
+    }
+
+    private void checkFileContent()
+    {
+        if (clientFile == null || client == null)
+        {
+            monitoringFile = false;
+            return;
+        }
+        File file = clientFile;
+        long version = diskVersion;
+        Display display = Display.getDefault();
+        Job job = Job.create(Messages.LabelReloadFile, monitor -> {
+            try
+            {
+                byte[] content = FileContentSnapshot.read(file.toPath());
+                if (display.isDisposed())
+                    return;
+                display.asyncExec(() -> {
+                    if (client == null || !file.equals(clientFile) || version != diskVersion)
+                        return;
+                    boolean changed = diskContent != null && !Arrays.equals(diskContent, content);
+                    Shell shell = Display.getDefault().getActiveShell();
+                    if (changed && (shell == null || shell.isDisposed() || shell.getParent() != null))
+                        return;
+                    diskContent = content;
+                    diskVersion++;
+                    if (changed && shell != null && !shell.isDisposed()
+                                    && MessageDialog.openQuestion(shell, Messages.LabelReloadFile,
+                                                    MessageFormat.format(Messages.MsgFileChangedOnDisk, file.getName())))
+                        reload(shell);
+                });
+            }
+            catch (IOException e)
+            {
+                // A sync client may temporarily remove or lock the file. Retry later.
+            }
+        });
+        job.setSystem(true);
+        job.schedule();
     }
 
     public void doSaveAs(Shell shell, String extension, Set<SaveFlag> flags) // NOSONAR
@@ -403,6 +602,7 @@ public class ClientInput
             try
             {
                 ClientFactory.saveAs(client, clientFile, pwd, flags);
+                rememberDiskContent();
                 storePreferences(true);
 
                 broker.post(UIConstants.Event.File.SAVED, clientFile.getAbsolutePath());
@@ -736,10 +936,12 @@ public class ClientInput
 
             Job initialQuoteUpdate = new UpdatePricesJob(client, predicate,
                             EnumSet.of(UpdatePricesJob.Target.LATEST, UpdatePricesJob.Target.HISTORIC), mode);
+            regularJobs.add(initialQuoteUpdate);
             initialQuoteUpdate.schedule(1000);
 
             var checkInvestmentPlans = new CreateInvestmentPlanTxJob(client, exchangeRateProviderFacory);
             checkInvestmentPlans.startAfter(initialQuoteUpdate);
+            regularJobs.add(checkInvestmentPlans);
             checkInvestmentPlans.schedule(1100);
 
             // always schedule the period jobs. The job will check the
@@ -752,7 +954,9 @@ public class ClientInput
             job.schedule(job.getInterval().toMillis());
             regularJobs.add(job);
 
-            new UpdateDividendsJob(getClient(), predicate).schedule(7000);
+            var dividendsJob = new UpdateDividendsJob(getClient(), predicate);
+            regularJobs.add(dividendsJob);
+            dividendsJob.schedule(7000);
         }
     }
 
@@ -822,6 +1026,8 @@ public class ClientInput
         scheduleAutoSaveJob();
 
         this.listeners.forEach(ClientInputListener::onLoaded);
+
+        startFileMonitor();
 
         if (client.getFileVersionAfterRead() < Client.VERSION_WITH_CURRENCY_SUPPORT)
         {

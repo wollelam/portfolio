@@ -355,8 +355,20 @@ public class PortfolioPart implements ClientInputListener
     }
 
     @Override
+    public void onReloading()
+    {
+        if (selectedItem != null)
+            part.getPersistedState().put(UIConstants.PersistedState.VIEW,
+                            clientInput.getNavigation().getIdentifier(selectedItem));
+        disposeView();
+    }
+
+    @Override
     public void onLoaded()
     {
+        disposeView();
+        selectedItem = null;
+        selectedPeriod = null;
         this.context.set(Client.class, clientInput.getClient());
         rebuildContainer(this::createContainerWithViews);
     }

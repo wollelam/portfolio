@@ -31,9 +31,13 @@ import name.abuchen.portfolio.ui.UIConstants;
     {
         try
         {
+            byte[] content = FileContentSnapshot.read(clientInput.getFile().toPath());
             Client client = ClientFactory.load(clientInput.getFile(), password, progressProvider.createMonitor());
 
-            Display.getDefault().asyncExec(() -> clientInput.setClient(client));
+            Display.getDefault().asyncExec(() -> {
+                clientInput.rememberDiskContent(content);
+                clientInput.setClient(client);
+            });
 
             clientInput.createBackupAfterOpen();
         }
