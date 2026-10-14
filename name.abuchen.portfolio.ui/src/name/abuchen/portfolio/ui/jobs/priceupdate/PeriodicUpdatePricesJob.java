@@ -21,6 +21,7 @@ public class PeriodicUpdatePricesJob extends Job
     private final ClientInput clientInput;
     private final UpdatePricesJob.Target target;
     private final Duration invertval;
+    private volatile boolean stopped;
 
     public PeriodicUpdatePricesJob(ClientInput clientInput, UpdatePricesJob.Target target, Duration interval)
     {
@@ -35,9 +36,24 @@ public class PeriodicUpdatePricesJob extends Job
         return invertval;
     }
 
+    public synchronized void stop()
+    {
+        stopped = true;
+        cancel();
+    }
+
+    private synchronized void scheduleNextUpdate()
+    {
+        if (!stopped)
+            schedule(invertval.toMillis());
+    }
+
     @Override
     protected IStatus run(IProgressMonitor monitor)
     {
+        if (stopped)
+            return Status.CANCEL_STATUS;
+
         var client = this.clientInput.getClient();
 
         // check on every run because the user can change the preferences
@@ -61,14 +77,14 @@ public class PeriodicUpdatePricesJob extends Job
                 @Override
                 public void done(IJobChangeEvent event)
                 {
-                    PeriodicUpdatePricesJob.this.schedule(invertval.toMillis());
+                    scheduleNextUpdate();
                 }
             });
             job.schedule();
         }
         else
         {
-            PeriodicUpdatePricesJob.this.schedule(invertval.toMillis());
+            scheduleNextUpdate();
         }
 
         return Status.OK_STATUS;

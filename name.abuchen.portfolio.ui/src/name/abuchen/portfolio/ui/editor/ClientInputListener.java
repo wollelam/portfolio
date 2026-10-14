@@ -9,6 +9,11 @@ public interface ClientInputListener
     {
     }
 
+    /** Called before a successfully loaded replacement is installed. */
+    default void onReloading()
+    {
+    }
+
     /**
      * Called if the Client has been successfully loaded.
      */

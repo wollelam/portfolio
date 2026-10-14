@@ -896,6 +896,7 @@ public class Messages extends NLS
     public static String LabelRatio;
     public static String LabelRebalancingAmountToInvest;
     public static String LabelRefresh;
+    public static String LabelReloadFile;
     public static String LabelRemoveDividends;
     public static String LabelRemoveLogo;
     public static String LabelReportingAddPeriod;
@@ -1178,6 +1179,8 @@ public class Messages extends NLS
     public static String MsgErrorSavingIniFile;
     public static String MsgErrorTradeCollectionWithErrors;
     public static String MsgErrorUpdating;
+    public static String MsgFileChangedDuringReload;
+    public static String MsgFileChangedOnDisk;
     public static String MsgHintNoAttributesConfigured;
     public static String MsgHintNoEvents;
     public static String MsgHintUseOutboundDeliveryForZeroTotal;
@@ -1213,6 +1216,7 @@ public class Messages extends NLS
     public static String MsgPreviousStockSplit;
     public static String MsgRateLimitExceeded;
     public static String MsgRateLimitExceededAndRetrying;
+    public static String MsgReloadDiscardChanges;
     public static String MsgRestApiServerStarted;
     public static String MsgRestartRequiredAfterGUIReset;
     public static String MsgRestartRequiredAfterUpdate;
