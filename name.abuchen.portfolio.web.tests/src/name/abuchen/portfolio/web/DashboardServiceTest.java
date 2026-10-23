@@ -16,11 +16,15 @@ import org.junit.Test;
 import name.abuchen.portfolio.model.Account;
 import name.abuchen.portfolio.model.AccountTransaction;
 import name.abuchen.portfolio.model.Client;
+import name.abuchen.portfolio.model.BuySellEntry;
+import name.abuchen.portfolio.model.PortfolioTransaction;
 import name.abuchen.portfolio.model.Transaction;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Money;
 import name.abuchen.portfolio.snapshot.PerformanceIndex;
+import name.abuchen.portfolio.snapshot.ClientSnapshot;
+import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceSnapshot;
 import name.abuchen.portfolio.util.Interval;
 
 @SuppressWarnings("nls")
@@ -115,6 +119,79 @@ public class DashboardServiceTest
         }
         assertFalse(report.holdings().isEmpty());
         assertEquals(4, report.dividends().size());
+    }
+
+    @Test
+    public void instrumentMetricsMatchNativeSecurityPerformanceAndExcludeFutureQuotes() throws Exception
+    {
+        var loaded = DemoPortfolio.create(end);
+        var security = loaded.client().getSecurities().getFirst();
+        security.addPrice(new name.abuchen.portfolio.model.SecurityPrice(end.plusDays(1),
+                        name.abuchen.portfolio.money.Values.Quote.factorize(999)));
+        var from = end.minusMonths(6);
+        var service = new DashboardService(loaded, clock, List.of());
+        var detail = service.dashboard(from, end, null, security.getUUID()).instrument();
+        var converter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(loaded.client()), "EUR");
+        var record = LazySecurityPerformanceSnapshot.create(loaded.client(), converter, Interval.of(from, end),
+                        ClientSnapshot.create(loaded.client(), converter, from),
+                        ClientSnapshot.create(loaded.client(), converter, end)).getRecord(security).orElseThrow();
+        assertEquals(record.getTrueTimeWeightedRateOfReturn(), detail.twror(), 0.0000001);
+        assertEquals(record.getIrr(), detail.irr(), 0.0000001);
+        assertEquals(record.getDelta().getAmount(), detail.gain().longValue());
+        assertEquals(record.getSumOfDividends().getAmount(), detail.dividends());
+        assertEquals(record.getSharesHeld().longValue(), detail.shares());
+        assertTrue(detail.prices().stream().noneMatch(p -> p.date().equals(end.plusDays(1).toString())));
+        assertEquals(1, service.dashboard(from, end).holdings().stream().filter(h -> h.uuid() != null).count());
+    }
+
+    @Test
+    public void removedInstrumentDoesNotBreakDashboard()
+    {
+        var service = new DashboardService(DemoPortfolio.create(end), clock, List.of());
+        var detail = service.dashboard(end.minusMonths(1), end, null, "removed-uuid").instrument();
+        assertTrue(detail.message().contains("no longer available"));
+        assertEquals("removed-uuid", detail.uuid());
+    }
+
+    @Test
+    public void instrumentWithNoStoredQuotesRetainsIdentityAndHistoricalQuantity()
+    {
+        var loaded = DemoPortfolio.create(end);
+        var security = loaded.client().getSecurities().getFirst();
+        security.removeAllPrices();
+        var detail = new DashboardService(loaded, clock, List.of())
+                        .dashboard(end.minusMonths(3), end, null, security.getUUID()).instrument();
+        assertEquals(security.getUUID(), detail.uuid());
+        assertTrue(detail.prices().isEmpty());
+        assertTrue(detail.message().contains("No stored quote on or before"));
+        assertEquals(name.abuchen.portfolio.money.Values.Share.factorize(700), detail.shares());
+        assertTrue(detail.value() == null);
+        assertEquals(null, detail.gain());
+        assertEquals(null, detail.twror());
+        assertEquals(null, detail.irr());
+        assertTrue(detail.dividends() > 0);
+    }
+
+    @Test
+    public void soldInstrumentStillShowsPeriodDividendsWithoutAClosingPosition()
+    {
+        var loaded = DemoPortfolio.create(end);
+        var client = loaded.client();
+        var security = client.getSecurities().getFirst();
+        var portfolio = client.getPortfolios().getFirst();
+        var account = client.getAccounts().getFirst();
+        var sale = new BuySellEntry(portfolio, account);
+        sale.setType(PortfolioTransaction.Type.SELL);
+        sale.setDate(end.minusDays(1).atTime(12, 0));
+        sale.setSecurity(security);
+        sale.setShares(name.abuchen.portfolio.money.Values.Share.factorize(700));
+        sale.setMonetaryAmount(Money.of("EUR", name.abuchen.portfolio.money.Values.Amount.factorize(100000)));
+        sale.insert();
+        var detail = new DashboardService(loaded, clock, List.of())
+                        .dashboard(end.minusMonths(3), end, null, security.getUUID()).instrument();
+        assertEquals(0, detail.shares());
+        assertTrue(detail.value() == null);
+        assertTrue(detail.dividends() > 0);
     }
 
     @Test

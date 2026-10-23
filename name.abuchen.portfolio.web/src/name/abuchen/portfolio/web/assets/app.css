@@ -823,3 +823,10 @@ footer {
     font-size:11px;
   }
 }
+.instrument-link { border:0; padding:0; color:var(--green); background:none; font:inherit; text-align:left; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
+.instrument-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:16px; padding:20px 24px; }
+.instrument-metrics div { display:grid; gap:7px; }
+.instrument-metrics span { color:var(--muted); font-size:12px; }
+.instrument-metrics strong { font-size:18px; }
+#instrument-panel h3 { padding:8px 24px 0; }
+#instrument-chart { width:100%; min-height:150px; padding:0 16px; }

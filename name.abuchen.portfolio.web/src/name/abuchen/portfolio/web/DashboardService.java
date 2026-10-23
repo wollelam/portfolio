@@ -16,8 +16,10 @@ import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.model.Transaction.Unit.Type;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
+import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
 import name.abuchen.portfolio.snapshot.PerformanceIndex;
+import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceSnapshot;
 import name.abuchen.portfolio.util.Interval;
 import name.abuchen.portfolio.util.TradeCalendarManager;
 
@@ -33,7 +35,16 @@ final class DashboardService
     {
     }
 
-    record Holding(String name, long value, Double weight, String quoteDate, String type)
+    record Holding(String name, String uuid, long value, Double weight, String quoteDate, String type)
+    {
+    }
+
+    record InstrumentPoint(String date, long price)
+    {
+    }
+
+    record Instrument(String uuid, String name, String currency, double quoteScale, long shares, Long value, String quoteDate,
+                    Double twror, Double irr, Long gain, long dividends, List<InstrumentPoint> prices, String message)
     {
     }
 
@@ -50,7 +61,7 @@ final class DashboardService
     record Dashboard(String label, String revision, String loadedAt, boolean demo, String currency, String asOf,
                     long totalValue, Period day, Period week, Period period, List<Point> series, List<Holding> holdings,
                     List<Dividend> dividends, List<String> warnings, List<BenchmarkService.Option> benchmarks,
-                    BenchmarkService.Result benchmark, PriceCoverage priceCoverage, String fxVersion)
+                    BenchmarkService.Result benchmark, PriceCoverage priceCoverage, String fxVersion, Instrument instrument)
     {
     }
 
@@ -111,6 +122,11 @@ final class DashboardService
 
     synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate, String benchmark)
     {
+        return dashboard(openingDate, closingDate, benchmark, null);
+    }
+
+    synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate, String benchmark, String instrumentId)
+    {
         if (!openingDate.isBefore(closingDate) || closingDate.isAfter(LocalDate.now(clock))
                         || ChronoUnit.DAYS.between(openingDate, closingDate) > 3660)
             throw new IllegalArgumentException("Choose an opening date before the closing date, no future dates, and at most 10 years.");
@@ -137,7 +153,7 @@ final class DashboardService
                         warnings.add("Quote older than 7 calendar days: " + security.getName() + " (" + quoteDate + ")");
                 }
             }
-            return new Holding(position.getDescription(), position.getValuation().getAmount(),
+            return new Holding(position.getDescription(), position.getInvestmentVehicle() instanceof Security security ? security.getUUID() : null, position.getValuation().getAmount(),
                             total == 0 ? null : position.getValuation().getAmount() / (double) total, quoteDate,
                             position.getInvestmentVehicle() instanceof Security ? "security" : "cash");
         }).sorted(Comparator.comparingLong(Holding::value).reversed()).toList();
@@ -204,7 +220,36 @@ final class DashboardService
                         converter.getTermCurrency(), closingDate.toString(), total, day, week, period(index), series,
                         holdings, List.copyOf(dividends), List.copyOf(warnings), BenchmarkService.options(portfolio.client()),
                         BenchmarkService.calculate(portfolio.client(), converter, openingDate, closingDate, benchmark),
-                        coverage, fxVersion());
+                        coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate));
+    }
+
+    private Instrument instrument(String uuid, LocalDate openingDate, LocalDate closingDate)
+    {
+        var security = portfolio.client().getSecurities().stream().filter(s -> uuid.equals(s.getUUID())).findFirst().orElse(null);
+        if (security == null)
+            return new Instrument(uuid, null, null, Values.Quote.divider(), 0, null, null, null, null, null, 0, List.of(),
+                            "This instrument is no longer available in the loaded portfolio.");
+
+        var atEnd = ClientSnapshot.create(portfolio.client(), converter, closingDate);
+        var position = atEnd.getAssetPositions().filter(p -> security.equals(p.getInvestmentVehicle())).findFirst().orElse(null);
+        var points = security.getPricesIncludingLatest().stream().filter(p -> !p.getDate().isAfter(closingDate))
+                        .filter(p -> !p.getDate().isBefore(openingDate)).sorted(Comparator.comparing(p -> p.getDate()))
+                        .map(p -> new InstrumentPoint(p.getDate().toString(), p.getValue())).toList();
+        var record = LazySecurityPerformanceSnapshot.create(portfolio.client(), converter, Interval.of(openingDate, closingDate),
+                        ClientSnapshot.create(portfolio.client(), converter, openingDate), atEnd).getRecord(security).orElse(null);
+        var closingQuoteDate = security.getPricesIncludingLatest().stream().filter(p -> !p.getDate().isAfter(closingDate))
+                        .map(p -> p.getDate()).max(Comparator.naturalOrder()).orElse(null);
+        boolean hasClosingQuote = closingQuoteDate != null;
+        return new Instrument(security.getUUID(), security.getName(), security.getCurrencyCode(), Values.Quote.divider(),
+                        record == null ? 0 : record.getSharesHeld(),
+                        position == null || !hasClosingQuote ? null : position.getValuation().getAmount(),
+                        hasClosingQuote ? closingQuoteDate.toString() : null,
+                        record == null || !hasClosingQuote ? null : finite(record.getTrueTimeWeightedRateOfReturn()),
+                        record == null || !hasClosingQuote ? null : finite(record.getIrr()),
+                        record == null || !hasClosingQuote ? null : record.getDelta().getAmount(),
+                        record == null ? 0 : record.getSumOfDividends().getAmount(), points,
+                        !hasClosingQuote ? "No stored quote on or before the selected closing date; valuation and performance are unavailable." :
+                                        points.isEmpty() ? "No stored quotes in the selected period." : null);
     }
 
     private PerformanceIndex index(LocalDate from, LocalDate to, Set<String> warnings)

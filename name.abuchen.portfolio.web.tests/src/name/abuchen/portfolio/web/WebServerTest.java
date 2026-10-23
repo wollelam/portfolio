@@ -130,6 +130,9 @@ public class WebServerTest
             var comparison = JsonParser.parseString(get(client, base + "/api/dashboard?benchmark=" + benchmarkId).body()).getAsJsonObject();
             assertEquals(benchmarkId, comparison.getAsJsonObject("benchmark").get("uuid").getAsString());
             assertEquals(body.getAsJsonArray("series").size(), comparison.getAsJsonObject("benchmark").getAsJsonArray("series").size());
+            var instrumentId = body.getAsJsonArray("holdings").get(0).getAsJsonObject().get("uuid").getAsString();
+            var instrument = JsonParser.parseString(get(client, base + "/api/dashboard?instrument=" + instrumentId).body()).getAsJsonObject();
+            assertEquals(instrumentId, instrument.getAsJsonObject("instrument").get("uuid").getAsString());
             assertEquals(200, get(client, base + "/api/dashboard?benchmark=removed").statusCode());
             assertEquals(400, get(client, base + "/api/dashboard?benchmark=one&benchmark=two").statusCode());
             assertEquals(200, get(client, base + "/").statusCode());
@@ -138,6 +141,8 @@ public class WebServerTest
             assertEquals(400, get(client, base + "/api/dashboard?to=bad").statusCode());
             assertEquals(400, get(client, base + "/api/dashboard?from=2025-01-01&from=2025-02-01").statusCode());
             assertEquals(400, get(client, base + "/api/dashboard?currency=USD").statusCode());
+            assertEquals(400, get(client, base + "/api/dashboard?instrument=malformed").statusCode());
+            assertEquals(400, get(client, base + "/api/dashboard?instrument=" + instrumentId + "&instrument=" + instrumentId).statusCode());
             assertEquals(404, get(client, base + "/META-INF/MANIFEST.MF").statusCode());
             var crossOrigin = HttpRequest.newBuilder(URI.create(base + "/api/dashboard"))
                             .header("Origin", "https://untrusted.example").build();

@@ -15,6 +15,7 @@ let busy = false;
 let requestController;
 let refreshConnectionError;
 let selectedBenchmark = '';
+let selectedInstrument = '';
 let market;
 let priceRequestPending = false;
 let priceActionError;
@@ -98,13 +99,29 @@ function render() {
   text('holding-count', `${report.holdings.length} positions`);
   for (const holding of report.holdings) {
     const row = document.createElement('tr');
-    cell(row, holding.name);
+    const nameCell = document.createElement('td');
+    if (holding.type === 'security' && holding.uuid) {
+      const link = document.createElement('button'); link.type = 'button'; link.className = 'instrument-link';
+      link.textContent = holding.name; link.addEventListener('click', async () => {
+        selectedInstrument = holding.uuid;
+        await load(report.period.openingDate, report.period.closingDate);
+        if (report?.instrument?.uuid === selectedInstrument) {
+          const panel = byId('instrument-panel');
+          panel.tabIndex = -1;
+          panel.focus({ preventScroll: true });
+          panel.scrollIntoView({ block: 'start' });
+        }
+      });
+      nameCell.append(link);
+    } else nameCell.textContent = holding.name;
+    row.append(nameCell);
     cell(row, money(holding.value), true);
     cell(row, weight(holding.weight), true);
     cell(row, holding.quoteDate ? dateLabel(holding.quoteDate) : '—');
     holdings.append(row);
   }
   if (!report.holdings.length) emptyRow(holdings, 4, 'No holdings or cash accounts at this valuation date.');
+  renderInstrument(report.instrument);
   const income = byId('dividends-body');
   income.replaceChildren();
   text('income-currency', `All amounts in ${report.currency}`);
@@ -125,6 +142,45 @@ function render() {
   byId('chart-position').value = String(selected);
   drawChart();
   byId('dashboard').hidden = false;
+}
+
+function renderInstrument(instrument) {
+  const panel = byId('instrument-panel');
+  panel.hidden = !selectedInstrument;
+  if (!selectedInstrument) return;
+  if (!instrument) {
+    text('instrument-name', 'Instrument unavailable'); text('instrument-message', 'The selected instrument detail is unavailable.');
+    for (const id of ['instrument-period', 'instrument-shares', 'instrument-value', 'instrument-ttwror', 'instrument-irr', 'instrument-gain', 'instrument-dividends', 'instrument-currency']) text(id, 'Unavailable');
+    byId('instrument-chart').replaceChildren(); return;
+  }
+  text('instrument-name', instrument.name || 'Instrument unavailable');
+  text('instrument-period', `${dateLabel(report.period.openingDate)} – ${dateLabel(report.period.closingDate)} · held quantity`);
+  const states = [];
+  if (instrument.shares === 0) states.push('No position at the selected closing date.');
+  else if (instrument.value === null) states.push('Position held at the selected date; closing valuation is unavailable because a quote is missing.');
+  else states.push(`Position at ${dateLabel(report.asOf)} · quote ${instrument.quoteDate ? dateLabel(instrument.quoteDate) : 'unavailable'}.`);
+  if (instrument.message) states.push(instrument.message);
+  text('instrument-message', states.join(' '));
+  text('instrument-shares', new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 }).format(instrument.shares / 1e8));
+  text('instrument-value', instrument.value === null ? (instrument.shares === 0 ? 'No position' : 'Unavailable') : money(instrument.value));
+  text('instrument-ttwror', percent(instrument.twror));
+  text('instrument-irr', percent(instrument.irr));
+  text('instrument-gain', instrument.gain === null ? 'Unavailable' : money(instrument.gain, true));
+  text('instrument-dividends', money(instrument.dividends));
+  text('instrument-currency', instrument.currency || 'currency unavailable');
+  const svg = byId('instrument-chart'); svg.replaceChildren();
+  if (!instrument.prices?.length) { svg.append(svgElement('text', { x: 90, y: 90, class: 'axis-label' }, 'No stored quotes in the selected period.')); return; }
+  const vals = instrument.prices.map(p => p.price / instrument.quoteScale), low = Math.min(...vals), high = Math.max(...vals), span = high - low || Math.abs(high) || 1;
+  const times = instrument.prices.map(p => Date.parse(p.date + 'T12:00:00Z')), firstTime = times[0], lastTime = times.at(-1);
+  const x = i => 100 + (times[i] - firstTime) / Math.max(1, lastTime - firstTime) * 680, y = v => 145 - (v - low) / span * 112;
+  const path = instrument.prices.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(p.price / instrument.quoteScale)}`).join(' ');
+  const priceFormat = value => new Intl.NumberFormat(undefined, { ...(instrument.currency ? { style: 'currency', currency: instrument.currency } : {}), maximumFractionDigits: 6 }).format(value);
+  svg.append(svgElement('text', { x: 90, y: 25, class: 'axis-label' }, priceFormat(high)));
+  svg.append(svgElement('text', { x: 90, y: 148, class: 'axis-label' }, priceFormat(low)));
+  svg.append(svgElement('text', { x: 100, y: 170, class: 'axis-label' }, dateLabel(instrument.prices[0].date)));
+  svg.append(svgElement('text', { x: 780, y: 170, 'text-anchor': 'end', class: 'axis-label' }, dateLabel(instrument.prices.at(-1).date)));
+  svg.append(svgElement('path', { d: path, class: 'chart-line' }));
+  if (instrument.prices.length === 1) svg.append(svgElement('circle', { cx: x(0), cy: y(vals[0]), r: 4, class: 'cursor-dot' }));
 }
 
 function setMarket(data) {
@@ -364,13 +420,16 @@ async function load(from, to, silent = false) {
     if (from) params.set('from', from);
     if (to) params.set('to', to);
     if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
+    if (selectedInstrument) params.set('instrument', selectedInstrument);
     const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal: controller.signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Could not load portfolio.');
     if (requestController !== controller) return;
     const unchanged = silent && report && report.revision === data.revision && report.loadedAt === data.loadedAt
       && report.period.openingDate === data.period.openingDate && report.period.closingDate === data.period.closingDate
-      && report.benchmark?.uuid === data.benchmark?.uuid && report.fxVersion === data.fxVersion;
+      && report.benchmark?.uuid === data.benchmark?.uuid && report.fxVersion === data.fxVersion
+      && report.instrument?.uuid === data.instrument?.uuid;
+
     refreshConnectionError = null;
     report = data;
     if (unchanged) { renderFreshness(); setMarket(data.market); }
@@ -401,6 +460,7 @@ byId('dates').addEventListener('submit', event => {
   load(byId('from').value, byId('to').value);
 });
 byId('refresh').addEventListener('click', () => load(report?.period.openingDate, report?.period.closingDate));
+byId('close-instrument').addEventListener('click', () => { selectedInstrument = ''; renderInstrument(null); });
 byId('benchmark').addEventListener('change', event => {
   selectedBenchmark = event.target.value;
   if (selectedBenchmark) mode = 'return';

@@ -98,6 +98,18 @@ for the intended comparison. No new data feed, download, or portfolio edit is pe
 The selector and date filters are preserved during automatic reload. If a selected series is removed
 from the source, the portfolio still loads and the selection is marked unavailable until changed.
 
+## Instrument details
+
+Select a security name in Holdings & cash to open its detail panel. The optional
+`instrument=SECURITY_UUID` parameter on `GET /api/dashboard` returns that instrument's selected-date
+quantity/value, core performance-period delta, gross dividends, TTWROR, and IRR. TTWROR and IRR
+are separate native metrics; IRR is annualized by the core. The panel states the selected period.
+When no closing quote is available, position valuation and performance metrics are unavailable,
+while held quantity and received dividends remain visible. The quote chart uses stored prices in the instrument currency and
+excludes dates after the selected closing date; it describes price history, not investment return.
+Instruments with no position at the selected date can still show historical activity and dividends.
+An unknown or removed UUID is reported in the detail payload without failing the dashboard.
+
 ## File ownership and Google Drive
 
 `PortfolioSource` isolates loading from calculations and HTTP hosting. File mode checks SHA-256
