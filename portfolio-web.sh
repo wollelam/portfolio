@@ -4,6 +4,7 @@ set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 image=portfolio-cli-build:latest
 port=${PP_WEB_PORT:-8088}
+poll_seconds=${PP_WEB_POLL_SECONDS:-30}
 state=${PP_WEB_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/portfolio-web}
 rebuild=false
 build_only=false
@@ -36,6 +37,11 @@ if [[ ! "$port" =~ ^[0-9]{1,5}$ ]] || ((10#$port < 1 || 10#$port > 65535)); then
     exit 2
 fi
 port=$((10#$port))
+if [[ ! "$poll_seconds" =~ ^[0-9]{1,4}$ ]] || ((10#$poll_seconds < 1 || 10#$poll_seconds > 3600)); then
+    printf 'PP_WEB_POLL_SECONDS must be between 1 and 3600.\n' >&2
+    exit 2
+fi
+poll_seconds=$((10#$poll_seconds))
 if [[ -n "$file" ]]; then
     if [[ "$demo" == true || ! -f "$file" ]]; then
         printf 'Use --demo or --file with an existing file.\n' >&2
@@ -71,9 +77,19 @@ state=$(realpath -- "$state")
 arguments=(--demo)
 mounts=()
 if [[ -n "$file" ]]; then
-    # Mount the directory read-only so a later implementation can see atomic file replacements.
-    mounts=(-v "$(dirname -- "$file"):/portfolio-input:ro")
-    arguments=(--file "/portfolio-input/$(basename -- "$file")")
+    # A parent root can include a user-owned FUSE submount that Docker root cannot mount directly.
+    file_root=$(realpath -- "${PP_WEB_FILE_ROOT:-$(dirname -- "$file")}")
+    if [[ ! -d "$file_root" ]]; then
+        printf 'PP_WEB_FILE_ROOT must be a directory.\n' >&2
+        exit 2
+    fi
+    relative_file=$(realpath --relative-to="$file_root" -- "$file")
+    if [[ "$relative_file" == .. || "$relative_file" == ../* || "$relative_file" == /* ]]; then
+        printf 'Portfolio file must be inside PP_WEB_FILE_ROOT.\n' >&2
+        exit 2
+    fi
+    mounts=(-v "$file_root:/portfolio-input:ro")
+    arguments=(--file "/portfolio-input/$relative_file")
 fi
 run_options=(--rm)
 if [[ "$detached" == true ]]; then
@@ -82,16 +98,16 @@ if [[ "$detached" == true ]]; then
 else
     printf 'Starting Portfolio Web at http://localhost:%s (Ctrl-C to stop).\n' "$port"
 fi
-exec docker run "${run_options[@]}" --init --entrypoint /bin/sh -p "127.0.0.1:$port:$port" \
-    -v "$repo:/workspace:ro" -v portfolio-cli-m2:/root/.m2:ro -v "$state:/web-state" \
+exec docker run "${run_options[@]}" --init --user "$(id -u):$(id -g)" --entrypoint /bin/sh -p "127.0.0.1:$port:$port" \
+    -v "$repo:/workspace:ro" -v portfolio-cli-m2:/maven:ro -v "$state:/web-state" \
     "${mounts[@]}" -e PP_WEB_PASSWORD -w /workspace "$image" -c '
         mkdir -p /web-state/configuration
-        cp /workspace/name.abuchen.portfolio.web.tests/target/work/configuration/config.ini /web-state/configuration/config.ini
+        sed "s#/root/.m2/#/maven/#g" /workspace/name.abuchen.portfolio.web.tests/target/work/configuration/config.ini > /web-state/configuration/config.ini
         exec "$@"
     ' -- \
-    java -Dosgi.clean=true \
-    -jar /root/.m2/repository/p2/osgi/bundle/org.eclipse.equinox.launcher/1.7.100.v20251111-0406/org.eclipse.equinox.launcher-1.7.100.v20251111-0406.jar \
+    java -Dosgi.clean=true -Duser.home=/web-state \
+    -jar /maven/repository/p2/osgi/bundle/org.eclipse.equinox.launcher/1.7.100.v20251111-0406/org.eclipse.equinox.launcher-1.7.100.v20251111-0406.jar \
     -data /web-state/workspace \
     -configuration /web-state/configuration \
     -application name.abuchen.portfolio.web.application \
-    --bind 0.0.0.0 --port "$port" "${arguments[@]}"
+    --bind 0.0.0.0 --port "$port" --poll-seconds "$poll_seconds" --snapshot-dir /web-state/snapshots "${arguments[@]}"

@@ -33,6 +33,8 @@
     <noscript><p class="notice error">Enable JavaScript to load the portfolio dashboard.</p></noscript>
     <div id="dashboard" hidden>
       <div class="valuation-note"><span class="status-dot"></span><span id="valuation-note"></span><span id="demo-badge" class="demo-badge" hidden>SYNTHETIC DEMO</span></div>
+      <p id="refresh-info" class="refresh-info"></p>
+      <div id="refresh-error" class="notice error" role="alert" hidden></div>
       <section class="cards" aria-label="Portfolio summary">
         <article class="metric"><p>Total portfolio value</p><h2 id="total-value">—</h2><span id="total-date" class="metric-note"></span></article>
         <article class="metric"><p id="day-label">Today’s performance</p><h2 id="day-gain">—</h2><div><strong id="day-return"></strong><span id="day-dates" class="metric-note"></span></div></article>
@@ -51,7 +53,7 @@
       </section>
       <section id="holdings" class="panel"><div class="panel-heading"><div><p class="eyebrow">WHERE YOU’RE INVESTED</p><h2>Holdings &amp; cash</h2></div><span id="holding-count" class="subtle"></span></div><div class="table-scroll"><table><thead><tr><th scope="col">Asset</th><th scope="col" class="numeric">Value</th><th scope="col" class="numeric">Weight</th><th scope="col">Quote date</th></tr></thead><tbody id="holdings-body"></tbody></table></div><p class="panel-note">Quote dates refer to the latest available price on or before the valuation date. Cash has no quote date.</p></section>
       <section id="income" class="panel"><div class="panel-heading"><div><p class="eyebrow">INCOME FROM YOUR INVESTMENTS</p><h2>Received dividends</h2></div><span id="income-currency" class="subtle"></span></div><div class="table-scroll"><table><thead><tr><th scope="col">Payment / account</th><th scope="col">Investment</th><th scope="col" class="numeric">Gross</th><th scope="col" class="numeric">Tax</th><th scope="col" class="numeric">Fees</th><th scope="col" class="numeric">Net received</th></tr></thead><tbody id="dividends-body"></tbody></table></div><p class="panel-note">Received payments in the selected period, converted at the transaction date. The opening date is an opening valuation and is excluded from the payment period.</p></section>
-      <footer><span id="revision"></span><span>Read-only snapshot · restart the server to load a newer file.</span></footer>
+      <footer><span id="revision"></span><span id="refresh-mode">Read-only portfolio</span></footer>
     </div>
   </main>
 </body>

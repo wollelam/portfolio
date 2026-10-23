@@ -34,10 +34,12 @@ local use. Remote hosting and reverse proxy support require a separate authentic
 step. Host and Origin checks reject access from unrelated websites; no CORS relaxation is needed.
 
 Runtime state is stored in `${XDG_STATE_HOME:-$HOME/.local/state}/portfolio-web`. Override with
-`PP_WEB_STATE_DIR`. The container runs as root, so generated state and build output may be root-owned.
-Runtime state contains the Equinox workspace and any provider caches, not a copy of the portfolio.
-It can be removed after stopping the server if those caches are no longer needed. `PP_WEB_PORT`
-sets the default port. No JavaScript build dependencies are required.
+`PP_WEB_STATE_DIR`. The runtime container runs as the launching user's UID/GID, so it can read
+user-owned files and FUSE mounts. Build output may still be root-owned. Existing runtime state from
+older root-run versions must be made writable by the launching user before migration.
+Runtime state contains the Equinox workspace, provider caches, and private recovery copies of
+accepted portfolios. Keep it private and retain it while the service uses it. `PP_WEB_PORT` sets
+the default port. No JavaScript build dependencies are required.
 
 Detached mode names the container `portfolio-web` (override with `PP_WEB_CONTAINER_NAME`) and uses
 `restart: unless-stopped`. Inspect it with `docker logs portfolio-web`, stop with
@@ -53,6 +55,7 @@ the same name. The public application still requires a separately managed access
 - Reconciliation: value change = net external flows + investment gain/loss.
 - Received dividends, gross/net/taxes/fees and original payment currency.
 - Portfolio revision, load time, quote dates and calculation/data-quality warnings.
+- Automatic file checks, validated snapshot replacement, recovery after a failed sync, and freshness status.
 
 By default the closing valuation is today, using the server's current date. The previous-day
 comparison uses the core's default trading calendar. The initial chart covers the preceding year. Select explicit dates to change
@@ -70,16 +73,38 @@ the warnings before comparing multi-currency results. Security quotes come from 
 
 ## File ownership and Google Drive
 
-`PortfolioSource` isolates loading from calculations and HTTP hosting. A file is loaded once, checked
-for concurrent changes using SHA-256 before/after load, and exposed as one read-only revision.
-The server never saves or alters the source. Refreshing the dashboard recalculates that snapshot;
-**restart the server to read an updated file**.
+`PortfolioSource` isolates loading from calculations and HTTP hosting. File mode checks SHA-256
+every 30 seconds (`PP_WEB_POLL_SECONDS`, range 1–3600). Unchanged content is not deserialized again.
+A changed revision must remain identical over checks at least five seconds apart. The replacement
+is loaded and its default report calculated before it can replace the active client. A request
+captures one complete context, so it cannot mix revisions while an update is being loaded.
 
-A locally synchronized Google Drive path can be supplied using `--file` today. Direct Drive API
-access and automatic reload are deferred. The next step is polling/watching a stable file, loading a
-replacement completely, then atomically swapping the snapshot while retaining the last good revision
-if a download/save is incomplete. No desktop/server concurrent writes or live sync protocol is needed
-for that model. The loader accepts encrypted files through the core `ClientFactory` implementation.
+Missing files, partial downloads, decryption failures and calculation errors leave the previous
+working snapshot available. Successful acceptance atomically replaces a private recovery file
+under the runtime state's `snapshots/` directory. Recovery filenames are bound to the configured
+source path, so changing sources cannot silently recover a different portfolio. If startup cannot
+load the current source, it can serve that source's last accepted copy and report the failure.
+The server never saves or alters the original source. Encrypted recovery copies retain the source
+file's encryption and use the same password when loaded. Password arrays are cleared after each load.
+
+The browser checks for updates every 30 seconds while visible and when returning to the tab. It
+keeps the selected date range, shows the last portfolio update/check times, and reports refresh
+failures while retaining existing figures. Checks with unchanged data preserve chart exploration.
+With the default polling interval, acceptance typically takes two checks plus the next browser check.
+Demo mode does not watch a file. The refresh button reloads the latest accepted server snapshot;
+it does not force acceptance of a file that is still being synchronized.
+
+Supply a locally synchronized Google Drive path with `--file`. For a user-owned FUSE submount,
+`PP_WEB_FILE_ROOT` can point at a readable parent directory containing it. The root is mounted
+read-only; the selected file must remain beneath it. For example:
+
+```sh
+PP_WEB_FILE_ROOT=/path/to/sync-root ./portfolio-web.sh --file /path/to/sync-root/mounted-folder/portfolio.portfolio
+```
+
+Atomic file replacements are visible because the directory is mounted, rather than a single file.
+Direct Google Drive API access and automatic quote/FX downloads remain separate follow-up work.
+Automatic reload reflects what the existing sync and desktop processes save to the source file.
 
 ## Development
 
@@ -95,10 +120,11 @@ mvn -f portfolio-app/pom.xml verify -Plocal-dev \
 The frontend is small, dependency-free HTML/CSS/JavaScript, packaged as bundle resources. A future
 React interface can consume the same `GET /api/dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD` contract.
 All response fields belong to this prototype; this is separate from the desktop's published `/v1`
-contract. Calculations are serialized against one immutable loaded client. The source boundary is
-ready for reload support; there is no snapshot replacement operation yet.
+contract. Calculations are serialized per immutable loaded client; a background worker constructs
+and validates replacements independently. `refresh` metadata is included in the dashboard response.
+No new public HTTP routes or write endpoints are needed for automatic reload.
 
-Follow-up slices: benchmark overlays with explicit return/currency semantics, automated snapshot
-reload, managed FX/quote refresh, then authenticated remote access. Transaction editing and SaaS
+Follow-up slices: benchmark overlays with explicit return/currency semantics, managed FX/quote
+refresh, then authenticated remote access. Transaction editing and SaaS
 tenancy are outside this slice. The launcher currently uses the Tycho test runtime; a dedicated
 distributable server product is a later packaging task.

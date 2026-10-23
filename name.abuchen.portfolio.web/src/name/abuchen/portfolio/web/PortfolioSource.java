@@ -1,21 +1,13 @@
 package name.abuchen.portfolio.web;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.DigestInputStream;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.util.HexFormat;
-
-import org.eclipse.core.runtime.NullProgressMonitor;
+import java.util.function.Supplier;
 
 import name.abuchen.portfolio.model.Client;
-import name.abuchen.portfolio.model.ClientFactory;
 
-/** Source boundary for a future watched file or remote snapshot provider. */
+/** A source and optional durable recovery copy, independent of HTTP hosting. */
 @FunctionalInterface
 interface PortfolioSource
 {
@@ -25,31 +17,28 @@ interface PortfolioSource
 
     LoadedPortfolio load() throws IOException;
 
-    static PortfolioSource file(Path path, char[] password)
+    default String revision() throws IOException
     {
-        return () -> {
-            var before = revision(path);
-            var client = ClientFactory.load(path.toFile(), password, new NullProgressMonitor());
-            if (!before.equals(revision(path)))
-                throw new IOException("Portfolio changed while loading; retry after the save completes."); //$NON-NLS-1$
-            return new LoadedPortfolio(client, path.getFileName().toString(), before, Instant.now(), false);
-        };
+        return null;
     }
 
-    private static String revision(Path path) throws IOException
+    default void accept(LoadedPortfolio loaded) throws IOException
     {
-        try
-        {
-            var digest = MessageDigest.getInstance("SHA-256"); //$NON-NLS-1$
-            try (var input = new DigestInputStream(Files.newInputStream(path), digest))
-            {
-                input.transferTo(OutputStream.nullOutputStream());
-            }
-            return HexFormat.of().formatHex(digest.digest());
-        }
-        catch (NoSuchAlgorithmException e)
-        {
-            throw new IllegalStateException(e);
-        }
+        // Sources without a recovery copy need no persistence.
+    }
+
+    default LoadedPortfolio lastGood() throws IOException
+    {
+        throw new IOException("No recovery snapshot available"); //$NON-NLS-1$
+    }
+
+    static PortfolioSource file(Path path, char[] password)
+    {
+        return file(path, () -> password == null ? null : password.clone(), null);
+    }
+
+    static PortfolioSource file(Path path, Supplier<char[]> password, Path cache)
+    {
+        return new FilePortfolioSource(path, password, cache);
     }
 }

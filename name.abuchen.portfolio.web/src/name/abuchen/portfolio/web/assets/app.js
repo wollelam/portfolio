@@ -12,6 +12,8 @@ let selected = 0;
 let chartGeometry;
 let activePreset = '1Y';
 let busy = false;
+let requestController;
+let refreshConnectionError;
 
 function money(value, signed = false) {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency: report.currency, signDisplay: signed ? 'exceptZero' : 'auto' }).format(value / 100);
@@ -110,11 +112,23 @@ function render() {
   }
   if (!report.dividends.length) emptyRow(income, 6, 'No dividend payments in this period.');
   text('revision', `Snapshot ${report.revision.slice(0, 12)} · loaded ${new Date(report.loadedAt).toLocaleString()}`);
+  renderFreshness();
   selected = report.series.length - 1;
   byId('chart-position').max = String(selected);
   byId('chart-position').value = String(selected);
   drawChart();
   byId('dashboard').hidden = false;
+}
+
+function renderFreshness() {
+  const refresh = report.refresh;
+  const updated = new Date(report.loadedAt).toLocaleString();
+  const checked = refresh?.lastCheckedAt ? new Date(refresh.lastCheckedAt).toLocaleTimeString() : null;
+  text('refresh-info', `Portfolio updated ${updated}${refresh?.automatic ? ` · checked ${checked} · auto-check every ${refresh.intervalSeconds}s` : ''}${refresh?.pending ? ' · waiting for the file to finish syncing' : ''}`);
+  const error = refreshConnectionError || refresh?.error;
+  byId('refresh-error').hidden = !error;
+  text('refresh-error', error || '');
+  text('refresh-mode', refresh?.automatic ? 'Read-only · automatic portfolio refresh' : 'Read-only snapshot');
 }
 
 function svgElement(name, attributes, content) {
@@ -194,31 +208,49 @@ function updateCursor() {
   byId('chart-position').value = String(selected);
 }
 
-async function load(from, to) {
-  if (busy) return;
+async function load(from, to, silent = false) {
+  if (busy && silent) return;
+  requestController?.abort();
+  const controller = new AbortController();
+  requestController = controller;
   busy = true;
-  byId('error').hidden = true;
-  text('status', 'Calculating portfolio…');
-  byId('dashboard').setAttribute('aria-busy', 'true');
-  document.querySelectorAll('button, input[type=date]').forEach(element => { element.disabled = true; });
+  if (!silent) {
+    byId('error').hidden = true;
+    text('status', 'Calculating portfolio…');
+    byId('dashboard').setAttribute('aria-busy', 'true');
+    document.querySelectorAll('button, input[type=date]').forEach(element => { element.disabled = true; });
+  }
   try {
     const params = new URLSearchParams();
     if (from) params.set('from', from);
     if (to) params.set('to', to);
-    const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store' });
+    const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal: controller.signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Could not load portfolio.');
+    if (requestController !== controller) return;
+    const unchanged = silent && report && report.revision === data.revision && report.loadedAt === data.loadedAt
+      && report.period.openingDate === data.period.openingDate && report.period.closingDate === data.period.closingDate;
+    refreshConnectionError = null;
     report = data;
-    render();
-    text('status', '');
+    if (unchanged) renderFreshness();
+    else render();
+    if (!silent) text('status', '');
   } catch (error) {
-    text('error', error.message || 'Cannot reach the portfolio server.');
-    byId('error').hidden = false;
-    text('status', report ? 'The previously loaded figures remain displayed.' : 'Portfolio unavailable.');
+    if (error.name === 'AbortError' || requestController !== controller) return;
+    if (silent && report) {
+      refreshConnectionError = 'Could not check for updates. Showing the last loaded portfolio; the connection will be retried.';
+      renderFreshness();
+    } else {
+      text('error', error.message || 'Cannot reach the portfolio server.');
+      byId('error').hidden = false;
+      text('status', report ? 'The previously loaded figures remain displayed.' : 'Portfolio unavailable.');
+    }
   } finally {
-    busy = false;
-    byId('dashboard').setAttribute('aria-busy', 'false');
-    document.querySelectorAll('button, input[type=date]').forEach(element => { element.disabled = false; });
+    if (requestController === controller) {
+      busy = false;
+      byId('dashboard').setAttribute('aria-busy', 'false');
+      document.querySelectorAll('button, input[type=date]').forEach(element => { element.disabled = false; });
+    }
   }
 }
 
@@ -255,4 +287,9 @@ byId('chart').addEventListener('pointermove', event => {
   selected = Math.round(ratio * (report.series.length - 1)); updateCursor();
 });
 window.matchMedia('(max-width:760px)').addEventListener('change', drawChart);
+function checkForUpdates() {
+  if (report && !document.hidden) load(report.period.openingDate, report.period.closingDate, true);
+}
+window.setInterval(checkForUpdates, 30000);
+document.addEventListener('visibilitychange', checkForUpdates);
 load();

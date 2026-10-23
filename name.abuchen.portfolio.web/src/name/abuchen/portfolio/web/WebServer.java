@@ -25,12 +25,17 @@ final class WebServer implements AutoCloseable
                     "/favicon.svg", "favicon.svg");
     private final HttpServer server;
     private final ThreadPoolExecutor executor;
-    private final DashboardService service;
+    private final PortfolioRefresh portfolios;
     private final Gson gson = new GsonBuilder().serializeNulls().create();
 
     WebServer(InetSocketAddress address, DashboardService service) throws IOException
     {
-        this.service = service;
+        this(address, PortfolioRefresh.fixed(service));
+    }
+
+    WebServer(InetSocketAddress address, PortfolioRefresh portfolios) throws IOException
+    {
+        this.portfolios = portfolios;
         server = HttpServer.create(address, 16);
         executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16));
         server.setExecutor(executor);
@@ -78,9 +83,13 @@ final class WebServer implements AutoCloseable
                 try
                 {
                     var params = query(exchange.getRequestURI().getRawQuery());
+                    var snapshot = portfolios.snapshot();
+                    var service = snapshot.service();
                     var to = params.containsKey("to") ? LocalDate.parse(params.get("to")) : service.defaultClosingDate();
                     var from = params.containsKey("from") ? LocalDate.parse(params.get("from")) : to.minusYears(1);
-                    json(exchange, 200, service.dashboard(from, to));
+                    var dashboard = gson.toJsonTree(service.dashboard(from, to)).getAsJsonObject();
+                    dashboard.add("refresh", gson.toJsonTree(snapshot.status()));
+                    json(exchange, 200, dashboard);
                 }
                 catch (IllegalArgumentException | DateTimeParseException e)
                 {

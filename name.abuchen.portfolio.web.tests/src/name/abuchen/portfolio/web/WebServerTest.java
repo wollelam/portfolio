@@ -9,9 +9,11 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 
@@ -20,6 +22,45 @@ import com.google.gson.JsonParser;
 @SuppressWarnings("nls")
 public class WebServerTest
 {
+    @Test
+    public void dashboardUsesTheLatestAcceptedSnapshotAndIncludesRefreshStatus() throws Exception
+    {
+        var today = LocalDate.of(2025, 6, 12);
+        var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+        var loaded = new AtomicReference<>(DemoPortfolio.create(today));
+        var source = new PortfolioSource()
+        {
+            @Override
+            public LoadedPortfolio load()
+            {
+                return loaded.get();
+            }
+
+            @Override
+            public String revision()
+            {
+                return loaded.get().revision();
+            }
+        };
+        try (var portfolios = new PortfolioRefresh(source, clock, List.of(), 30, Duration.ZERO);
+                        var server = new WebServer(new InetSocketAddress("127.0.0.1", 0), portfolios);
+                        var client = HttpClient.newHttpClient())
+        {
+            server.start();
+            var url = "http://127.0.0.1:" + server.port() + "/api/dashboard";
+            var first = JsonParser.parseString(get(client, url).body()).getAsJsonObject();
+            assertTrue(first.getAsJsonObject("refresh").get("automatic").getAsBoolean());
+            assertEquals(30, first.getAsJsonObject("refresh").get("intervalSeconds").getAsInt());
+            var replacement = DemoPortfolio.create(today);
+            loaded.set(new PortfolioSource.LoadedPortfolio(replacement.client(), "Updated demo", "new-revision",
+                            replacement.loadedAt(), true));
+            portfolios.refresh();
+            var updated = JsonParser.parseString(get(client, url).body()).getAsJsonObject();
+            assertEquals("new-revision", updated.get("revision").getAsString());
+            assertEquals("Updated demo", updated.get("label").getAsString());
+        }
+    }
+
     @Test
     public void servesDashboardAndAssetsAndRejectsCrossOriginAndInvalidRequests() throws Exception
     {
