@@ -35,6 +35,7 @@ public final class WebApplication implements IApplication
         int pollSeconds = 30;
         Path snapshots = Path.of(System.getProperty("user.home"), ".local", "state", "portfolio-web", "snapshots");
         Path priceDirectory = null;
+        Path liveQuotesFile = null;
         for (int ii = 0; ii < args.length; ii++)
         {
             switch (args[ii])
@@ -46,6 +47,7 @@ public final class WebApplication implements IApplication
                 case "--poll-seconds" -> pollSeconds = Integer.parseInt(args[++ii]);
                 case "--snapshot-dir" -> snapshots = Path.of(args[++ii]);
                 case "--price-updates-dir" -> priceDirectory = Path.of(args[++ii]);
+                case "--live-quotes-file" -> liveQuotesFile = Path.of(args[++ii]);
                 default -> throw new IllegalArgumentException("Expected --demo or --file PATH; optional --port, --bind, --poll-seconds, --snapshot-dir.");
             }
         }
@@ -71,7 +73,8 @@ public final class WebApplication implements IApplication
                             var value = System.getenv("PP_WEB_PASSWORD");
                             return value == null ? null : value.toCharArray();
                         }, snapshots);
-        MarketUpdates updates = MarketUpdates.disabled();
+        var liveQuotes = new LiveQuotes(liveQuotesFile, clock);
+        MarketUpdates updates = new MarketUpdates(new QuoteJobs(null, clock), null, clock, liveQuotes);
         if (!demo && priceDirectory != null)
         {
             PrivateFiles.directory(priceDirectory);
@@ -79,7 +82,7 @@ public final class WebApplication implements IApplication
             var seed = Platform.getStateLocation(bundle).toFile().toPath().resolve("ecb_exchange_rates.pb");
             var fx = new FxRates(priceDirectory.resolve("fx"), seed, clock,
                             provider -> provider.update(new NullProgressMonitor()));
-            updates = new MarketUpdates(new QuoteJobs(priceDirectory, clock, file.toAbsolutePath().normalize().toString()), fx, clock);
+            updates = new MarketUpdates(new QuoteJobs(priceDirectory, clock, file.toAbsolutePath().normalize().toString()), fx, clock, liveQuotes);
         }
         try (var market = updates; var portfolios = new PortfolioRefresh(source, clock, warnings, demo ? 0 : pollSeconds,
                         Duration.ofSeconds(5), market.fx()))

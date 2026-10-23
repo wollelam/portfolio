@@ -6,19 +6,26 @@ import java.time.Clock;
 @SuppressWarnings("nls")
 final class MarketUpdates implements AutoCloseable
 {
-    record Status(String observedAt, QuoteJobs.Status quotes, FxRates.Status fx)
+    record Status(String observedAt, QuoteJobs.Status quotes, FxRates.Status fx, LiveQuotes.Status liveQuotes)
     {
     }
 
     private final QuoteJobs quotes;
     private final FxRates fx;
     private final Clock clock;
+    private final LiveQuotes liveQuotes;
 
     MarketUpdates(QuoteJobs quotes, FxRates fx, Clock clock)
+    {
+        this(quotes, fx, clock, new LiveQuotes(null, clock));
+    }
+
+    MarketUpdates(QuoteJobs quotes, FxRates fx, Clock clock, LiveQuotes liveQuotes)
     {
         this.quotes = quotes;
         this.fx = fx;
         this.clock = clock;
+        this.liveQuotes = liveQuotes;
     }
 
     static MarketUpdates disabled()
@@ -33,7 +40,7 @@ final class MarketUpdates implements AutoCloseable
 
     Status status()
     {
-        return new Status(clock.instant().toString(), quotes.status(), fx == null ? null : fx.status());
+        return new Status(clock.instant().toString(), quotes.status(), fx == null ? null : fx.status(), liveQuotes.status());
     }
 
     int request() throws IOException

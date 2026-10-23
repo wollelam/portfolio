@@ -27,6 +27,14 @@ let currentRoute = 'overview';
 let currentRouteKey = '';
 let routeGeneration = 0;
 let restoringScroll = false;
+let selectedLiveQuote = '';
+let liveQuoteChart;
+let liveRowsKey = '';
+let liveMode;
+let liveFrozenHistory;
+let liveHoveredTime;
+let livePollBusy = false;
+let liveConnectionError = false;
 let market;
 let priceRequestPending = false;
 let priceActionError;
@@ -70,6 +78,7 @@ const routeMeta = {
   holdings: ['WHERE YOU’RE INVESTED', 'Holdings & cash'],
   dividends: ['INCOME FROM YOUR INVESTMENTS', 'Received dividends'],
   performers: ['SECURITY PERFORMANCE', 'Top gainers & decliners'],
+  'live-quotes': ['QUOTE STREAM PILOT', 'Live quotes'],
   instrument: ['INSTRUMENT DETAIL', 'Instrument detail']
 };
 
@@ -80,6 +89,7 @@ function routeUrl() {
   if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
   if (mode !== 'return') params.set('mode', mode);
   if (activePreset) params.set('preset', activePreset);
+  if (currentRoute === 'live-quotes' && selectedLiveQuote) params.set('quote', selectedLiveQuote);
   if (rankingBasis !== 'rate') params.set('basis', rankingBasis);
   const route = currentRoute === 'instrument' ? `instrument/${encodeURIComponent(selectedInstrument)}` : currentRoute;
   return `#/${route}${params.size ? `?${params}` : ''}`;
@@ -99,12 +109,17 @@ function syncRouteUrl() {
 }
 
 function showRoute() {
+  const quotePage = currentRoute === 'live-quotes';
+  document.body.classList.toggle('quote-page', quotePage);
+  text('portfolio-label', quotePage ? 'Independent, read-only quote watchlist' : report?.label || 'Loading portfolio…');
+  text('refresh', quotePage ? '↻ Refresh quotes' : '↻ Refresh dashboard');
+  document.querySelector('.snapshot-badge').textContent = quotePage ? 'QUOTE PILOT' : 'LOCAL SNAPSHOT';
   const meta = routeMeta[currentRoute] || routeMeta.overview;
   text('page-eyebrow', meta[0]); text('page-title', currentRoute === 'instrument' && report?.instrument?.name ? report.instrument.name : meta[1]);
   for (const section of document.querySelectorAll('[data-page]')) {
     section.hidden = section.dataset.page !== currentRoute || section.id === 'warnings' && !report?.warnings?.length;
   }
-  byId('date-controls').hidden = currentRoute === 'overview';
+  byId('date-controls').hidden = ['overview', 'live-quotes'].includes(currentRoute);
   for (const link of document.querySelectorAll('nav [data-route]')) {
     const active = link.dataset.route === currentRoute || currentRoute === 'instrument' && link.dataset.route === 'holdings';
     link.classList.toggle('nav-active', active);
@@ -113,7 +128,7 @@ function showRoute() {
 }
 
 function parseRoute() {
-  const match = location.hash.match(/^#\/(overview|performance|holdings|dividends|performers|instrument\/([^?]+))(?:\?(.*))?$/);
+  const match = location.hash.match(/^#\/(overview|performance|holdings|dividends|performers|live-quotes|instrument\/([^?]+))(?:\?(.*))?$/);
   if (!match) return { page: 'overview', instrument: '', params: new URLSearchParams() };
   const page = match[1].startsWith('instrument/') ? 'instrument' : match[1];
   let instrument = '';
@@ -132,6 +147,7 @@ async function enterRoute() {
   restoringScroll = true;
   const route = parseRoute();
   currentRoute = route.page; selectedInstrument = route.instrument;
+  selectedLiveQuote = route.params.get('quote') || selectedLiveQuote;
   selectedBenchmark = route.params.get('benchmark') || '';
   mode = route.params.get('mode') === 'value' ? 'value' : 'return';
   activePreset = route.params.get('preset') || null;
@@ -285,6 +301,131 @@ function render() {
   showRoute();
 }
 
+const liveTime = value => new Date(value).toLocaleTimeString(undefined, { hour12: false });
+const livePriceFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 });
+
+function renderLivePrice(cell, value, currency, field) {
+  const previous = cell.dataset.value ? Number(cell.dataset.value) : null;
+  const valid = Number.isFinite(value) && value > 0;
+  const changed = valid && previous !== null && value !== previous;
+  if (!cell.firstElementChild) {
+    const arrow = document.createElement('span');
+    arrow.className = 'quote-direction'; arrow.setAttribute('aria-hidden', 'true');
+    cell.replaceChildren(arrow, document.createElement('span'));
+  }
+  if (changed) {
+    cell.dataset.direction = value > previous ? 'up' : 'down';
+    cell.dataset.changedAt = String(performance.now());
+    cell.classList.remove('quote-up', 'quote-down');
+    void cell.offsetWidth; // Restart the pulse for every new tick, including successive moves in one direction.
+    cell.classList.add(`quote-${cell.dataset.direction}`);
+  } else if (!valid || performance.now() - Number(cell.dataset.changedAt || 0) > 1300) {
+    cell.dataset.direction = '';
+    cell.classList.remove('quote-up', 'quote-down');
+  }
+  cell.dataset.value = valid ? String(value) : '';
+  const direction = cell.dataset.direction;
+  cell.firstElementChild.textContent = direction === 'up' ? '↑' : direction === 'down' ? '↓' : String.fromCharCode(160);
+  const formatted = valid ? livePriceFormat.format(value) : '—';
+  cell.lastElementChild.textContent = formatted;
+  cell.classList.add('numeric', 'live-price');
+  cell.setAttribute('aria-label', `${field}: ${formatted} ${currency}${direction ? `, ${direction} since previous update` : ''}`);
+}
+
+
+function renderLiveQuotes() {
+  const feed = market?.liveQuotes;
+  if (!feed) return;
+  if (liveMode !== feed.mode) { liveMode = feed.mode; liveRowsKey = ''; liveFrozenHistory = null; liveHoveredTime = null; }
+  const simulated = feed.mode === 'demo';
+  text('live-source', simulated ? 'SIMULATED · NO IBKR CONNECTION' : 'IBKR QUOTE WATCHLIST');
+  text('live-description', simulated
+    ? 'These are generated sample prices, not IBKR market data. They are separate from your portfolio valuations.'
+    : 'Quote-only watchlist. Prices are separate from saved portfolio valuations. Gateway login and market-data permissions determine availability.');
+  text('live-status', !feed.configured ? 'Quote collector not configured' : simulated
+    ? feed.available ? 'Simulation running' : 'Simulation paused' : feed.connected ? 'Connected to IBKR Gateway' : 'Waiting for IBKR Gateway');
+  text('live-heartbeat', feed.generatedAt ? `Collector updated ${liveTime(feed.generatedAt)} · this page checks once per second while visible` : 'Waiting for the collector’s first snapshot.');
+  const error = liveConnectionError ? 'Connection to the web server is unavailable. Last received quotes are shown.' : feed.error;
+  byId('live-error').hidden = !error;
+  text('live-error', error || '');
+  const entries = feed.quotes || [];
+  if (!entries.some(entry => entry.quote.key === selectedLiveQuote)) {
+    selectedLiveQuote = entries[0]?.quote.key || '';
+    liveFrozenHistory = null;
+  }
+  const key = JSON.stringify(entries.map(entry => entry.quote.key));
+  const body = byId('live-quotes-body');
+  if (key !== liveRowsKey) {
+    liveRowsKey = key;
+    body.replaceChildren();
+    for (const { quote } of entries) {
+      const row = document.createElement('tr');
+      row.dataset.quote = quote.key;
+      const name = document.createElement('td');
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'instrument-link';
+      button.addEventListener('click', () => {
+        selectedLiveQuote = quote.key; liveFrozenHistory = null; liveHoveredTime = null;
+        syncRouteUrl(); renderLiveQuotes();
+      });
+      name.append(button); row.append(name);
+      for (let i = 0; i < 6; i++) cell(row, '');
+      body.append(row);
+    }
+    if (!entries.length) emptyRow(body, 7, 'No quotes received yet.');
+  }
+  const typeNames = { real_time: 'Real-time', delayed: 'Delayed', frozen: 'Frozen', delayed_frozen: 'Delayed frozen', unknown: 'Awaiting data type' };
+  const states = { waiting: 'Waiting for quotes', unavailable: 'Unavailable', unresolved: 'Contract not resolved', not_subscribed: 'Not subscribed' };
+  entries.forEach(({ quote, stale }, index) => {
+    const cells = body.rows[index].cells;
+    cells[0].firstChild.textContent = quote.name;
+    cells[0].firstChild.setAttribute('aria-pressed', String(quote.key === selectedLiveQuote));
+    cells[1].textContent = quote.currency;
+    ['last', 'bid', 'ask'].forEach((field, i) => renderLivePrice(cells[i + 2], quote[field], quote.currency, field));
+    cells[5].textContent = quote.receivedAt ? liveTime(quote.receivedAt) : '—';
+    cells[5].title = quote.receivedAt || '';
+    cells[6].textContent = `${simulated ? 'Simulated ' : ''}${typeNames[quote.marketDataType] || 'Unknown'}${quote.status !== 'active' ? ` · ${states[quote.status] || 'Unavailable'}` : stale ? ' · stale' : ''}`;
+  });
+  const selectedQuote = entries.find(entry => entry.quote.key === selectedLiveQuote)?.quote;
+  text('live-selected-name', selectedQuote ? `${selectedQuote.name} · ${selectedQuote.currency}` : 'Observed last price');
+  const history = liveFrozenHistory || selectedQuote?.history || [];
+  let selectedIndex = history.length - 1;
+  if (liveHoveredTime) {
+    const found = history.findIndex(point => point.time === liveHoveredTime);
+    if (found >= 0) selectedIndex = found;
+  }
+  const format = value => new Intl.NumberFormat(undefined, { style: 'currency', currency: selectedQuote?.currency || 'USD', maximumFractionDigits: 6 }).format(value);
+  liveQuoteChart = new TimeSeriesChart(byId('live-chart'));
+  liveQuoteChart.draw({ points: history.map(point => ({ date: point.time, value: point.value })), format,
+    formatTime: time => liveTime(time), formatDate: liveTime, selected: selectedIndex,
+    output: byId('live-chart-detail'), title: simulated ? 'Simulated observed quote prices' : 'Observed IBKR last prices',
+    empty: 'No last-trade price history available for this instrument.',
+    onSelect: index => {
+      if (!liveFrozenHistory) liveFrozenHistory = history.slice();
+      liveHoveredTime = liveFrozenHistory[index]?.time;
+      byId('live-follow').disabled = false;
+      text('live-chart-mode', 'Chart paused for inspection; the watchlist continues updating.');
+    } });
+  byId('live-follow').disabled = !liveFrozenHistory || history.length === 0;
+  text('live-chart-mode', liveFrozenHistory ? 'Chart paused for inspection; the watchlist continues updating.' : 'Following the latest observed price.');
+}
+
+async function checkLiveQuotes() {
+  if (document.hidden || currentRoute !== 'live-quotes' || livePollBusy) return;
+  livePollBusy = true;
+  try {
+    const response = await fetch('/api/price-updates', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Quote feed unavailable');
+    liveConnectionError = false;
+    setMarket(await response.json());
+  } catch {
+    liveConnectionError = true;
+    renderLiveQuotes();
+  } finally { livePollBusy = false; }
+}
+
+byId('live-follow').addEventListener('click', () => { liveFrozenHistory = null; liveHoveredTime = null; renderLiveQuotes(); });
+
 function renderRankings(rankings) {
   const key = rankingBasis;
   const rows = rankings?.securities || [];
@@ -407,6 +548,7 @@ function setMarket(data) {
     marketConnectionError = false;
   }
   renderMarket();
+  if (currentRoute === 'live-quotes') renderLiveQuotes();
 }
 
 function renderMarket() {
@@ -463,7 +605,7 @@ async function checkMarket() {
     if (!response.ok) throw new Error('Price status unavailable');
     const data = await response.json();
     setMarket(data);
-    if (report && data.fx && report.fxVersion !== data.fx.version) load(report.period.openingDate, report.period.closingDate, true);
+    if (currentRoute !== 'live-quotes' && report && data.fx && report.fxVersion !== data.fx.version) load(report.period.openingDate, report.period.closingDate, true);
   } catch {
     marketConnectionError = true;
     renderMarket();
@@ -533,6 +675,10 @@ function svgElement(name, attributes, content) {
   return element;
 }
 
+function seriesTime(value) {
+  return Date.parse(value.length === 10 ? value + 'T12:00:00Z' : value);
+}
+
 class TimeSeriesChart {
   constructor(svg) {
     this.svg = svg;
@@ -561,7 +707,7 @@ class TimeSeriesChart {
     this.width = config.width || (mobile ? 500 : 800); this.height = config.height || (mobile ? 270 : 300);
     svg.setAttribute('viewBox', `0 0 ${this.width} ${this.height}`);
     this.left = mobile ? 70 : 85; this.right = this.width - (mobile ? 18 : 25); this.top = 22; this.bottom = this.height - 40;
-    const times = this.points.map(p => Date.parse(p.date + 'T12:00:00Z'));
+    const times = this.points.map(p => seriesTime(p.date));
     this.first = Math.min(...times); this.last = Math.max(...times);
     this.x = time => this.left + (time - this.first) / Math.max(1, this.last - this.first) * (this.right - this.left);
     const series = config.series || [];
@@ -588,7 +734,7 @@ class TimeSeriesChart {
     for (let i = 0; i < ticks; i++) {
       const time = this.first + (this.last - this.first) * i / (ticks - 1);
       const date = new Date(time).toISOString().slice(0, 10);
-      const label = new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+      const label = config.formatTime ? config.formatTime(time) : new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
       svg.append(svgElement('text', { x: this.x(time), y: this.height - 12, 'text-anchor': 'middle', class: 'axis-label' }, label));
     }
     if (config.area && this.points.every(point => Number.isFinite(point.value))) {
@@ -605,7 +751,7 @@ class TimeSeriesChart {
   drawPath(points, className) {
     let path = '', previous = false;
     for (const point of points) {
-      const value = point.value, time = Date.parse(point.date + 'T12:00:00Z');
+      const value = point.value, time = seriesTime(point.date);
       if (!Number.isFinite(value)) { previous = false; continue; }
       path += `${previous ? 'L' : 'M'}${this.x(time).toFixed(2)},${this.y(value).toFixed(2)} `; previous = true;
     }
@@ -631,7 +777,7 @@ class TimeSeriesChart {
     if (Number.isFinite(point.value)) {
       this.dot.setAttribute('cx', x); this.dot.setAttribute('cy', this.y(point.value)); this.dot.setAttribute('visibility', 'visible');
     } else this.dot.setAttribute('visibility', 'hidden');
-    const detail = `${dateLabel(point.date)} · ${Number.isFinite(point.value) ? this.config.format(point.value) : 'Unavailable'}`;
+    const detail = `${(this.config.formatDate || dateLabel)(point.date)} · ${Number.isFinite(point.value) ? this.config.format(point.value) : 'Unavailable'}`;
     const seriesDetails = (this.config.series || []).map(series => {
       const sample = series.points.find(candidate => candidate.date === point.date);
       return sample && Number.isFinite(sample.value) ? `${series.name}: ${this.config.format(sample.value)}` : null;
@@ -722,6 +868,7 @@ async function load(from, to, silent = false) {
       document.querySelectorAll('button, input[type=date], #benchmark').forEach(element => { element.disabled = false; });
       renderMarket();
       if (selectedInstrument) { renderActivityTable('dividends'); renderActivityTable('transactions'); }
+      if (currentRoute === 'live-quotes') renderLiveQuotes();
     }
   }
 }
@@ -737,7 +884,7 @@ byId('dates').addEventListener('submit', event => {
   syncRouteUrl();
   load(byId('from').value, byId('to').value);
 });
-byId('refresh').addEventListener('click', () => load(report?.period.openingDate, report?.period.closingDate));
+byId('refresh').addEventListener('click', () => currentRoute === 'live-quotes' ? checkLiveQuotes() : load(report?.period.openingDate, report?.period.closingDate));
 byId('benchmark').addEventListener('change', event => {
   selectedBenchmark = event.target.value;
   if (selectedBenchmark) mode = 'return';
@@ -787,13 +934,15 @@ for (const button of document.querySelectorAll('[data-period]')) {
 byId('ranking-basis').addEventListener('change', event => { rankingBasis = event.target.value === 'gain' ? 'gain' : 'rate'; syncRouteUrl(); renderRankings(report?.rankings); });
 for (const measure of ['return', 'value']) byId('mode-' + measure).addEventListener('click', () => { mode = measure; syncRouteUrl(); drawChart(); });
 byId('chart-position').addEventListener('input', event => { selected = Number(event.target.value); updateCursor(); saveEntryState(); });
-window.matchMedia('(max-width:760px)').addEventListener('change', drawChart);
+window.matchMedia('(max-width:760px)').addEventListener('change', () => { drawChart(); if (currentRoute === 'live-quotes') renderLiveQuotes(); });
 function checkForUpdates() {
-  if (report && !document.hidden) load(report.period.openingDate, report.period.closingDate, true);
+  if (report && !document.hidden && currentRoute !== 'live-quotes') load(report.period.openingDate, report.period.closingDate, true);
 }
+window.setInterval(checkLiveQuotes, 1000);
 window.setInterval(checkForUpdates, 30000);
 window.setInterval(checkMarket, 10000);
 document.addEventListener('visibilitychange', checkForUpdates);
 document.addEventListener('visibilitychange', checkMarket);
+document.addEventListener('visibilitychange', checkLiveQuotes);
 if (!location.hash) history.replaceState({ appEntry: true, canAppBack: false, routeKey: '#/overview' }, '', '#/overview');
 enterRoute();

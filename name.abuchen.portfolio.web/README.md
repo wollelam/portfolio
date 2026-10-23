@@ -58,6 +58,7 @@ the same name. The public application still requires a separately managed access
 - Automatic file checks, validated snapshot replacement, recovery after a failed sync, and freshness status.
 - Benchmark selection and a return-chart overlay using existing security/index price history.
 - Top and bottom security performance for a selected period, ranked by TTWROR or portfolio-currency gain/loss.
+- An independent quote-stream pilot with an explicit simulation and a small read-only IBKR connector.
 
 By default the closing valuation is today, using the server's current date. The previous-day
 comparison uses the core's default trading calendar. The initial chart covers the preceding year. Select explicit dates to change
@@ -134,6 +135,20 @@ the cash side of a buy/sell entry. The lists include closing-date activity and e
 activity, future records and other securities. Each table is paged in groups of 25; refreshing
 preserves the current page when the instrument and period are unchanged. Missing FX leaves the
 original amount readable and the converted amount unavailable, rather than using a fallback rate.
+
+## Quote stream pilot
+
+Open **Live quotes** for an independent watchlist. Simulation uses generated sample prices and
+never connects to IBKR. Its prices do not change saved portfolio valuations, rankings or history.
+Both daily and intraday charts use the same chart component. Hover/keyboard selection pauses an
+intraday chart for inspection; **Follow latest** resumes. The watchlist continues updating.
+
+The separate collector uses pinned `ib_async`, validates contract identity, and publishes a private
+snapshot. The web app reads it using `PP_WEB_LIVE_QUOTES=1` and the existing status endpoint.
+Missing heartbeat, delayed data, unresolved contracts and stale individual quotes are distinguished.
+A real feed needs an authenticated Gateway/TWS session, read-only API and the logged-in user's
+market-data permissions. Setup, isolation, testing and retirement are documented in
+[quote-stream/README.md](../quote-stream/README.md).
 
 ## File ownership and Google Drive
 

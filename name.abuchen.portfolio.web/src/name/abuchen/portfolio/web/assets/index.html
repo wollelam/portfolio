@@ -15,6 +15,7 @@
     <a class="brand" href="#/overview" aria-label="Portfolio home"><span class="brand-mark">p<span>↗</span></span> portfolio<span class="brand-dot">.</span></a>
     <div class="workspace-label">YOUR WORKSPACE</div>
     <nav aria-label="Dashboard sections">
+      <a data-route="live-quotes" href="#/live-quotes"><span aria-hidden="true">◉</span> Live quotes</a>
       <a data-route="overview" href="#/overview"><span aria-hidden="true">◫</span> Overview</a>
       <a data-route="performance" href="#/performance"><span aria-hidden="true">↗</span> Performance</a>
       <a data-route="holdings" href="#/holdings"><span aria-hidden="true">▤</span> Holdings</a>
@@ -57,6 +58,21 @@
         <div class="reconciliation"><span>Value change <strong id="value-change"></strong></span><span>Net deposits / withdrawals <strong id="net-flows"></strong></span><span>Investment gain / loss <strong id="investment-gain"></strong></span></div>
       </section>
       <section data-page="holdings" id="holdings" class="panel"><div class="panel-heading"><div><p class="eyebrow">WHERE YOU’RE INVESTED</p><h2>Holdings &amp; cash</h2></div><span id="holding-count" class="subtle"></span></div><div class="table-scroll"><table><thead><tr><th scope="col">Asset</th><th scope="col" class="numeric">Value</th><th scope="col" class="numeric">Weight</th><th scope="col">Quote date</th></tr></thead><tbody id="holdings-body"></tbody></table></div><p class="panel-note">Quote dates refer to the latest available price on or before the valuation date. Cash has no quote date.</p></section>
+      <section data-page="live-quotes" id="live-quotes" class="panel">
+        <div class="panel-heading"><div><p id="live-source" class="eyebrow">QUOTE WATCHLIST</p><h2 id="live-status">Waiting for quote collector</h2></div></div>
+        <p id="live-description" class="panel-note"></p>
+        <p id="live-heartbeat" class="panel-note"></p>
+        <div id="live-error" class="notice market-warning" role="status" hidden></div>
+        <div class="table-scroll"><table>
+          <thead><tr><th scope="col">Instrument</th><th scope="col">Currency</th><th scope="col" class="numeric">Last</th><th scope="col" class="numeric">Bid</th><th scope="col" class="numeric">Ask</th><th scope="col">Received</th><th scope="col">Feed</th></tr></thead>
+          <tbody id="live-quotes-body"></tbody>
+        </table></div>
+        <div class="panel-heading"><h3 id="live-selected-name">Observed last price</h3><button type="button" id="live-follow" class="button secondary" disabled>Follow latest</button></div>
+        <svg id="live-chart" class="time-series-chart" viewBox="0 0 800 300" role="img" aria-label="Observed quote history"></svg>
+        <p id="live-chart-detail" class="chart-explorer"></p>
+        <p id="live-chart-mode" class="panel-note"></p>
+        <p class="panel-note">Select an instrument, then hover or use the arrow keys on its chart. The chart retains up to 90 observed prices. Received times describe when the collector saw an update, not the exchange’s last-trade time. Portfolio date filters do not apply to this watchlist.</p>
+      </section>
       <section data-page="performers" id="performers" class="panel">
         <div class="panel-heading">
           <div><p class="eyebrow">SECURITY PERFORMANCE</p><h2>Top gainers &amp; decliners</h2></div>

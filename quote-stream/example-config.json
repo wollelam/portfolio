@@ -1,0 +1,25 @@
+{
+  "host": "127.0.0.1",
+  "port": 4002,
+  "client_id": 43,
+  "market_data_type": 3,
+  "instruments": [
+    {
+      "key": "apple",
+      "name": "Apple",
+      "sec_type": "STK",
+      "symbol": "AAPL",
+      "currency": "USD",
+      "exchange": "SMART",
+      "primary_exchange": "NASDAQ"
+    },
+    {
+      "key": "eur-usd",
+      "name": "EUR / USD",
+      "sec_type": "CASH",
+      "symbol": "EUR",
+      "currency": "USD",
+      "exchange": "IDEALPRO"
+    }
+  ]
+}

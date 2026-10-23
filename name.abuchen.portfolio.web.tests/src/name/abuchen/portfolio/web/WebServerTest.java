@@ -20,6 +20,7 @@ import org.junit.Test;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonParser;
 
 @SuppressWarnings("nls")
@@ -27,6 +28,32 @@ public class WebServerTest
 {
     @Rule
     public TemporaryFolder temporary = new TemporaryFolder();
+
+    @Test
+    public void liveQuoteStatusCannotChangeSavedPortfolioValuations() throws Exception
+    {
+        var today = LocalDate.of(2026, 10, 23);
+        var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+        var file = temporary.newFolder().toPath().resolve("latest.json");
+        var service = new DashboardService(DemoPortfolio.create(today), clock, List.of());
+        try (var market = new MarketUpdates(new QuoteJobs(null, clock), null, clock, new LiveQuotes(file, clock));
+                        var portfolios = PortfolioRefresh.fixed(service);
+                        var server = new WebServer(new InetSocketAddress("127.0.0.1", 0), portfolios, market);
+                        var client = HttpClient.newHttpClient())
+        {
+            server.start();
+            var base = "http://127.0.0.1:" + server.port();
+            var before = JsonParser.parseString(get(client, base + "/api/dashboard").body()).getAsJsonObject();
+            Files.writeString(file, new Gson().toJson(new LiveQuotes.Frame(1, "demo", "test-session",
+                            clock.instant().toString(), true, "running", null, List.of())));
+            var status = JsonParser.parseString(get(client, base + "/api/price-updates").body()).getAsJsonObject();
+            assertEquals("demo", status.getAsJsonObject("liveQuotes").get("mode").getAsString());
+            assertEquals(false, status.getAsJsonObject("liveQuotes").get("connected").getAsBoolean());
+            var after = JsonParser.parseString(get(client, base + "/api/dashboard").body()).getAsJsonObject();
+            assertEquals(before.get("totalValue"), after.get("totalValue"));
+            assertEquals(before.get("revision"), after.get("revision"));
+        }
+    }
 
     @Test
     public void priceRequestsRequireAnExplicitSameOriginActionAndCannotBeRepeated() throws Exception

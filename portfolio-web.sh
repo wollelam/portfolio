@@ -94,6 +94,9 @@ fi
 if [[ "${PP_WEB_PRICE_UPDATES:-0}" == 1 ]]; then
     arguments+=(--price-updates-dir /web-state/price-updates)
 fi
+if [[ "${PP_WEB_LIVE_QUOTES:-0}" == 1 ]]; then
+    arguments+=(--live-quotes-file /web-state/live-quotes/latest.json)
+fi
 run_options=(--rm)
 if [[ "$detached" == true ]]; then
     run_options=(--detach --restart unless-stopped --name "${PP_WEB_CONTAINER_NAME:-portfolio-web}")
