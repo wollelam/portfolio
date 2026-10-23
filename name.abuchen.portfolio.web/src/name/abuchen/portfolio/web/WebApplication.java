@@ -2,6 +2,7 @@ package name.abuchen.portfolio.web;
 
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -58,16 +59,17 @@ public final class WebApplication implements IApplication
         var passwordValue = System.getenv("PP_WEB_PASSWORD");
         char[] password = passwordValue == null ? null : passwordValue.toCharArray();
         PortfolioSource.LoadedPortfolio loaded;
+        var clock = Clock.systemDefaultZone();
         try
         {
-            loaded = demo ? DemoPortfolio.create(LocalDate.now()) : PortfolioSource.file(file, password).load();
+            loaded = demo ? DemoPortfolio.create(LocalDate.now(clock)) : PortfolioSource.file(file, password).load();
         }
         finally
         {
             if (password != null)
                 Arrays.fill(password, '\0');
         }
-        server = new WebServer(new InetSocketAddress(bind, port), new DashboardService(loaded, LocalDate.now(), warnings));
+        server = new WebServer(new InetSocketAddress(bind, port), new DashboardService(loaded, clock, warnings));
         var shutdown = new Thread(this::stop, "portfolio-web-shutdown");
         Runtime.getRuntime().addShutdownHook(shutdown);
         try

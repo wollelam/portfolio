@@ -8,7 +8,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import org.junit.Test;
@@ -22,7 +24,8 @@ public class WebServerTest
     public void servesDashboardAndAssetsAndRejectsCrossOriginAndInvalidRequests() throws Exception
     {
         var today = LocalDate.of(2025, 6, 12);
-        var service = new DashboardService(DemoPortfolio.create(today), today, List.of());
+        var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+        var service = new DashboardService(DemoPortfolio.create(today), clock, List.of());
         try (var server = new WebServer(new InetSocketAddress("127.0.0.1", 0), service);
                         var client = HttpClient.newHttpClient())
         {
@@ -30,6 +33,7 @@ public class WebServerTest
             var base = "http://127.0.0.1:" + server.port();
             var dashboard = get(client, base + "/api/dashboard");
             assertEquals(200, dashboard.statusCode());
+            assertEquals(today.toString(), JsonParser.parseString(dashboard.body()).getAsJsonObject().get("asOf").getAsString());
             assertTrue(JsonParser.parseString(dashboard.body()).getAsJsonObject().getAsJsonArray("series").size() > 300);
             assertEquals("no-store", dashboard.headers().firstValue("Cache-Control").orElseThrow());
             assertEquals(200, get(client, base + "/").statusCode());

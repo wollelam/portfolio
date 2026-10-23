@@ -54,8 +54,8 @@ the same name. The public application still requires a separately managed access
 - Received dividends, gross/net/taxes/fees and original payment currency.
 - Portfolio revision, load time, quote dates and calculation/data-quality warnings.
 
-By default the closing valuation is the previous completed trading day, using the core's default
-trading calendar. The initial chart covers the preceding year. Select explicit dates to change
+By default the closing valuation is today, using the server's current date. The previous-day
+comparison uses the core's default trading calendar. The initial chart covers the preceding year. Select explicit dates to change
 this; the day/week cards follow the selected closing date. A period runs **after the opening
 valuation through the closing valuation**, matching core interval semantics. Monetary JSON fields
 are integer hundredths of a currency unit, as in the core; return fields are decimal ratios.

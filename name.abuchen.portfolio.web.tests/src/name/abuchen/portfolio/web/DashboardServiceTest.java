@@ -5,8 +5,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import org.junit.Test;
@@ -25,6 +27,7 @@ import name.abuchen.portfolio.util.Interval;
 public class DashboardServiceTest
 {
     private final LocalDate end = LocalDate.of(2025, 6, 12);
+    private final Clock clock = Clock.fixed(end.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
 
     @Test
     public void depositsChangeValueButNotGainOrReturn()
@@ -80,7 +83,7 @@ public class DashboardServiceTest
         var converter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(client), "EUR");
         var index = PerformanceIndex.forClient(client, converter, Interval.of(end.minusYears(1), end),
                         new java.util.ArrayList<>());
-        var report = new DashboardService(loaded, end, List.of()).dashboard(end.minusYears(1), end);
+        var report = new DashboardService(loaded, clock, List.of()).dashboard(end.minusYears(1), end);
         assertEquals(index.getDates().length, report.series().size());
         for (int ii = 0; ii < index.getDates().length; ii++)
         {
@@ -111,16 +114,20 @@ public class DashboardServiceTest
     }
 
     @Test
-    public void defaultDateUsesThePreviousCompletedTradingDay()
+    public void defaultDateUsesTodayIncludingWeekends()
     {
         var monday = LocalDate.of(2025, 6, 16);
-        var service = new DashboardService(DemoPortfolio.create(monday), monday, List.of());
-        assertEquals(LocalDate.of(2025, 6, 13), service.defaultClosingDate());
+        for (var date : List.of(monday.minusDays(1), monday))
+        {
+            var fixedClock = Clock.fixed(date.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+            var service = new DashboardService(DemoPortfolio.create(date), fixedClock, List.of());
+            assertEquals(date, service.defaultClosingDate());
+        }
     }
 
     private DashboardService service(Client client)
     {
         return new DashboardService(new PortfolioSource.LoadedPortfolio(client, "Test", "revision", Instant.EPOCH, false),
-                        end, List.of());
+                        clock, List.of());
     }
 }

@@ -1,5 +1,6 @@
 package name.abuchen.portfolio.web;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -47,13 +48,13 @@ final class DashboardService
 
     private final PortfolioSource.LoadedPortfolio portfolio;
     private final CurrencyConverterImpl converter;
-    private final LocalDate today;
+    private final Clock clock;
     private final List<String> startupWarnings;
 
-    DashboardService(PortfolioSource.LoadedPortfolio portfolio, LocalDate today, List<String> startupWarnings)
+    DashboardService(PortfolioSource.LoadedPortfolio portfolio, Clock clock, List<String> startupWarnings)
     {
         this.portfolio = portfolio;
-        this.today = today;
+        this.clock = clock;
         this.startupWarnings = List.copyOf(startupWarnings);
         this.converter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(portfolio.client()),
                         portfolio.client().getBaseCurrency());
@@ -61,7 +62,7 @@ final class DashboardService
 
     LocalDate defaultClosingDate()
     {
-        return previousTradingDay(today);
+        return LocalDate.now(clock);
     }
 
     private LocalDate previousTradingDay(LocalDate date)
@@ -75,7 +76,7 @@ final class DashboardService
 
     synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate)
     {
-        if (!openingDate.isBefore(closingDate) || closingDate.isAfter(today)
+        if (!openingDate.isBefore(closingDate) || closingDate.isAfter(LocalDate.now(clock))
                         || ChronoUnit.DAYS.between(openingDate, closingDate) > 3660)
             throw new IllegalArgumentException("Choose an opening date before the closing date, no future dates, and at most 10 years.");
 
