@@ -51,6 +51,8 @@
 		<module>../name.abuchen.portfolio.junit</module>
 		<module>../name.abuchen.portfolio.tests</module>
 		<module>../name.abuchen.portfolio.cli.tests</module>
+		<module>../name.abuchen.portfolio.web</module>
+		<module>../name.abuchen.portfolio.web.tests</module>
 		<module>../name.abuchen.portfolio.rest</module>
 		<module>../name.abuchen.portfolio.rest.tests</module>
 		<module>../name.abuchen.portfolio.ui</module>
