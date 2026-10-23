@@ -18,6 +18,11 @@ let requestController;
 let refreshConnectionError;
 let selectedBenchmark = '';
 let selectedInstrument = '';
+let rankingBasis = 'rate';
+let securityActivity;
+let activityKey = '';
+const activityPages = { dividends: 0, transactions: 0 };
+const activityPageSize = 25;
 let currentRoute = 'overview';
 let currentRouteKey = '';
 let routeGeneration = 0;
@@ -64,6 +69,7 @@ const routeMeta = {
   performance: ['GROWTH OVER TIME', 'Portfolio performance'],
   holdings: ['WHERE YOU’RE INVESTED', 'Holdings & cash'],
   dividends: ['INCOME FROM YOUR INVESTMENTS', 'Received dividends'],
+  performers: ['SECURITY PERFORMANCE', 'Top gainers & decliners'],
   instrument: ['INSTRUMENT DETAIL', 'Instrument detail']
 };
 
@@ -74,6 +80,7 @@ function routeUrl() {
   if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
   if (mode !== 'return') params.set('mode', mode);
   if (activePreset) params.set('preset', activePreset);
+  if (rankingBasis !== 'rate') params.set('basis', rankingBasis);
   const route = currentRoute === 'instrument' ? `instrument/${encodeURIComponent(selectedInstrument)}` : currentRoute;
   return `#/${route}${params.size ? `?${params}` : ''}`;
 }
@@ -106,7 +113,7 @@ function showRoute() {
 }
 
 function parseRoute() {
-  const match = location.hash.match(/^#\/(overview|performance|holdings|dividends|instrument\/([^?]+))(?:\?(.*))?$/);
+  const match = location.hash.match(/^#\/(overview|performance|holdings|dividends|performers|instrument\/([^?]+))(?:\?(.*))?$/);
   if (!match) return { page: 'overview', instrument: '', params: new URLSearchParams() };
   const page = match[1].startsWith('instrument/') ? 'instrument' : match[1];
   let instrument = '';
@@ -128,6 +135,8 @@ async function enterRoute() {
   selectedBenchmark = route.params.get('benchmark') || '';
   mode = route.params.get('mode') === 'value' ? 'value' : 'return';
   activePreset = route.params.get('preset') || null;
+  rankingBasis = route.params.get('basis') === 'gain' ? 'gain' : 'rate';
+  byId('ranking-basis').value = rankingBasis;
   const from = route.params.get('from'), to = route.params.get('to');
   if (from) byId('from').value = from;
   if (to) byId('to').value = to;
@@ -255,6 +264,7 @@ function render() {
   }
   if (!report.holdings.length) emptyRow(holdings, 4, 'No holdings or cash accounts at this valuation date.');
   renderInstrument(report.instrument);
+  renderRankings(report.rankings);
   const income = byId('dividends-body');
   income.replaceChildren();
   text('income-currency', `All amounts in ${report.currency}`);
@@ -275,10 +285,94 @@ function render() {
   showRoute();
 }
 
+function renderRankings(rankings) {
+  const key = rankingBasis;
+  const rows = rankings?.securities || [];
+  const valid = rows.filter(row => Number.isFinite(row[key]));
+  const compare = direction => (a, b) => direction * (a[key] - b[key])
+    || (a.name || '').localeCompare(b.name || '') || a.uuid.localeCompare(b.uuid);
+  const fill = (id, items, empty) => {
+    const body = byId(id);
+    body.replaceChildren();
+    if (!items.length) { emptyRow(body, 3, empty); return; }
+    for (const item of items) {
+      const row = document.createElement('tr');
+      const name = document.createElement('td');
+      const link = document.createElement('a');
+      const filters = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '';
+      link.className = 'instrument-link';
+      link.href = `#/instrument/${encodeURIComponent(item.uuid)}${filters}`;
+      link.textContent = item.name || 'Unnamed security';
+      name.append(link);
+      row.append(name);
+      cell(row, percent(item.rate), true);
+      cell(row, item.gain == null ? 'Unavailable' : money(item.gain, true), true);
+      body.append(row);
+    }
+  };
+  fill('gainers-body', valid.filter(row => row[key] > 0).sort(compare(-1)).slice(0, 5),
+    `No positive ${key === 'rate' ? 'returns' : 'gains'} in this period.`);
+  fill('decliners-body', valid.filter(row => row[key] < 0).sort(compare(1)).slice(0, 5),
+    `No negative ${key === 'rate' ? 'returns' : 'gains'} in this period.`);
+  const neutral = valid.filter(row => row[key] === 0).length;
+  text('ranking-summary', `${dateLabel(report.period.openingDate)} → ${dateLabel(report.period.closingDate)} · ${valid.length} securities with results · ${rows.length - valid.length} unavailable for this measure · ${neutral} unchanged`);
+  for (const heading of document.querySelectorAll('[data-ranking-currency]')) heading.textContent = `Gain / loss (${report.currency})`;
+}
+
+function originalMoney(value, currency) {
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value / 100);
+}
+
+function renderSecurityActivity(activity) {
+  const key = `${selectedInstrument}:${report.period.openingDate}:${report.period.closingDate}`;
+  if (key !== activityKey) {
+    activityKey = key;
+    activityPages.dividends = activityPages.transactions = 0;
+  }
+  securityActivity = activity || { dividends: [], transactions: [] };
+  renderActivityTable('dividends');
+  renderActivityTable('transactions');
+}
+
+function renderActivityTable(kind) {
+  const items = securityActivity?.[kind] || [];
+  const pageCount = Math.max(1, Math.ceil(items.length / activityPageSize));
+  activityPages[kind] = Math.max(0, Math.min(pageCount - 1, activityPages[kind]));
+  const body = byId(`security-${kind}-body`);
+  body.replaceChildren();
+  const start = activityPages[kind] * activityPageSize;
+  for (const entry of items.slice(start, start + activityPageSize)) {
+    const row = document.createElement('tr');
+    const formatted = amount => originalMoney(amount, entry.currency);
+    if (kind === 'dividends') {
+      cell(row, dateLabel(entry.date), false, entry.account);
+      for (const field of ['gross', 'taxes', 'fees', 'net']) cell(row, formatted(entry[field]), true);
+      cell(row, entry.reportingNet == null ? 'Unavailable' : money(entry.reportingNet), true);
+    } else {
+      cell(row, dateLabel(entry.date.slice(0, 10)), false, entry.date.slice(11, 16));
+      cell(row, entry.type, false, entry.owner);
+      cell(row, entry.shares == null ? '—' : new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 }).format(entry.shares / 1e8), true);
+      cell(row, formatted(entry.amount), true);
+      cell(row, formatted(entry.taxes), true);
+      cell(row, formatted(entry.fees), true);
+      cell(row, entry.reportingAmount == null ? 'Unavailable' : money(entry.reportingAmount), true);
+    }
+    body.append(row);
+  }
+  if (!items.length) emptyRow(body, kind === 'dividends' ? 6 : 7,
+    kind === 'dividends' ? 'No dividends were paid in the selected period.' : 'No transactions in the selected period.');
+  text(`security-${kind}-count`, `${items.length} ${kind === 'dividends' ? 'payments' : 'transactions'}`);
+  text(`security-${kind}-page`, items.length ? `${start + 1}–${Math.min(start + activityPageSize, items.length)} of ${items.length}` : '0 results');
+  byId(`security-${kind}-previous`).disabled = activityPages[kind] === 0;
+  byId(`security-${kind}-next`).disabled = activityPages[kind] + 1 >= pageCount;
+  for (const label of document.querySelectorAll('[data-activity-currency]')) label.textContent = `In ${report.currency}`;
+}
+
 function renderInstrument(instrument) {
   const panel = byId('instrument-panel');
   panel.hidden = !selectedInstrument;
   if (!selectedInstrument) return;
+  renderSecurityActivity(instrument?.activity);
   if (!instrument) {
     text('instrument-name', 'Instrument unavailable'); text('instrument-message', 'The selected instrument detail is unavailable.');
     for (const id of ['instrument-period', 'instrument-shares', 'instrument-value', 'instrument-ttwror', 'instrument-irr', 'instrument-gain', 'instrument-dividends', 'instrument-currency']) text(id, 'Unavailable');
@@ -594,6 +688,7 @@ async function load(from, to, silent = false) {
     if (to) params.set('to', to);
     if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
     if (selectedInstrument) params.set('instrument', selectedInstrument);
+    if (currentRoute === 'performers') params.set('rankings', 'true');
     const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal: controller.signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Could not load portfolio.');
@@ -626,7 +721,14 @@ async function load(from, to, silent = false) {
       byId('dashboard').setAttribute('aria-busy', 'false');
       document.querySelectorAll('button, input[type=date], #benchmark').forEach(element => { element.disabled = false; });
       renderMarket();
+      if (selectedInstrument) { renderActivityTable('dividends'); renderActivityTable('transactions'); }
     }
+  }
+}
+
+for (const kind of ['dividends', 'transactions']) {
+  for (const [action, step] of [['previous', -1], ['next', 1]]) {
+    byId(`security-${kind}-${action}`).addEventListener('click', () => { activityPages[kind] += step; renderActivityTable(kind); });
   }
 }
 
@@ -667,6 +769,8 @@ for (const button of document.querySelectorAll('[data-period]')) {
     const end = new Date(report.asOf + 'T12:00:00Z');
     let start;
     if (activePreset === 'YTD') start = new Date(Date.UTC(end.getUTCFullYear() - 1, 11, 31, 12));
+    else if (activePreset === '1D') start = new Date(report.day.openingDate + 'T12:00:00Z');
+    else if (activePreset === 'MTD') start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 0, 12));
     else {
       start = new Date(end);
       const months = activePreset === '1Y' ? 12 : Number(activePreset.slice(0, -1));
@@ -680,6 +784,7 @@ for (const button of document.querySelectorAll('[data-period]')) {
     load(iso(start), iso(end));
   });
 }
+byId('ranking-basis').addEventListener('change', event => { rankingBasis = event.target.value === 'gain' ? 'gain' : 'rate'; syncRouteUrl(); renderRankings(report?.rankings); });
 for (const measure of ['return', 'value']) byId('mode-' + measure).addEventListener('click', () => { mode = measure; syncRouteUrl(); drawChart(); });
 byId('chart-position').addEventListener('input', event => { selected = Number(event.target.value); updateCursor(); saveEntryState(); });
 window.matchMedia('(max-width:760px)').addEventListener('change', drawChart);

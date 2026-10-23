@@ -15,15 +15,15 @@ import org.junit.Test;
 
 import name.abuchen.portfolio.model.Account;
 import name.abuchen.portfolio.model.AccountTransaction;
-import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.BuySellEntry;
+import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.PortfolioTransaction;
 import name.abuchen.portfolio.model.Transaction;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Money;
-import name.abuchen.portfolio.snapshot.PerformanceIndex;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
+import name.abuchen.portfolio.snapshot.PerformanceIndex;
 import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceSnapshot;
 import name.abuchen.portfolio.util.Interval;
 
@@ -142,6 +142,118 @@ public class DashboardServiceTest
         assertEquals(record.getSharesHeld().longValue(), detail.shares());
         assertTrue(detail.prices().stream().noneMatch(p -> p.date().equals(end.plusDays(1).toString())));
         assertEquals(1, service.dashboard(from, end).holdings().stream().filter(h -> h.uuid() != null).count());
+    }
+
+    @Test
+    public void rankingsMatchNativeSnapshotAndAreOptIn()
+    {
+        var loaded = DemoPortfolio.create(end);
+        var security = loaded.client().getSecurities().getFirst();
+        var benchmarkOnly = new name.abuchen.portfolio.model.Security("Benchmark only", "EUR");
+        benchmarkOnly.addPrice(new name.abuchen.portfolio.model.SecurityPrice(end.minusDays(2),
+                        name.abuchen.portfolio.money.Values.Quote.factorize(100)));
+        loaded.client().addSecurity(benchmarkOnly);
+        var from = end.minusMonths(6);
+        var service = new DashboardService(loaded, clock, List.of());
+        assertEquals(null, service.dashboard(from, end).rankings());
+        var ranking = service.dashboard(from, end, null, null, true).rankings();
+        var row = ranking.securities().stream().filter(r -> r.uuid().equals(security.getUUID())).findFirst().orElseThrow();
+        var converter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(loaded.client()), "EUR");
+        var record = LazySecurityPerformanceSnapshot.create(loaded.client(), converter, Interval.of(from, end),
+                        ClientSnapshot.create(loaded.client(), converter, from), ClientSnapshot.create(loaded.client(), converter, end))
+                        .getRecord(security).orElseThrow();
+        assertEquals(record.getTrueTimeWeightedRateOfReturn(), row.rate(), 0.0000001);
+        assertEquals(record.getDelta().getAmount(), row.gain().longValue());
+        assertFalse(ranking.securities().stream().anyMatch(r -> r.uuid().equals(benchmarkOnly.getUUID())));
+    }
+
+    @Test
+    public void rankingsMaskHeldPositionsWhenEitherBoundaryHasNoUsableQuote()
+    {
+        var from = end.minusMonths(3);
+        var client = new Client();
+        client.setBaseCurrency("EUR");
+        var portfolio = new name.abuchen.portfolio.model.Portfolio("Test portfolio");
+        var account = new Account("Cash");
+        account.setCurrencyCode("EUR");
+        portfolio.setReferenceAccount(account);
+        var security = new name.abuchen.portfolio.model.Security("Test security", "EUR");
+        client.addPortfolio(portfolio);
+        client.addAccount(account);
+        client.addSecurity(security);
+        var buy = new BuySellEntry(portfolio, account);
+        buy.setType(PortfolioTransaction.Type.BUY);
+        buy.setDate(from.minusDays(2).atTime(12, 0));
+        buy.setSecurity(security);
+        buy.setShares(name.abuchen.portfolio.money.Values.Share.factorize(100));
+        buy.setMonetaryAmount(Money.of("EUR", name.abuchen.portfolio.money.Values.Amount.factorize(10000)));
+        buy.insert();
+        var loaded = new PortfolioSource.LoadedPortfolio(client, "test", "test", java.time.Instant.now(), true);
+        security.addPrice(new name.abuchen.portfolio.model.SecurityPrice(from.plusDays(1),
+                        name.abuchen.portfolio.money.Values.Quote.factorize(100)));
+        var openingMissing = new DashboardService(loaded, clock, List.of()).dashboard(from, end, null, null, true).rankings();
+        var row = openingMissing.securities().stream().filter(r -> r.uuid().equals(security.getUUID())).findFirst().orElseThrow();
+        assertEquals(null, row.rate());
+        assertEquals(null, row.gain());
+        assertEquals(0, openingMissing.neutral());
+        var detail = new DashboardService(loaded, clock, List.of()).dashboard(from, end, null, security.getUUID()).instrument();
+        assertEquals(null, detail.twror());
+        assertEquals(null, detail.gain());
+        assertTrue(detail.message().contains("opening quote"));
+
+        security.removeAllPrices();
+        security.addPrice(new name.abuchen.portfolio.model.SecurityPrice(from.minusDays(1),
+                        name.abuchen.portfolio.money.Values.Quote.factorize(100)));
+        security.addPrice(new name.abuchen.portfolio.model.SecurityPrice(end, 0));
+        security.addPrice(new name.abuchen.portfolio.model.SecurityPrice(end.plusDays(1),
+                        name.abuchen.portfolio.money.Values.Quote.factorize(500)));
+        var closingZero = new DashboardService(loaded, clock, List.of()).dashboard(from, end, null, null, true).rankings();
+        row = closingZero.securities().stream().filter(r -> r.uuid().equals(security.getUUID())).findFirst().orElseThrow();
+        assertEquals(null, row.rate());
+        assertEquals(null, row.gain());
+        assertEquals(0, closingZero.neutral());
+        detail = new DashboardService(loaded, clock, List.of()).dashboard(from, end, null, security.getUUID()).instrument();
+        assertEquals(null, detail.value());
+        assertEquals(null, detail.twror());
+
+        security.removeAllPrices();
+        portfolio.getTransactions().getFirst().setDateTime(from.plusDays(1).atTime(12, 0));
+        security.addPrice(new name.abuchen.portfolio.model.SecurityPrice(end.plusDays(1),
+                        name.abuchen.portfolio.money.Values.Quote.factorize(500)));
+        var closingFutureOnly = new DashboardService(loaded, clock, List.of()).dashboard(from, end, null, null, true).rankings();
+        row = closingFutureOnly.securities().stream().filter(r -> r.uuid().equals(security.getUUID())).findFirst().orElseThrow();
+        assertEquals(null, row.rate());
+        assertEquals(null, row.gain());
+        assertTrue(closingFutureOnly.unavailable() > 0);
+        assertEquals(0, closingFutureOnly.neutral());
+    }
+
+    @Test
+    public void rankingsIncludeSoldOnlyPeriodActivityWithNativeMetrics()
+    {
+        var loaded = DemoPortfolio.create(end);
+        var client = loaded.client();
+        var security = client.getSecurities().getFirst();
+        var portfolio = client.getPortfolios().getFirst();
+        var account = client.getAccounts().getFirst();
+        var sale = new BuySellEntry(portfolio, account);
+        sale.setType(PortfolioTransaction.Type.SELL);
+        sale.setDate(end.minusDays(1).atTime(12, 0));
+        sale.setSecurity(security);
+        sale.setShares(name.abuchen.portfolio.money.Values.Share.factorize(700));
+        sale.setMonetaryAmount(Money.of("EUR", name.abuchen.portfolio.money.Values.Amount.factorize(100000)));
+        sale.insert();
+        var from = end.minusMonths(3);
+        var rankings = new DashboardService(loaded, clock, List.of()).dashboard(from, end, null, null, true).rankings();
+        var row = rankings.securities().stream().filter(r -> r.uuid().equals(security.getUUID())).findFirst().orElseThrow();
+        assertEquals(0, ClientSnapshot.create(client, new CurrencyConverterImpl(new ExchangeRateProviderFactory(client), "EUR"), end)
+                        .getAssetPositions().filter(p -> security.equals(p.getSecurity())).count());
+        var converter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(client), "EUR");
+        var record = LazySecurityPerformanceSnapshot.create(client, converter, Interval.of(from, end),
+                        ClientSnapshot.create(client, converter, from), ClientSnapshot.create(client, converter, end))
+                        .getRecord(security).orElseThrow();
+        assertEquals(record.getTrueTimeWeightedRateOfReturn(), row.rate(), 0.0000001);
+        assertEquals(record.getDelta().getAmount(), row.gain().longValue());
     }
 
     @Test

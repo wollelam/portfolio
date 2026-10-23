@@ -122,6 +122,10 @@ public class WebServerTest
             var base = "http://127.0.0.1:" + server.port();
             var dashboard = get(client, base + "/api/dashboard");
             assertEquals(200, dashboard.statusCode());
+            assertTrue(JsonParser.parseString(dashboard.body()).getAsJsonObject().get("rankings").isJsonNull());
+            assertEquals(200, get(client, base + "/api/dashboard?rankings=true").statusCode());
+            assertEquals(400, get(client, base + "/api/dashboard?rankings=maybe").statusCode());
+            assertEquals(400, get(client, base + "/api/dashboard?rankings=true&rankings=false").statusCode());
             assertEquals(today.toString(), JsonParser.parseString(dashboard.body()).getAsJsonObject().get("asOf").getAsString());
             assertTrue(JsonParser.parseString(dashboard.body()).getAsJsonObject().getAsJsonArray("series").size() > 300);
             assertEquals("no-store", dashboard.headers().firstValue("Cache-Control").orElseThrow());
@@ -133,6 +137,8 @@ public class WebServerTest
             var instrumentId = body.getAsJsonArray("holdings").get(0).getAsJsonObject().get("uuid").getAsString();
             var instrument = JsonParser.parseString(get(client, base + "/api/dashboard?instrument=" + instrumentId).body()).getAsJsonObject();
             assertEquals(instrumentId, instrument.getAsJsonObject("instrument").get("uuid").getAsString());
+            assertEquals(4, instrument.getAsJsonObject("instrument").getAsJsonObject("activity")
+                            .getAsJsonArray("dividends").size());
             assertEquals(200, get(client, base + "/api/dashboard?benchmark=removed").statusCode());
             assertEquals(400, get(client, base + "/api/dashboard?benchmark=one&benchmark=two").statusCode());
             assertEquals(200, get(client, base + "/").statusCode());

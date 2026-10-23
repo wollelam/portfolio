@@ -18,6 +18,7 @@
       <a data-route="overview" href="#/overview"><span aria-hidden="true">◫</span> Overview</a>
       <a data-route="performance" href="#/performance"><span aria-hidden="true">↗</span> Performance</a>
       <a data-route="holdings" href="#/holdings"><span aria-hidden="true">▤</span> Holdings</a>
+      <a data-route="performers" href="#/performers"><span aria-hidden="true">↕</span> Performers</a>
       <a data-route="dividends" href="#/dividends"><span aria-hidden="true">↓</span> Dividends</a>
     </nav>
     <div class="sidebar-bottom"><span class="status-dot"></span> Private &amp; read-only<p>Powered by the Portfolio<br>Performance calculation engine.</p></div>
@@ -35,7 +36,7 @@
       <div class="valuation-note"><span class="status-dot"></span><span id="valuation-note"></span><span id="demo-badge" class="demo-badge" hidden>SYNTHETIC DEMO</span></div>
       <p id="refresh-info" class="refresh-info"></p>
       <div id="refresh-error" class="notice error" role="alert" hidden></div>
-      <div id="date-controls" class="chart-controls" hidden><div class="periods" aria-label="Preset chart periods"><button type="button" data-period="1M">1M</button><button type="button" data-period="3M">3M</button><button type="button" data-period="6M">6M</button><button type="button" data-period="YTD">YTD</button><button type="button" data-period="1Y">1Y</button></div><form id="dates"><label>From <input type="date" id="from" required></label><label>To <input type="date" id="to" required></label><button type="submit" class="button secondary">Apply</button></form></div>
+      <div id="date-controls" class="chart-controls" hidden><div class="periods" aria-label="Preset chart periods"><button type="button" data-period="1D">1D</button><button type="button" data-period="MTD">MTD</button><button type="button" data-period="1M">1M</button><button type="button" data-period="3M">3M</button><button type="button" data-period="6M">6M</button><button type="button" data-period="YTD">YTD</button><button type="button" data-period="1Y">1Y</button></div><form id="dates"><label>From <input type="date" id="from" required></label><label>To <input type="date" id="to" required></label><button type="submit" class="button secondary">Apply</button></form></div>
       <section data-page="overview" class="panel market-panel" aria-label="Market data freshness"><div class="panel-heading"><div><p class="eyebrow">PRICE &amp; EXCHANGE-RATE FRESHNESS</p><h2>Market data</h2></div><button id="refresh-prices" class="button secondary" type="button" disabled>Refresh prices</button></div><div class="market-grid"><div><h3>Security quotes</h3><p id="quote-status">Checking updater…</p><p id="quote-schedule" class="subtle"></p><p id="quote-coverage" class="subtle"></p></div><div><h3>Exchange rates</h3><p id="fx-status">Using saved rates</p><p id="fx-coverage" class="subtle"></p></div></div><p id="price-action" class="panel-note" role="status"></p><div id="price-warning" class="notice market-warning" hidden></div></section>
       <section data-page="overview" id="summary-view" class="cards" aria-label="Portfolio summary">
         <article class="metric"><p>Total portfolio value</p><h2 id="total-value">—</h2><span id="total-date" class="metric-note"></span></article>
@@ -43,7 +44,7 @@
         <article class="metric"><p>Trailing 7 days</p><h2 id="week-gain">—</h2><div><strong id="week-return"></strong><span id="week-dates" class="metric-note"></span></div></article>
         <article class="metric"><p>Net dividends · selected period</p><h2 id="dividend-total">—</h2><span id="dividend-count" class="metric-note"></span></article>
       </section>
-      <details data-page="overview" id="warnings" class="notice" hidden><summary id="warning-summary"></summary><ul id="warning-list"></ul></details>
+      <details id="warnings" class="notice" hidden><summary id="warning-summary"></summary><ul id="warning-list"></ul></details>
       <section data-page="performance" id="performance" class="panel chart-panel">
         <div class="panel-heading"><div><p class="eyebrow">GROWTH OVER TIME</p><h2>Portfolio performance</h2></div><div class="segmented" aria-label="Chart measure"><button type="button" id="mode-return" aria-pressed="true">Return</button><button type="button" id="mode-value" aria-pressed="false">Value</button></div></div>
         <div class="benchmark-controls"><label for="benchmark">Compare with<select id="benchmark"><option value="">No benchmark</option></select></label><p id="benchmark-description">Choose a security or index already in this portfolio.</p></div>
@@ -56,7 +57,60 @@
         <div class="reconciliation"><span>Value change <strong id="value-change"></strong></span><span>Net deposits / withdrawals <strong id="net-flows"></strong></span><span>Investment gain / loss <strong id="investment-gain"></strong></span></div>
       </section>
       <section data-page="holdings" id="holdings" class="panel"><div class="panel-heading"><div><p class="eyebrow">WHERE YOU’RE INVESTED</p><h2>Holdings &amp; cash</h2></div><span id="holding-count" class="subtle"></span></div><div class="table-scroll"><table><thead><tr><th scope="col">Asset</th><th scope="col" class="numeric">Value</th><th scope="col" class="numeric">Weight</th><th scope="col">Quote date</th></tr></thead><tbody id="holdings-body"></tbody></table></div><p class="panel-note">Quote dates refer to the latest available price on or before the valuation date. Cash has no quote date.</p></section>
-      <section data-page="instrument" id="instrument-panel" class="panel" hidden aria-live="polite"><div class="panel-heading"><div><p class="eyebrow">INSTRUMENT DETAIL</p><h2 id="instrument-name"></h2></div><a id="instrument-back" class="button secondary" href="#/holdings">← Holdings</a></div><p id="instrument-message" class="panel-note"></p><div class="instrument-metrics"><div><span id="instrument-period"></span><strong id="instrument-shares"></strong></div><div><span>Value at selected date</span><strong id="instrument-value"></strong></div><div><span>TTWROR · selected period</span><strong id="instrument-ttwror"></strong></div><div><span>IRR · annualized</span><strong id="instrument-irr"></strong></div><div><span>Investment gain / loss</span><strong id="instrument-gain"></strong></div><div><span>Dividends · gross</span><strong id="instrument-dividends"></strong></div></div><h3>Stored price history · <span id="instrument-currency"></span></h3><svg id="instrument-chart" class="time-series-chart" viewBox="0 0 800 180" role="img" aria-label="Stored instrument price history in instrument currency"></svg><p id="instrument-chart-detail" class="chart-explorer"></p><p class="panel-note">Price history shows stored quotes only. It is not investment return. Future quotes are excluded.</p></section>
+      <section data-page="performers" id="performers" class="panel">
+        <div class="panel-heading">
+          <div><p class="eyebrow">SECURITY PERFORMANCE</p><h2>Top gainers &amp; decliners</h2></div>
+          <label>Rank by <select id="ranking-basis"><option value="rate">Percentage return</option><option value="gain">Currency gain / loss</option></select></label>
+        </div>
+        <p id="ranking-summary" class="panel-note"></p>
+        <div class="ranking-grid">
+          <div><h3>Top gainers</h3><div class="table-scroll"><table>
+            <thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Return</th><th scope="col" class="numeric" data-ranking-currency>Gain / loss</th></tr></thead>
+            <tbody id="gainers-body"></tbody>
+          </table></div></div>
+          <div><h3>Top decliners</h3><div class="table-scroll"><table>
+            <thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Return</th><th scope="col" class="numeric" data-ranking-currency>Gain / loss</th></tr></thead>
+            <tbody id="decliners-body"></tbody>
+          </table></div></div>
+        </div>
+        <p class="panel-note">Gain / loss accounts for the security’s value change, trades, net dividends, taxes and fees in the portfolio’s reporting currency. Return is time weighted. Missing prices or calculation errors are excluded from the affected ranking.</p>
+      </section>
+      <section data-page="instrument" id="instrument-panel" class="panel" hidden aria-live="polite">
+        <div class="panel-heading">
+          <div><p class="eyebrow">INSTRUMENT DETAIL</p><h2 id="instrument-name"></h2></div>
+          <a id="instrument-back" class="button secondary" href="#/holdings">← Back</a>
+        </div>
+        <p id="instrument-message" class="panel-note"></p>
+        <div class="instrument-metrics">
+          <div><span id="instrument-period"></span><strong id="instrument-shares"></strong></div>
+          <div><span>Value at selected date</span><strong id="instrument-value"></strong></div>
+          <div><span>TTWROR · selected period</span><strong id="instrument-ttwror"></strong></div>
+          <div><span>IRR · annualized</span><strong id="instrument-irr"></strong></div>
+          <div><span>Investment gain / loss</span><strong id="instrument-gain"></strong></div>
+          <div><span>Dividends · gross</span><strong id="instrument-dividends"></strong></div>
+        </div>
+        <h3>Stored price history · <span id="instrument-currency"></span></h3>
+        <svg id="instrument-chart" class="time-series-chart" viewBox="0 0 800 180" role="img" aria-label="Stored instrument price history in instrument currency"></svg>
+        <p id="instrument-chart-detail" class="chart-explorer"></p>
+        <p class="panel-note">Price history shows stored quotes only. It is not investment return. Future quotes are excluded.</p>
+        <section class="security-activity" aria-labelledby="security-dividends-title">
+          <div class="activity-heading"><h3 id="security-dividends-title">Paid dividends</h3><span id="security-dividends-count" class="subtle"></span></div>
+          <div class="table-scroll"><table>
+            <thead><tr><th scope="col">Payment / account</th><th scope="col" class="numeric">Gross</th><th scope="col" class="numeric">Tax</th><th scope="col" class="numeric">Fees</th><th scope="col" class="numeric">Net paid</th><th scope="col" class="numeric" data-activity-currency>Reporting currency</th></tr></thead>
+            <tbody id="security-dividends-body"></tbody>
+          </table></div>
+          <div class="activity-pagination"><span id="security-dividends-page"></span><button id="security-dividends-previous" class="button secondary" type="button">Previous</button><button id="security-dividends-next" class="button secondary" type="button">Next</button></div>
+        </section>
+        <section class="security-activity" aria-labelledby="security-transactions-title">
+          <div class="activity-heading"><h3 id="security-transactions-title">Transactions</h3><span id="security-transactions-count" class="subtle"></span></div>
+          <div class="table-scroll"><table>
+            <thead><tr><th scope="col">Date / time</th><th scope="col">Activity / account or portfolio</th><th scope="col" class="numeric">Quantity</th><th scope="col" class="numeric">Recorded amount</th><th scope="col" class="numeric">Tax</th><th scope="col" class="numeric">Fees</th><th scope="col" class="numeric" data-activity-currency>Reporting currency</th></tr></thead>
+            <tbody id="security-transactions-body"></tbody>
+          </table></div>
+          <div class="activity-pagination"><span id="security-transactions-page"></span><button id="security-transactions-previous" class="button secondary" type="button">Previous</button><button id="security-transactions-next" class="button secondary" type="button">Next</button></div>
+        </section>
+        <p class="panel-note">Booked activity in the selected period, excluding its opening date. Original currencies are retained; reporting-currency amounts use the transaction date’s rate and show unavailable if it is missing. Recorded trade amounts include tax and fees. Transfers and deliveries show recorded valuations, not cash payments. Linked cash-side trade copies are omitted.</p>
+      </section>
       <section data-page="dividends" id="income" class="panel"><div class="panel-heading"><div><p class="eyebrow">INCOME FROM YOUR INVESTMENTS</p><h2>Received dividends</h2></div><span id="income-currency" class="subtle"></span></div><div class="table-scroll"><table><thead><tr><th scope="col">Payment / account</th><th scope="col">Investment</th><th scope="col" class="numeric">Gross</th><th scope="col" class="numeric">Tax</th><th scope="col" class="numeric">Fees</th><th scope="col" class="numeric">Net received</th></tr></thead><tbody id="dividends-body"></tbody></table></div><p class="panel-note">Received payments in the selected period, converted at the transaction date. The opening date is an opening valuation and is excluded from the payment period.</p></section>
       <footer><span id="revision"></span><span id="refresh-mode">Read-only portfolio</span></footer>
     </div>

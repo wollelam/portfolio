@@ -11,6 +11,8 @@ async function installSyntheticFixture(page) {
   let quoteShape = 'normal';
   const responseNumbers = new WeakMap();
   let irregularLastDate = '';
+  let priorTradingDate = '';
+  let emptyRankings = false;
   await page.context().route('**/api/dashboard**', async route => {
     const owner = route.request().frame().page();
     const responseNumber = (responseNumbers.get(owner) || 0) + 1;
@@ -41,6 +43,13 @@ async function installSyntheticFixture(page) {
           ];
       }
     }
+    priorTradingDate = data.day.openingDate;
+    if (new URL(route.request().url()).searchParams.get('rankings') === 'true') data.rankings = { unavailable: 1, neutral: 1, securities: emptyRankings ? [] : [
+      { uuid: security?.uuid || '1', name: 'Rate leader', rate: 0.4, gain: 50 },
+      { uuid: security?.uuid || '2', name: 'Money leader', rate: 0.1, gain: 500 },
+      { uuid: security?.uuid || '3', name: 'Decliner', rate: -0.2, gain: -40 },
+      { uuid: security?.uuid || '4', name: 'Unknown', rate: null, gain: null }
+    ] };
     data.loadedAt = new Date(Date.now() + responseNumber * 1000).toISOString();
     data.revision = `browser-${responseNumber}-${data.revision}`;
     await route.fulfill({ response, body: JSON.stringify(data) });
@@ -48,7 +57,7 @@ async function installSyntheticFixture(page) {
   return {
     setQuoteShape: value => { quoteShape = value; },
     responseNumber: owner => responseNumbers.get(owner) || 0,
-    irregularLastDate: () => irregularLastDate
+    irregularLastDate: () => irregularLastDate, priorTradingDate: () => priorTradingDate, setEmptyRankings: value => { emptyRankings = value; }
   };
 }
 
@@ -117,6 +126,41 @@ async function main() {
     await page.goForward();
     await waitForRoute(page, 'instrument', fixture);
     assert(page.url().includes(instrumentId), 'Forward reopens the same instrument detail');
+
+    await page.locator('[data-route="performers"]').click();
+    await waitForRoute(page, 'performers', fixture);
+    assert.equal(await page.locator('#gainers-body tr:first-child a').innerText(), 'Rate leader', 'percentage basis sorts by return');
+    await page.locator('#ranking-basis').selectOption('gain');
+    assert.equal(await page.locator('#gainers-body tr:first-child a').innerText(), 'Money leader', 'currency basis sorts by gain');
+    assert(page.url().includes('basis=gain'), 'ranking basis is saved in the URL');
+    await page.locator('#from').fill(await page.locator('#from').inputValue());
+    const performerFrom = await page.locator('#from').inputValue();
+    const performerTo = await page.locator('#to').inputValue();
+    const performerLink = page.locator('#gainers-body a').first();
+    await performerLink.click(); await waitForRoute(page, 'instrument', fixture);
+    await page.goBack(); await waitForRoute(page, 'performers', fixture);
+    assert.equal(await page.locator('#ranking-basis').inputValue(), 'gain', 'Back restores ranking basis');
+    assert.equal(await page.locator('#from').inputValue(), performerFrom, 'Back restores ranking dates');
+    assert.equal(await page.locator('#to').inputValue(), performerTo, 'Back restores closing date');
+    await page.locator('[data-route="holdings"]').click(); await waitForRoute(page, 'holdings', fixture);
+    await page.locator('[data-route="performers"]').click(); await waitForRoute(page, 'performers', fixture);
+    assert.equal(await page.locator('#ranking-basis').inputValue(), 'gain', 'sidebar navigation preserves ranking basis');
+    await page.reload({ waitUntil: 'networkidle' }); await waitForRoute(page, 'performers', fixture);
+    assert.equal(await page.locator('#ranking-basis').inputValue(), 'gain', 'reload restores ranking basis');
+    await page.locator('[data-period="1D"]').click(); await page.waitForTimeout(200);
+    assert.equal(await page.locator('#from').inputValue(), fixture.priorTradingDate(), '1D preset uses the prior trading day');
+    await page.locator('[data-period="MTD"]').click(); await page.waitForTimeout(200);
+    const mtdFrom = await page.locator('#from').inputValue();
+    const mtdTo = await page.locator('#to').inputValue();
+    const expectedMtdOpen = new Date(`${mtdTo}T12:00:00Z`); expectedMtdOpen.setUTCDate(0);
+    assert.equal(mtdFrom, expectedMtdOpen.toISOString().slice(0, 10), 'MTD opens on the final day of the previous month');
+    await page.locator('[data-period="YTD"]').click(); await page.waitForTimeout(200);
+    const ytdTo = new Date(`${await page.locator('#to').inputValue()}T12:00:00Z`);
+    assert.equal(await page.locator('#from').inputValue(), `${ytdTo.getUTCFullYear() - 1}-12-31`, 'YTD uses the prior year end opening valuation');
+    fixture.setEmptyRankings(true); await page.reload({ waitUntil: 'networkidle' }); await waitForRoute(page, 'performers', fixture);
+    assert.match(await page.locator('#gainers-body').innerText(), /No positive/);
+    assert.match(await page.locator('#decliners-body').innerText(), /No negative/);
+    fixture.setEmptyRankings(false);
 
     await page.locator('[data-route="performance"]').click();
     await waitForRoute(page, 'performance', fixture);
@@ -187,6 +231,9 @@ async function main() {
     assert(Math.abs((await page.evaluate(() => window.scrollY)) - beforeY) < 4, 'automatic refresh does not jump scroll');
 
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('[data-route="performers"]').click(); await waitForRoute(page, 'performers', fixture);
+    const performersOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert(performersOverflow <= 1, `mobile performers layout should not overflow horizontally (overflow=${performersOverflow}px)`);
     await page.locator('[data-route="performance"]').click(); await waitForRoute(page, 'performance', fixture);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert(overflow <= 1, `mobile layout should not overflow horizontally (overflow=${overflow}px)`);

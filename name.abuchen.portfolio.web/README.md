@@ -57,6 +57,7 @@ the same name. The public application still requires a separately managed access
 - Portfolio revision, load time, quote dates and calculation/data-quality warnings.
 - Automatic file checks, validated snapshot replacement, recovery after a failed sync, and freshness status.
 - Benchmark selection and a return-chart overlay using existing security/index price history.
+- Top and bottom security performance for a selected period, ranked by TTWROR or portfolio-currency gain/loss.
 
 By default the closing valuation is today, using the server's current date. The previous-day
 comparison uses the core's default trading calendar. The initial chart covers the preceding year. Select explicit dates to change
@@ -64,6 +65,20 @@ this; the day/week cards follow the selected closing date. A period runs **after
 valuation through the closing valuation**, matching core interval semantics. Monetary JSON fields
 are integer hundredths of a currency unit, as in the core; return fields are decimal ratios.
 The chart includes every daily core data point, without financial formulas in JavaScript.
+
+## Security performers
+
+The Performers page calculates per-security results only when opened. It uses the core's security
+performance snapshot for each eligible security with portfolio activity or a position at either
+period boundary. Percentage return is the security's time-weighted return. Currency gain/loss is
+the core delta over the selected opening and closing valuations, accounting for trades, net
+dividends, taxes, fees, and refunds in the portfolio's reporting currency. This includes sold
+securities with activity during the period.
+Each row shows both measures; choose which one orders the positive and negative lists. Neutral
+results are omitted from both lists. Missing prices and calculation failures are unavailable, not
+zero losses. The 1D preset uses the dashboard's prior trading day opening date; MTD opens on the
+last day of the previous month. These are opening valuations, so activity on the opening date is
+excluded, consistent with the core period semantics.
 
 Missing or stale prices can produce misleading valuations. Closing holdings show quote dates and
 quotes older than seven calendar days generate warnings. This is an initial diagnostic, not a full
@@ -109,6 +124,16 @@ while held quantity and received dividends remain visible. The quote chart uses 
 excludes dates after the selected closing date; it describes price history, not investment return.
 Instruments with no position at the selected date can still show historical activity and dividends.
 An unknown or removed UUID is reported in the detail payload without failing the dashboard.
+
+Instrument details also list booked dividends and security transactions for the selected period.
+Payments retain original-currency gross, tax, fees and net; the final column converts net paid to
+the reporting currency at the payment date. Transactions show their original recorded amount,
+quantity, taxes and fees, plus the reporting-currency equivalent. Transfers and deliveries are
+recorded valuations, not cash payments. The native security transaction lookup avoids duplicating
+the cash side of a buy/sell entry. The lists include closing-date activity and exclude opening-date
+activity, future records and other securities. Each table is paged in groups of 25; refreshing
+preserves the current page when the instrument and period are unchanged. Missing FX leaves the
+original amount readable and the converted amount unavailable, rather than using a fallback rate.
 
 ## File ownership and Google Drive
 
@@ -238,7 +263,11 @@ BASE_URL=http://127.0.0.1:8097 NODE_PATH=/path/to/node_modules node \
   name.abuchen.portfolio.web.tests/browser/navigation-chart.test.cjs
 ```
 
-It augments the demo response in-browser with synthetic long-list rows and quote shapes. It never
+The activity browser harness, `name.abuchen.portfolio.web.tests/browser/security-activity.test.cjs`,
+uses the same setup and checks original payments, period filtering, trade de-duplication, pagination,
+missing FX, empty lists and mobile layout.
+
+The navigation harness augments the demo response in-browser with synthetic long-list rows and quote shapes. It never
 uses a real portfolio or sends a price-refresh POST.
 
 Transaction editing and SaaS

@@ -44,7 +44,8 @@ final class DashboardService
     }
 
     record Instrument(String uuid, String name, String currency, double quoteScale, long shares, Long value, String quoteDate,
-                    Double twror, Double irr, Long gain, long dividends, List<InstrumentPoint> prices, String message)
+                    Double twror, Double irr, Long gain, long dividends, List<InstrumentPoint> prices, String message,
+                    SecurityActivityService.Activity activity)
     {
     }
 
@@ -61,7 +62,8 @@ final class DashboardService
     record Dashboard(String label, String revision, String loadedAt, boolean demo, String currency, String asOf,
                     long totalValue, Period day, Period week, Period period, List<Point> series, List<Holding> holdings,
                     List<Dividend> dividends, List<String> warnings, List<BenchmarkService.Option> benchmarks,
-                    BenchmarkService.Result benchmark, PriceCoverage priceCoverage, String fxVersion, Instrument instrument)
+                    BenchmarkService.Result benchmark, PriceCoverage priceCoverage, String fxVersion, Instrument instrument,
+                    SecurityRankingService.Rankings rankings)
     {
     }
 
@@ -126,6 +128,12 @@ final class DashboardService
     }
 
     synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate, String benchmark, String instrumentId)
+    {
+        return dashboard(openingDate, closingDate, benchmark, instrumentId, false);
+    }
+
+    synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate, String benchmark, String instrumentId,
+                    boolean includeRankings)
     {
         if (!openingDate.isBefore(closingDate) || closingDate.isAfter(LocalDate.now(clock))
                         || ChronoUnit.DAYS.between(openingDate, closingDate) > 3660)
@@ -216,11 +224,13 @@ final class DashboardService
                         securityHoldings.size() - quoteDates.size(),
                         (int) quoteDates.stream().filter(date -> LocalDate.parse(date).isBefore(closingDate.minusDays(7))).count(),
                         quoteDates.isEmpty() ? null : quoteDates.getFirst(), quoteDates.isEmpty() ? null : quoteDates.getLast());
+        var rankings = includeRankings
+                        ? SecurityRankingService.calculate(portfolio.client(), converter, openingDate, closingDate) : null;
         return new Dashboard(portfolio.label(), portfolio.revision(), portfolio.loadedAt().toString(), portfolio.demo(),
                         converter.getTermCurrency(), closingDate.toString(), total, day, week, period(index), series,
                         holdings, List.copyOf(dividends), List.copyOf(warnings), BenchmarkService.options(portfolio.client()),
                         BenchmarkService.calculate(portfolio.client(), converter, openingDate, closingDate, benchmark),
-                        coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate));
+                        coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate), rankings);
     }
 
     private Instrument instrument(String uuid, LocalDate openingDate, LocalDate closingDate)
@@ -228,28 +238,33 @@ final class DashboardService
         var security = portfolio.client().getSecurities().stream().filter(s -> uuid.equals(s.getUUID())).findFirst().orElse(null);
         if (security == null)
             return new Instrument(uuid, null, null, Values.Quote.divider(), 0, null, null, null, null, null, 0, List.of(),
-                            "This instrument is no longer available in the loaded portfolio.");
+                            "This instrument is no longer available in the loaded portfolio.", SecurityActivityService.empty());
 
         var atEnd = ClientSnapshot.create(portfolio.client(), converter, closingDate);
         var position = atEnd.getAssetPositions().filter(p -> security.equals(p.getInvestmentVehicle())).findFirst().orElse(null);
         var points = security.getPricesIncludingLatest().stream().filter(p -> !p.getDate().isAfter(closingDate))
                         .filter(p -> !p.getDate().isBefore(openingDate)).sorted(Comparator.comparing(p -> p.getDate()))
                         .map(p -> new InstrumentPoint(p.getDate().toString(), p.getValue())).toList();
+        var atStart = ClientSnapshot.create(portfolio.client(), converter, openingDate);
         var record = LazySecurityPerformanceSnapshot.create(portfolio.client(), converter, Interval.of(openingDate, closingDate),
-                        ClientSnapshot.create(portfolio.client(), converter, openingDate), atEnd).getRecord(security).orElse(null);
+                        atStart, atEnd).getRecord(security).orElse(null);
         var closingQuoteDate = security.getPricesIncludingLatest().stream().filter(p -> !p.getDate().isAfter(closingDate))
                         .map(p -> p.getDate()).max(Comparator.naturalOrder()).orElse(null);
-        boolean hasClosingQuote = closingQuoteDate != null;
+        boolean hasClosingQuote = SecurityRankingService.usableQuote(security, closingDate);
+        boolean validPeriod = SecurityRankingService.pricesAvailable(security, openingDate, closingDate,
+                        atStart.getAssetPositions().anyMatch(p -> security.equals(p.getSecurity())), position != null);
         return new Instrument(security.getUUID(), security.getName(), security.getCurrencyCode(), Values.Quote.divider(),
                         record == null ? 0 : record.getSharesHeld(),
                         position == null || !hasClosingQuote ? null : position.getValuation().getAmount(),
                         hasClosingQuote ? closingQuoteDate.toString() : null,
-                        record == null || !hasClosingQuote ? null : finite(record.getTrueTimeWeightedRateOfReturn()),
-                        record == null || !hasClosingQuote ? null : finite(record.getIrr()),
-                        record == null || !hasClosingQuote ? null : record.getDelta().getAmount(),
+                        record == null || !validPeriod ? null : finite(record.getTrueTimeWeightedRateOfReturn()),
+                        record == null || !validPeriod ? null : finite(record.getIrr()),
+                        record == null || !validPeriod ? null : record.getDelta().getAmount(),
                         record == null ? 0 : record.getSumOfDividends().getAmount(), points,
-                        !hasClosingQuote ? "No stored quote on or before the selected closing date; valuation and performance are unavailable." :
-                                        points.isEmpty() ? "No stored quotes in the selected period." : null);
+                        !validPeriod ? (hasClosingQuote ? "The opening quote is missing or invalid; period performance is unavailable."
+                                        : "No stored quote on or before the selected closing date is usable; valuation and period performance are unavailable.") :
+                                        points.isEmpty() ? "No stored quotes in the selected period." : null,
+                        SecurityActivityService.calculate(portfolio.client(), security, converter, openingDate, closingDate));
     }
 
     private PerformanceIndex index(LocalDate from, LocalDate to, Set<String> warnings)
