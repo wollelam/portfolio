@@ -77,6 +77,13 @@ public class WebServerTest
             assertEquals(today.toString(), JsonParser.parseString(dashboard.body()).getAsJsonObject().get("asOf").getAsString());
             assertTrue(JsonParser.parseString(dashboard.body()).getAsJsonObject().getAsJsonArray("series").size() > 300);
             assertEquals("no-store", dashboard.headers().firstValue("Cache-Control").orElseThrow());
+            var body = JsonParser.parseString(dashboard.body()).getAsJsonObject();
+            var benchmarkId = body.getAsJsonArray("benchmarks").get(0).getAsJsonObject().get("uuid").getAsString();
+            var comparison = JsonParser.parseString(get(client, base + "/api/dashboard?benchmark=" + benchmarkId).body()).getAsJsonObject();
+            assertEquals(benchmarkId, comparison.getAsJsonObject("benchmark").get("uuid").getAsString());
+            assertEquals(body.getAsJsonArray("series").size(), comparison.getAsJsonObject("benchmark").getAsJsonArray("series").size());
+            assertEquals(200, get(client, base + "/api/dashboard?benchmark=removed").statusCode());
+            assertEquals(400, get(client, base + "/api/dashboard?benchmark=one&benchmark=two").statusCode());
             assertEquals(200, get(client, base + "/").statusCode());
             assertEquals(200, get(client, base + "/app.js").statusCode());
             assertEquals(200, get(client, base + "/app.css").statusCode());

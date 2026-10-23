@@ -42,7 +42,8 @@ final class DashboardService
 
     record Dashboard(String label, String revision, String loadedAt, boolean demo, String currency, String asOf,
                     long totalValue, Period day, Period week, Period period, List<Point> series, List<Holding> holdings,
-                    List<Dividend> dividends, List<String> warnings)
+                    List<Dividend> dividends, List<String> warnings, List<BenchmarkService.Option> benchmarks,
+                    BenchmarkService.Result benchmark)
     {
     }
 
@@ -74,7 +75,12 @@ final class DashboardService
         return previous;
     }
 
-    synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate)
+    Dashboard dashboard(LocalDate openingDate, LocalDate closingDate)
+    {
+        return dashboard(openingDate, closingDate, null);
+    }
+
+    synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate, String benchmark)
     {
         if (!openingDate.isBefore(closingDate) || closingDate.isAfter(LocalDate.now(clock))
                         || ChronoUnit.DAYS.between(openingDate, closingDate) > 3660)
@@ -160,7 +166,8 @@ final class DashboardService
 
         return new Dashboard(portfolio.label(), portfolio.revision(), portfolio.loadedAt().toString(), portfolio.demo(),
                         converter.getTermCurrency(), closingDate.toString(), total, day, week, period(index), series,
-                        holdings, List.copyOf(dividends), List.copyOf(warnings));
+                        holdings, List.copyOf(dividends), List.copyOf(warnings), BenchmarkService.options(portfolio.client()),
+                        BenchmarkService.calculate(portfolio.client(), converter, openingDate, closingDate, benchmark));
     }
 
     private PerformanceIndex index(LocalDate from, LocalDate to, Set<String> warnings)

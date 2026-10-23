@@ -87,7 +87,7 @@ final class WebServer implements AutoCloseable
                     var service = snapshot.service();
                     var to = params.containsKey("to") ? LocalDate.parse(params.get("to")) : service.defaultClosingDate();
                     var from = params.containsKey("from") ? LocalDate.parse(params.get("from")) : to.minusYears(1);
-                    var dashboard = gson.toJsonTree(service.dashboard(from, to)).getAsJsonObject();
+                    var dashboard = gson.toJsonTree(service.dashboard(from, to, params.get("benchmark"))).getAsJsonObject();
                     dashboard.add("refresh", gson.toJsonTree(snapshot.status()));
                     json(exchange, 200, dashboard);
                 }
@@ -126,7 +126,7 @@ final class WebServer implements AutoCloseable
         {
             var parts = pair.split("=", 2);
             var key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
-            if (!(key.equals("from") || key.equals("to")) || parts.length != 2
+            if (!(key.equals("from") || key.equals("to") || key.equals("benchmark")) || parts.length != 2
                             || params.putIfAbsent(key, URLDecoder.decode(parts[1], StandardCharsets.UTF_8)) != null)
                 throw new IllegalArgumentException("Unknown or duplicate parameter");
         }

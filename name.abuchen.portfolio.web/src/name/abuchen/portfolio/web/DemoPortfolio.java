@@ -38,10 +38,14 @@ final class DemoPortfolio
 
         var security = new Security("Global equities · demo", "EUR");
         client.addSecurity(security);
+        var benchmark = new Security("Broad market index · demo", "EUR");
+        client.addSecurity(benchmark);
         for (int ii = 0; ii <= 400; ii++)
         {
             double price = 100 * (1 + ii * 0.00045 + Math.sin(ii / 18d) * 0.025);
             security.addPrice(new SecurityPrice(start.plusDays(ii), Values.Quote.factorize(price)));
+            benchmark.addPrice(new SecurityPrice(start.plusDays(ii),
+                            Values.Quote.factorize(100 * (1 + ii * 0.0003 + Math.sin(ii / 28d) * 0.015))));
         }
         var purchase = new BuySellEntry(portfolio, account);
         purchase.setType(PortfolioTransaction.Type.BUY);

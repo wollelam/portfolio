@@ -56,6 +56,7 @@ the same name. The public application still requires a separately managed access
 - Received dividends, gross/net/taxes/fees and original payment currency.
 - Portfolio revision, load time, quote dates and calculation/data-quality warnings.
 - Automatic file checks, validated snapshot replacement, recovery after a failed sync, and freshness status.
+- Benchmark selection and a return-chart overlay using existing security/index price history.
 
 By default the closing valuation is today, using the server's current date. The previous-day
 comparison uses the core's default trading calendar. The initial chart covers the preceding year. Select explicit dates to change
@@ -70,6 +71,32 @@ historical quote audit. Missing FX in the calculation window is flagged because 
 fallback conversion. The app loads cached exchange-rate providers from its own workspace but does
 not refresh them online. A fresh runtime may lack FX data present in the desktop workspace; review
 the warnings before comparing multi-currency results. Security quotes come from the loaded file.
+
+## Benchmark comparison
+
+Use **Compare with** above the chart to select a security or index with stored prices. The Return
+view overlays its price-series return in blue against the portfolio's TTWROR in green. The legend
+shows both period returns; the date slider/pointer shows both daily values. Value view preserves the
+selection but hides the return overlay. Clearing the selection removes the comparison.
+
+The benchmark starts at zero on the same opening valuation date as the portfolio. Each day uses
+the most recent stored price on or before that date, including the latest quote if applicable;
+future quotes are never used. A quote must exist on or before the opening date. Missing opening
+history or zero/negative prices make the benchmark unavailable rather than silently shortening
+the comparison period. Old carried-forward quotes are flagged, and the last quote date is shown.
+
+When a source currency is specified, the core currency converter converts prices to the portfolio
+currency using the valuation date's FX rate. Missing FX makes the benchmark unavailable; the core's
+fallback rate is not used for a comparison. A currencyless index is displayed in native index units
+with an explicit warning that it is not FX-adjusted.
+
+This is growth in the stored price/index series, not a separately reconstructed total return.
+Dividends/distributions are not added. A total-return or adjusted-price series may already include
+them; the app does not infer that from the instrument's name. Choose the appropriate stored series
+for the intended comparison. No new data feed, download, or portfolio edit is performed.
+
+The selector and date filters are preserved during automatic reload. If a selected series is removed
+from the source, the portfolio still loads and the selection is marked unavailable until changed.
 
 ## File ownership and Google Drive
 
@@ -118,13 +145,14 @@ mvn -f portfolio-app/pom.xml verify -Plocal-dev \
 ```
 
 The frontend is small, dependency-free HTML/CSS/JavaScript, packaged as bundle resources. A future
-React interface can consume the same `GET /api/dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD` contract.
+React interface can consume `GET /api/dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD&benchmark=SECURITY_UUID`.
+The optional `benchmark` parameter selects one series; responses include the available `benchmarks`
+and the selected `benchmark` result (or `null`). Benchmark failures are local to that result.
 All response fields belong to this prototype; this is separate from the desktop's published `/v1`
 contract. Calculations are serialized per immutable loaded client; a background worker constructs
 and validates replacements independently. `refresh` metadata is included in the dashboard response.
 No new public HTTP routes or write endpoints are needed for automatic reload.
 
-Follow-up slices: benchmark overlays with explicit return/currency semantics, managed FX/quote
-refresh, then authenticated remote access. Transaction editing and SaaS
+Follow-up slices: managed FX/quote refresh, then authenticated remote access. Transaction editing and SaaS
 tenancy are outside this slice. The launcher currently uses the Tycho test runtime; a dedicated
 distributable server product is a later packaging task.

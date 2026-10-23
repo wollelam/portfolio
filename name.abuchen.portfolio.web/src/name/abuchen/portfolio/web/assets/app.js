@@ -14,6 +14,7 @@ let activePreset = '1Y';
 let busy = false;
 let requestController;
 let refreshConnectionError;
+let selectedBenchmark = '';
 
 function money(value, signed = false) {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency: report.currency, signDisplay: signed ? 'exceptZero' : 'auto' }).format(value / 100);
@@ -112,12 +113,58 @@ function render() {
   }
   if (!report.dividends.length) emptyRow(income, 6, 'No dividend payments in this period.');
   text('revision', `Snapshot ${report.revision.slice(0, 12)} · loaded ${new Date(report.loadedAt).toLocaleString()}`);
+  renderBenchmarkOptions();
   renderFreshness();
   selected = report.series.length - 1;
   byId('chart-position').max = String(selected);
   byId('chart-position').value = String(selected);
   drawChart();
   byId('dashboard').hidden = false;
+}
+
+function renderBenchmarkOptions() {
+  const selector = byId('benchmark');
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = 'No benchmark';
+  selector.replaceChildren(none);
+  for (const benchmark of report.benchmarks || []) {
+    const option = document.createElement('option');
+    option.value = benchmark.uuid;
+    option.textContent = `${benchmark.name} · ${benchmark.currency || 'index units'}`;
+    selector.append(option);
+  }
+  if (selectedBenchmark && !(report.benchmarks || []).some(option => option.uuid === selectedBenchmark)) {
+    const missing = document.createElement('option');
+    missing.value = selectedBenchmark;
+    missing.textContent = 'Selected benchmark unavailable';
+    selector.append(missing);
+  }
+  selector.value = selectedBenchmark;
+}
+
+function renderBenchmarkDetails() {
+  const benchmark = report.benchmark;
+  const shown = mode === 'return' && benchmark && !benchmark.error;
+  byId('benchmark-legend').hidden = !shown;
+  if (shown) {
+    text('legend-portfolio-return', percent(report.period.rate));
+    text('legend-benchmark-name', benchmark.name);
+    text('legend-benchmark-return', percent(benchmark.rate));
+  }
+  let description = 'Choose a security or index already in this portfolio. No new quotes are downloaded.';
+  if (benchmark) {
+    const basis = benchmark.reportingCurrency
+      ? `in ${benchmark.reportingCurrency}${benchmark.sourceCurrency !== benchmark.reportingCurrency ? ` (converted from ${benchmark.sourceCurrency})` : ''}`
+      : 'in native index units; currency unspecified, no FX adjustment';
+    description = `Stored price-series return ${basis}. Distributions are not added separately; a total-return index may already include them.`;
+    if (benchmark.closingQuoteDate) description += ` Last quote: ${dateLabel(benchmark.closingQuoteDate)}.`;
+    if (mode === 'value') description = 'The benchmark overlay is shown in Return view. ' + description;
+  }
+  text('benchmark-description', description);
+  const warning = benchmark ? [benchmark.error, ...(benchmark.warnings || [])].filter(Boolean).join(' ') : '';
+  byId('benchmark-warning').hidden = !warning;
+  text('benchmark-warning', warning);
 }
 
 function renderFreshness() {
@@ -140,6 +187,7 @@ function svgElement(name, attributes, content) {
 
 function drawChart() {
   if (!report) return;
+  renderBenchmarkDetails();
   const svg = byId('chart');
   svg.replaceChildren();
   svg.append(svgElement('title', { id: 'chart-title' }, mode === 'return' ? 'Portfolio time-weighted return' : 'Portfolio value'));
@@ -147,6 +195,9 @@ function drawChart() {
   const points = report.series;
   const value = point => mode === 'return' ? point.rate : point.value;
   const values = points.map(value).filter(v => v !== null && Number.isFinite(v));
+  const benchmark = mode === 'return' && report.benchmark && !report.benchmark.error ? report.benchmark : null;
+  const benchmarkRates = new Map((benchmark?.series || []).map(point => [point.date, point.rate]));
+  for (const rate of benchmarkRates.values()) if (Number.isFinite(rate)) values.push(rate);
   if (!values.length) return;
   let low = Math.min(...values), high = Math.max(...values);
   if (mode === 'return') { low = Math.min(0, low); high = Math.max(0, high); }
@@ -173,8 +224,20 @@ function drawChart() {
     path += `${previousValid ? 'L' : 'M'}${x(index).toFixed(2)},${y(v).toFixed(2)} `;
     previousValid = true;
   });
-  if (values.length === points.length) svg.append(svgElement('path', { d: `${path}L${right},${bottom} L${left},${bottom} Z`, class: 'chart-area' }));
+  if (points.every(point => Number.isFinite(value(point)))) svg.append(svgElement('path', { d: `${path}L${right},${bottom} L${left},${bottom} Z`, class: 'chart-area' }));
   svg.append(svgElement('path', { d: path, class: 'chart-line' }));
+  if (benchmark) {
+    let comparisonPath = '', valid = false;
+    points.forEach((point, index) => {
+      const rate = benchmarkRates.get(point.date);
+      if (!Number.isFinite(rate)) { valid = false; return; }
+      comparisonPath += `${valid ? 'L' : 'M'}${x(index).toFixed(2)},${y(rate).toFixed(2)} `;
+      valid = true;
+    });
+    svg.append(svgElement('path', { d: comparisonPath, class: 'benchmark-line' }));
+    text('chart-title', 'Portfolio and benchmark returns');
+    text('chart-description', `Portfolio time-weighted return and ${benchmark.name} stored price-series return over the same selected dates. Use the date slider below for exact values.`);
+  }
   const ticks = mobile ? 3 : 5;
   for (let i = 0; i < ticks; i++) {
     const index = Math.round((points.length - 1) * i / (ticks - 1));
@@ -183,7 +246,7 @@ function drawChart() {
   }
   svg.append(svgElement('line', { id: 'cursor-line', y1: top, y2: bottom, class: 'cursor-line' }));
   svg.append(svgElement('circle', { id: 'cursor-dot', r: 5, class: 'cursor-dot' }));
-  chartGeometry = { x, y, value, left, right, width };
+  chartGeometry = { x, y, value, left, right, width, benchmarkRates };
   updateCursor();
   byId('mode-return').setAttribute('aria-pressed', String(mode === 'return'));
   byId('mode-value').setAttribute('aria-pressed', String(mode === 'value'));
@@ -202,7 +265,9 @@ function updateCursor() {
   dot.setAttribute('cx', x(selected));
   dot.setAttribute('cy', value(point) === null ? 0 : y(value(point)));
   dot.setAttribute('visibility', value(point) === null ? 'hidden' : 'visible');
-  const detail = `${dateLabel(point.date)} · ${mode === 'return' ? percent(point.rate) : money(point.value)}`;
+  let detail = `${dateLabel(point.date)} · ${mode === 'return' ? percent(point.rate) : money(point.value)}`;
+  const benchmarkRate = chartGeometry.benchmarkRates.get(point.date);
+  if (Number.isFinite(benchmarkRate)) detail += ` · Series ${percent(benchmarkRate)}`;
   text('chart-detail', detail);
   byId('chart-position').setAttribute('aria-valuetext', detail);
   byId('chart-position').value = String(selected);
@@ -218,18 +283,20 @@ async function load(from, to, silent = false) {
     byId('error').hidden = true;
     text('status', 'Calculating portfolio…');
     byId('dashboard').setAttribute('aria-busy', 'true');
-    document.querySelectorAll('button, input[type=date]').forEach(element => { element.disabled = true; });
+    document.querySelectorAll('button, input[type=date], #benchmark').forEach(element => { element.disabled = true; });
   }
   try {
     const params = new URLSearchParams();
     if (from) params.set('from', from);
     if (to) params.set('to', to);
+    if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
     const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal: controller.signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Could not load portfolio.');
     if (requestController !== controller) return;
     const unchanged = silent && report && report.revision === data.revision && report.loadedAt === data.loadedAt
-      && report.period.openingDate === data.period.openingDate && report.period.closingDate === data.period.closingDate;
+      && report.period.openingDate === data.period.openingDate && report.period.closingDate === data.period.closingDate
+      && report.benchmark?.uuid === data.benchmark?.uuid;
     refreshConnectionError = null;
     report = data;
     if (unchanged) renderFreshness();
@@ -249,7 +316,7 @@ async function load(from, to, silent = false) {
     if (requestController === controller) {
       busy = false;
       byId('dashboard').setAttribute('aria-busy', 'false');
-      document.querySelectorAll('button, input[type=date]').forEach(element => { element.disabled = false; });
+      document.querySelectorAll('button, input[type=date], #benchmark').forEach(element => { element.disabled = false; });
     }
   }
 }
@@ -259,6 +326,11 @@ byId('dates').addEventListener('submit', event => {
   load(byId('from').value, byId('to').value);
 });
 byId('refresh').addEventListener('click', () => load(report?.period.openingDate, report?.period.closingDate));
+byId('benchmark').addEventListener('change', event => {
+  selectedBenchmark = event.target.value;
+  if (selectedBenchmark) mode = 'return';
+  load(report?.period.openingDate, report?.period.closingDate);
+});
 for (const button of document.querySelectorAll('[data-period]')) {
   button.addEventListener('click', () => {
     if (!report) return;
