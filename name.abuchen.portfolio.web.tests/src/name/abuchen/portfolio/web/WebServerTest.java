@@ -8,6 +8,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -16,12 +17,59 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
+import org.junit.Rule;
+import org.junit.rules.TemporaryFolder;
 
 import com.google.gson.JsonParser;
 
 @SuppressWarnings("nls")
 public class WebServerTest
 {
+    @Rule
+    public TemporaryFolder temporary = new TemporaryFolder();
+
+    @Test
+    public void priceRequestsRequireAnExplicitSameOriginActionAndCannotBeRepeated() throws Exception
+    {
+        var clock = Clock.fixed(LocalDate.of(2025, 6, 12).atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+        var directory = temporary.newFolder().toPath();
+        var source = "/input/test.portfolio";
+        QuoteJobsTest.worker(directory, clock, "idle", null, source);
+        var jobs = new QuoteJobs(directory, clock, source);
+        var service = new DashboardService(DemoPortfolio.create(LocalDate.now(clock)), clock, List.of());
+        try (var market = new MarketUpdates(jobs, null, clock);
+                        var portfolios = PortfolioRefresh.fixed(service);
+                        var server = new WebServer(new InetSocketAddress("127.0.0.1", 0), portfolios, market);
+                        var client = HttpClient.newHttpClient())
+        {
+            server.start();
+            var base = "http://127.0.0.1:" + server.port();
+            var uri = URI.create(base + "/api/price-updates");
+            assertEquals(200, get(client, uri.toString()).statusCode());
+            assertTrue(!Files.exists(directory.resolve("request.json")));
+            assertEquals(403, client.send(HttpRequest.newBuilder(uri).POST(HttpRequest.BodyPublishers.noBody())
+                            .build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertEquals(403, client.send(HttpRequest.newBuilder(uri).header("Origin", base)
+                            .POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertEquals(403, client.send(HttpRequest.newBuilder(uri).header("Origin", "https://untrusted.example")
+                            .header("X-Portfolio-Action", "refresh-prices").POST(HttpRequest.BodyPublishers.noBody())
+                            .build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertEquals(400, client.send(HttpRequest.newBuilder(uri).header("Origin", base)
+                            .header("X-Portfolio-Action", "refresh-prices").POST(HttpRequest.BodyPublishers.ofString("data"))
+                            .build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertTrue(!Files.exists(directory.resolve("request.json")));
+            var action = HttpRequest.newBuilder(uri).header("Origin", base)
+                            .header("X-Portfolio-Action", "refresh-prices").POST(HttpRequest.BodyPublishers.noBody()).build();
+            assertEquals(202, client.send(action, HttpResponse.BodyHandlers.ofString()).statusCode());
+            var identifier = jobs.status().requestId();
+            assertEquals(202, client.send(action, HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertEquals(identifier, jobs.status().requestId());
+            QuoteJobsTest.worker(directory, clock, "complete", identifier, source);
+            assertEquals(429, client.send(action, HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertEquals(400, get(client, uri + "?request=anything").statusCode());
+        }
+    }
+
     @Test
     public void dashboardUsesTheLatestAcceptedSnapshotAndIncludesRefreshStatus() throws Exception
     {

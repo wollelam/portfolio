@@ -91,6 +91,9 @@ if [[ -n "$file" ]]; then
     mounts=(-v "$file_root:/portfolio-input:ro")
     arguments=(--file "/portfolio-input/$relative_file")
 fi
+if [[ "${PP_WEB_PRICE_UPDATES:-0}" == 1 ]]; then
+    arguments+=(--price-updates-dir /web-state/price-updates)
+fi
 run_options=(--rm)
 if [[ "$detached" == true ]]; then
     run_options=(--detach --restart unless-stopped --name "${PP_WEB_CONTAINER_NAME:-portfolio-web}")
@@ -106,6 +109,7 @@ exec docker run "${run_options[@]}" --init --user "$(id -u):$(id -g)" --entrypoi
         exec "$@"
     ' -- \
     java -Dosgi.clean=true -Duser.home=/web-state \
+    -Dsun.net.client.defaultConnectTimeout=15000 -Dsun.net.client.defaultReadTimeout=30000 \
     -jar /maven/repository/p2/osgi/bundle/org.eclipse.equinox.launcher/1.7.100.v20251111-0406/org.eclipse.equinox.launcher-1.7.100.v20251111-0406.jar \
     -data /web-state/workspace \
     -configuration /web-state/configuration \

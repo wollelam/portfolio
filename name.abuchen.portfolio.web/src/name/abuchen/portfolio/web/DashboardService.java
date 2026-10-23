@@ -1,5 +1,6 @@
 package name.abuchen.portfolio.web;
 
+import java.io.IOException;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.Set;
 
 import name.abuchen.portfolio.model.AccountTransaction;
+import name.abuchen.portfolio.model.ClientFactory;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.model.Transaction.Unit.Type;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
@@ -31,7 +33,12 @@ final class DashboardService
     {
     }
 
-    record Holding(String name, long value, Double weight, String quoteDate)
+    record Holding(String name, long value, Double weight, String quoteDate, String type)
+    {
+    }
+
+    record PriceCoverage(String valuationDate, int securities, int missing, int olderThanSevenDays,
+                    String oldestQuoteDate, String latestQuoteDate)
     {
     }
 
@@ -43,7 +50,7 @@ final class DashboardService
     record Dashboard(String label, String revision, String loadedAt, boolean demo, String currency, String asOf,
                     long totalValue, Period day, Period week, Period period, List<Point> series, List<Holding> holdings,
                     List<Dividend> dividends, List<String> warnings, List<BenchmarkService.Option> benchmarks,
-                    BenchmarkService.Result benchmark)
+                    BenchmarkService.Result benchmark, PriceCoverage priceCoverage, String fxVersion)
     {
     }
 
@@ -51,14 +58,36 @@ final class DashboardService
     private final CurrencyConverterImpl converter;
     private final Clock clock;
     private final List<String> startupWarnings;
+    private final FxRates.View rates;
 
     DashboardService(PortfolioSource.LoadedPortfolio portfolio, Clock clock, List<String> startupWarnings)
+    {
+        this(portfolio, clock, startupWarnings, null);
+    }
+
+    DashboardService(PortfolioSource.LoadedPortfolio portfolio, Clock clock, List<String> startupWarnings,
+                    FxRates.View rates)
     {
         this.portfolio = portfolio;
         this.clock = clock;
         this.startupWarnings = List.copyOf(startupWarnings);
-        this.converter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(portfolio.client()),
+        this.rates = rates;
+        this.converter = new CurrencyConverterImpl(rates == null ? new ExchangeRateProviderFactory(portfolio.client())
+                        : rates.factory(portfolio.client()),
                         portfolio.client().getBaseCurrency());
+    }
+
+    String fxVersion()
+    {
+        return rates == null ? null : rates.version();
+    }
+
+    DashboardService withRates(FxRates.View view) throws IOException
+    {
+        // Each factory registers listeners on its client; independent contexts must not retain old factories.
+        var independent = new PortfolioSource.LoadedPortfolio(ClientFactory.duplicate(portfolio.client()), portfolio.label(),
+                        portfolio.revision(), portfolio.loadedAt(), portfolio.demo());
+        return new DashboardService(independent, clock, startupWarnings, view);
     }
 
     LocalDate defaultClosingDate()
@@ -109,7 +138,8 @@ final class DashboardService
                 }
             }
             return new Holding(position.getDescription(), position.getValuation().getAmount(),
-                            total == 0 ? null : position.getValuation().getAmount() / (double) total, quoteDate);
+                            total == 0 ? null : position.getValuation().getAmount() / (double) total, quoteDate,
+                            position.getInvestmentVehicle() instanceof Security ? "security" : "cash");
         }).sorted(Comparator.comparingLong(Holding::value).reversed()).toList();
 
         var series = new ArrayList<Point>();
@@ -164,10 +194,17 @@ final class DashboardService
             }
         }
 
+        var securityHoldings = holdings.stream().filter(h -> h.type().equals("security")).toList();
+        var quoteDates = securityHoldings.stream().map(Holding::quoteDate).filter(java.util.Objects::nonNull).sorted().toList();
+        var coverage = new PriceCoverage(closingDate.toString(), securityHoldings.size(),
+                        securityHoldings.size() - quoteDates.size(),
+                        (int) quoteDates.stream().filter(date -> LocalDate.parse(date).isBefore(closingDate.minusDays(7))).count(),
+                        quoteDates.isEmpty() ? null : quoteDates.getFirst(), quoteDates.isEmpty() ? null : quoteDates.getLast());
         return new Dashboard(portfolio.label(), portfolio.revision(), portfolio.loadedAt().toString(), portfolio.demo(),
                         converter.getTermCurrency(), closingDate.toString(), total, day, week, period(index), series,
                         holdings, List.copyOf(dividends), List.copyOf(warnings), BenchmarkService.options(portfolio.client()),
-                        BenchmarkService.calculate(portfolio.client(), converter, openingDate, closingDate, benchmark));
+                        BenchmarkService.calculate(portfolio.client(), converter, openingDate, closingDate, benchmark),
+                        coverage, fxVersion());
     }
 
     private PerformanceIndex index(LocalDate from, LocalDate to, Set<String> warnings)

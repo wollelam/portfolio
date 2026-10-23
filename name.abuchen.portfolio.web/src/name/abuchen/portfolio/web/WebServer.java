@@ -26,6 +26,7 @@ final class WebServer implements AutoCloseable
     private final HttpServer server;
     private final ThreadPoolExecutor executor;
     private final PortfolioRefresh portfolios;
+    private final MarketUpdates market;
     private final Gson gson = new GsonBuilder().serializeNulls().create();
 
     WebServer(InetSocketAddress address, DashboardService service) throws IOException
@@ -35,7 +36,13 @@ final class WebServer implements AutoCloseable
 
     WebServer(InetSocketAddress address, PortfolioRefresh portfolios) throws IOException
     {
+        this(address, portfolios, MarketUpdates.disabled());
+    }
+
+    WebServer(InetSocketAddress address, PortfolioRefresh portfolios, MarketUpdates market) throws IOException
+    {
         this.portfolios = portfolios;
+        this.market = market;
         server = HttpServer.create(address, 16);
         executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16));
         server.setExecutor(executor);
@@ -71,13 +78,47 @@ final class WebServer implements AutoCloseable
                 json(exchange, 403, Map.of("message", "Only the local, same-origin application may access this server."));
                 return;
             }
+            var path = exchange.getRequestURI().getPath();
+            if ("/api/price-updates".equals(path))
+            {
+                if (exchange.getRequestURI().getRawQuery() != null)
+                    json(exchange, 400, Map.of("message", "This action accepts no query parameters."));
+                else if ("GET".equals(exchange.getRequestMethod()))
+                    json(exchange, 200, market.status());
+                else if ("POST".equals(exchange.getRequestMethod()))
+                {
+                    if (origins == null || !"refresh-prices".equals(exchange.getRequestHeaders().getFirst("X-Portfolio-Action")))
+                        json(exchange, 403, Map.of("message", "A same-origin price-refresh request is required."));
+                    else if (exchange.getRequestBody().readNBytes(1).length != 0)
+                        json(exchange, 400, Map.of("message", "This action accepts no request body."));
+                    else
+                    {
+                        try
+                        {
+                            int status = market.request();
+                            if (status == 429)
+                                headers.set("Retry-After", "900");
+                            json(exchange, status, market.status());
+                        }
+                        catch (IOException failure)
+                        {
+                            json(exchange, 503, Map.of("message", "The update request could not be queued. Existing prices remain available."));
+                        }
+                    }
+                }
+                else
+                {
+                    headers.set("Allow", "GET, POST");
+                    json(exchange, 405, Map.of("message", "Only status reads and price-refresh requests are supported."));
+                }
+                return;
+            }
             if (!"GET".equals(exchange.getRequestMethod()))
             {
                 headers.set("Allow", "GET");
                 json(exchange, 405, Map.of("message", "This application is read-only."));
                 return;
             }
-            var path = exchange.getRequestURI().getPath();
             if ("/api/dashboard".equals(path))
             {
                 try
@@ -89,6 +130,7 @@ final class WebServer implements AutoCloseable
                     var from = params.containsKey("from") ? LocalDate.parse(params.get("from")) : to.minusYears(1);
                     var dashboard = gson.toJsonTree(service.dashboard(from, to, params.get("benchmark"))).getAsJsonObject();
                     dashboard.add("refresh", gson.toJsonTree(snapshot.status()));
+                    dashboard.add("market", gson.toJsonTree(market.status()));
                     json(exchange, 200, dashboard);
                 }
                 catch (IllegalArgumentException | DateTimeParseException e)

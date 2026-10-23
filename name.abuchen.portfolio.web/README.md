@@ -68,8 +68,8 @@ The chart includes every daily core data point, without financial formulas in Ja
 Missing or stale prices can produce misleading valuations. Closing holdings show quote dates and
 quotes older than seven calendar days generate warnings. This is an initial diagnostic, not a full
 historical quote audit. Missing FX in the calculation window is flagged because the core may use
-fallback conversion. The app loads cached exchange-rate providers from its own workspace but does
-not refresh them online. A fresh runtime may lack FX data present in the desktop workspace; review
+fallback conversion. By default the app loads cached exchange-rate providers from its own workspace.
+A fresh runtime may lack FX data present in the desktop workspace; review
 the warnings before comparing multi-currency results. Security quotes come from the loaded file.
 
 ## Benchmark comparison
@@ -130,8 +130,65 @@ PP_WEB_FILE_ROOT=/path/to/sync-root ./portfolio-web.sh --file /path/to/sync-root
 ```
 
 Atomic file replacements are visible because the directory is mounted, rather than a single file.
-Direct Google Drive API access and automatic quote/FX downloads remain separate follow-up work.
+Direct Google Drive API access remains outside the web process.
 Automatic reload reflects what the existing sync and desktop processes save to the source file.
+
+## Price refresh and freshness
+
+The Market data panel distinguishes the last confirmed updater run from stored quote dates.
+Coverage counts securities held at the selected valuation date, excluding cash. A successful check
+does not guarantee a new quote for every instrument. Partial failures retain earlier prices.
+
+Enable optional controls with `PP_WEB_PRICE_UPDATES=1` in file mode. Demo mode never enables them.
+An independent ECB cache under runtime `price-updates/fx/` is refreshed every six hours, with
+15-minute failure retries. Downloads are staged and validated before publication; a report captures
+one complete rate context. Failed downloads preserve working rates. FX never alters the source file.
+
+**Refresh prices** queues the existing guarded quote-only updater and requests an ECB check.
+The web process has no SSH credentials and never writes the portfolio. Install
+`scripts/portfolio-price-worker.py` outside the web container on both web and updater hosts.
+Create a mode-0600 administrative config outside the mounted runtime state, for example
+`~/.config/portfolio-web/price-worker.json`:
+
+```json
+{
+  "host": "updater-host",
+  "remote_script": "/path/to/installed/portfolio-price-worker.py",
+  "finance_state": "/path/to/existing-updater-state",
+  "receipts": "/path/to/private-bridge-receipts",
+  "runner": "/path/to/existing-guarded-quotes-runner.py",
+  "source": "/portfolio-input/example.portfolio",
+  "schedule": "Existing daily schedule"
+}
+```
+
+`source` must exactly match the normalized file path inside the container. The runner must accept
+`--quotes-only --apply`, share its existing writer lock, back up and validate changes, and emit JSON
+with `applied: true` and status `current`, `updated`, or `partial` only after confirmed completion.
+No broker posting, mail, or portfolio editing is implemented in this bridge. Keep the existing
+automatic quote schedule; do not add another portfolio writer.
+
+Run this once a minute using user cron and explicit paths:
+
+```sh
+/usr/bin/python3 /path/to/installed/portfolio-price-worker.py poll \
+  --directory /path/to/web-runtime/price-updates \
+  --config /path/to/private/price-worker.json
+```
+
+Status reads use SSH without running the quote updater. Requests have durable UUID receipts,
+a shared writer lock, and a 15-minute cooldown. Interrupted requests are never blindly replayed.
+Check uncertain outcomes against the existing updater and its journals. Keep bridge receipts while
+the service is active; retire them only after confirming no outstanding updates. A stale worker
+heartbeat disables the button. The visible page checks status every ten seconds. Saved quotes
+appear after Drive synchronization and the usual validated portfolio reload.
+
+`GET /api/price-updates` only reads status. `POST /api/price-updates` accepts no body or query and
+requires the accepted same-origin `Origin` and `X-Portfolio-Action: refresh-prices`. For remote
+access, authenticate the entire hostname, explicitly allow this route, and validate the public
+HTTPS Origin on POST before rewriting upstream Host/Origin. Keep the other routes GET-only.
+To disable controls, remove the worker's own cron entry and relaunch without the environment flag.
+Do not remove native updater journals or uncertain bridge receipts.
 
 ## Development
 
@@ -151,8 +208,8 @@ and the selected `benchmark` result (or `null`). Benchmark failures are local to
 All response fields belong to this prototype; this is separate from the desktop's published `/v1`
 contract. Calculations are serialized per immutable loaded client; a background worker constructs
 and validates replacements independently. `refresh` metadata is included in the dashboard response.
-No new public HTTP routes or write endpoints are needed for automatic reload.
+Price-refresh control is a separate, opt-in endpoint from automatic file reload.
 
-Follow-up slices: managed FX/quote refresh, then authenticated remote access. Transaction editing and SaaS
+Transaction editing and SaaS
 tenancy are outside this slice. The launcher currently uses the Tycho test runtime; a dedicated
 distributable server product is a later packaging task.

@@ -49,6 +49,28 @@ public class DashboardServiceTest
         assertEquals(0, report.day().gain());
         assertEquals(0, report.day().rate(), 0.0000001);
         assertEquals(2, report.series().size());
+        assertEquals(0, report.priceCoverage().securities());
+        assertEquals(0, report.priceCoverage().missing());
+    }
+
+    @Test
+    public void quoteCoverageCountsOnlyHeldSecuritiesAtTheSelectedValuationDate()
+    {
+        var loaded = DemoPortfolio.create(end);
+        var held = loaded.client().getSecurities().getFirst();
+        held.getPrices().stream().filter(price -> price.getDate().isAfter(end.minusDays(8))).toList()
+                        .forEach(held::removePrice);
+        var service = new DashboardService(loaded, clock, List.of());
+        var coverage = service.dashboard(end.minusMonths(1), end).priceCoverage();
+        assertEquals(1, coverage.securities());
+        assertEquals(0, coverage.missing());
+        assertEquals(1, coverage.olderThanSevenDays());
+        assertEquals(end.minusDays(8).toString(), coverage.latestQuoteDate());
+        var historical = service.dashboard(end.minusMonths(1), end.minusDays(9)).priceCoverage();
+        assertEquals(0, historical.olderThanSevenDays());
+        assertEquals(end.minusDays(9).toString(), historical.latestQuoteDate());
+        held.removeAllPrices();
+        assertEquals(1, service.dashboard(end.minusMonths(1), end).priceCoverage().missing());
     }
 
     @Test

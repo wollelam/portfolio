@@ -33,15 +33,23 @@ final class PortfolioRefresh implements AutoCloseable
     private String pendingRevision;
     private Instant pendingSince;
     private volatile boolean closed;
+    private final FxRates fx;
 
     PortfolioRefresh(PortfolioSource source, Clock clock, List<String> warnings, int intervalSeconds,
                     Duration settlingTime) throws IOException
+    {
+        this(source, clock, warnings, intervalSeconds, settlingTime, null);
+    }
+
+    PortfolioRefresh(PortfolioSource source, Clock clock, List<String> warnings, int intervalSeconds,
+                    Duration settlingTime, FxRates fx) throws IOException
     {
         this.source = source;
         this.clock = clock;
         this.startupWarnings = List.copyOf(warnings);
         this.intervalSeconds = intervalSeconds;
         this.settlingTime = settlingTime;
+        this.fx = fx;
         try
         {
             var loaded = source.load();
@@ -70,6 +78,7 @@ final class PortfolioRefresh implements AutoCloseable
         startupWarnings = List.of();
         intervalSeconds = 0;
         settlingTime = Duration.ZERO;
+        fx = null;
         current.set(new Snapshot(service, null, status(false, null)));
     }
 
@@ -80,6 +89,28 @@ final class PortfolioRefresh implements AutoCloseable
 
     Snapshot snapshot()
     {
+        var latest = current.get();
+        if (fx != null && !fx.view().version().equals(latest.service().fxVersion()))
+        {
+            synchronized (this)
+            {
+                latest = current.get();
+                if (!fx.view().version().equals(latest.service().fxVersion()))
+                {
+                    try
+                    {
+                        var service = latest.service().withRates(fx.view());
+                        var to = LocalDate.now(clock);
+                        service.dashboard(to.minusYears(1), to);
+                        current.set(new Snapshot(service, latest.revision(), latest.status()));
+                    }
+                    catch (IOException | RuntimeException failure)
+                    {
+                        // Keep the complete previous context if rebinding the rates cannot be validated.
+                    }
+                }
+            }
+        }
         return current.get();
     }
 
@@ -140,7 +171,7 @@ final class PortfolioRefresh implements AutoCloseable
 
     private DashboardService validated(PortfolioSource.LoadedPortfolio loaded)
     {
-        var service = new DashboardService(loaded, clock, startupWarnings);
+        var service = new DashboardService(loaded, clock, startupWarnings, fx == null ? null : fx.view());
         var to = LocalDate.now(clock);
         service.dashboard(to.minusYears(1), to);
         return service;

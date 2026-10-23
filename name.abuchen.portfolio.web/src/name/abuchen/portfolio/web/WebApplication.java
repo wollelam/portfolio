@@ -9,10 +9,13 @@ import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 
 import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.core.runtime.Platform;
 import org.eclipse.equinox.app.IApplication;
 import org.eclipse.equinox.app.IApplicationContext;
+import org.osgi.framework.FrameworkUtil;
 
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
+import name.abuchen.portfolio.money.impl.ECBExchangeRateProvider;
 
 /** Independent headless application: it never starts an SWT workbench. */
 @SuppressWarnings("nls")
@@ -31,6 +34,7 @@ public final class WebApplication implements IApplication
         String bind = "127.0.0.1";
         int pollSeconds = 30;
         Path snapshots = Path.of(System.getProperty("user.home"), ".local", "state", "portfolio-web", "snapshots");
+        Path priceDirectory = null;
         for (int ii = 0; ii < args.length; ii++)
         {
             switch (args[ii])
@@ -41,6 +45,7 @@ public final class WebApplication implements IApplication
                 case "--bind" -> bind = args[++ii];
                 case "--poll-seconds" -> pollSeconds = Integer.parseInt(args[++ii]);
                 case "--snapshot-dir" -> snapshots = Path.of(args[++ii]);
+                case "--price-updates-dir" -> priceDirectory = Path.of(args[++ii]);
                 default -> throw new IllegalArgumentException("Expected --demo or --file PATH; optional --port, --bind, --poll-seconds, --snapshot-dir.");
             }
         }
@@ -66,16 +71,27 @@ public final class WebApplication implements IApplication
                             var value = System.getenv("PP_WEB_PASSWORD");
                             return value == null ? null : value.toCharArray();
                         }, snapshots);
-        try (var portfolios = new PortfolioRefresh(source, clock, warnings, demo ? 0 : pollSeconds,
-                        Duration.ofSeconds(5)))
+        MarketUpdates updates = MarketUpdates.disabled();
+        if (!demo && priceDirectory != null)
         {
-            server = new WebServer(new InetSocketAddress(bind, port), portfolios);
+            PrivateFiles.directory(priceDirectory);
+            var bundle = FrameworkUtil.getBundle(ECBExchangeRateProvider.class);
+            var seed = Platform.getStateLocation(bundle).toFile().toPath().resolve("ecb_exchange_rates.pb");
+            var fx = new FxRates(priceDirectory.resolve("fx"), seed, clock,
+                            provider -> provider.update(new NullProgressMonitor()));
+            updates = new MarketUpdates(new QuoteJobs(priceDirectory, clock, file.toAbsolutePath().normalize().toString()), fx, clock);
+        }
+        try (var market = updates; var portfolios = new PortfolioRefresh(source, clock, warnings, demo ? 0 : pollSeconds,
+                        Duration.ofSeconds(5), market.fx()))
+        {
+            server = new WebServer(new InetSocketAddress(bind, port), portfolios, market);
             var shutdown = new Thread(this::stop, "portfolio-web-shutdown");
             Runtime.getRuntime().addShutdownHook(shutdown);
             try
             {
                 server.start();
                 portfolios.start();
+                market.start();
                 System.out.println("Portfolio Web: http://localhost:" + server.port()); // NOSONAR
                 System.out.println(demo ? "Synthetic demo; automatic file refresh is off."
                                 : "Read-only portfolio; automatic file refresh is enabled."); // NOSONAR

@@ -64,7 +64,8 @@ public class ECBExchangeRateProvider implements ExchangeRateProvider
         this(ECBExchangeRateProvider::platformStateLocation);
     }
 
-    /* testing */ ECBExchangeRateProvider(Supplier<Path> storageDirectory)
+    /** Creates an independent provider with caller-owned persistent storage. */
+    public ECBExchangeRateProvider(Supplier<Path> storageDirectory)
     {
         this.data = new ECBData();
         this.storageDirectory = storageDirectory;

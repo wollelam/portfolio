@@ -15,6 +15,10 @@ let busy = false;
 let requestController;
 let refreshConnectionError;
 let selectedBenchmark = '';
+let market;
+let priceRequestPending = false;
+let priceActionError;
+let marketConnectionError = false;
 
 function money(value, signed = false) {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency: report.currency, signDisplay: signed ? 'exceptZero' : 'auto' }).format(value / 100);
@@ -115,11 +119,81 @@ function render() {
   text('revision', `Snapshot ${report.revision.slice(0, 12)} · loaded ${new Date(report.loadedAt).toLocaleString()}`);
   renderBenchmarkOptions();
   renderFreshness();
+  setMarket(report.market);
   selected = report.series.length - 1;
   byId('chart-position').max = String(selected);
   byId('chart-position').value = String(selected);
   drawChart();
   byId('dashboard').hidden = false;
+}
+
+function setMarket(data) {
+  if (data && (!market || data.observedAt >= market.observedAt)) {
+    market = data;
+    marketConnectionError = false;
+  }
+  renderMarket();
+}
+
+function renderMarket() {
+  const quotes = market?.quotes;
+  const fx = market?.fx;
+  const showTime = value => new Date(value).toLocaleString();
+  const messages = [];
+  if (quotes) {
+    let status = quotes.lastSuccessAt ? `Last confirmed run: ${showTime(quotes.lastSuccessAt)}` : 'No confirmed quote run is available yet.';
+    if (quotes.state === 'queued') status = 'Quote update queued for the existing updater.';
+    if (quotes.state === 'running') status = 'The existing quote updater is running…';
+    text('quote-status', status);
+    text('quote-schedule', quotes.schedule || 'Existing updater schedule');
+    if (quotes.providerFailures) messages.push(`${quotes.providerFailures} provider checks failed in the last confirmed run; previous prices for those feeds were retained.`);
+    if (quotes.error) messages.push(quotes.error);
+    byId('refresh-prices').disabled = busy || priceRequestPending || marketConnectionError || !quotes.canRequest;
+    if (priceRequestPending) {
+      text('price-action', 'Requesting a guarded price update…');
+    } else if (marketConnectionError) {
+      text('price-action', 'Could not check the price updater. Existing portfolio data remains available.');
+    } else if (priceActionError) {
+      text('price-action', priceActionError);
+    } else if (!quotes.canRequest && !['queued', 'running'].includes(quotes.state) && quotes.nextAllowedAt && new Date(quotes.nextAllowedAt) > new Date()) {
+      text('price-action', `Another price request is available after ${showTime(quotes.nextAllowedAt)}.`);
+    } else if (['complete', 'partial'].includes(quotes.state)) {
+      text('price-action', 'The updater finished. Saved quotes appear after Drive sync and the next portfolio reload.');
+    } else if (['queued', 'running'].includes(quotes.state)) {
+      text('price-action', 'Existing prices remain available while the updater checks, validates, and saves any changes.');
+    } else {
+      text('price-action', quotes.error || 'Request a quote check using the existing updater.');
+    }
+  }
+  const coverage = report?.priceCoverage;
+  if (coverage) {
+    text('quote-coverage', `At ${dateLabel(coverage.valuationDate)}: ${coverage.securities} securities · ${coverage.missing} missing prices · ${coverage.olderThanSevenDays} older than 7 days${coverage.latestQuoteDate ? ` · latest quote ${dateLabel(coverage.latestQuoteDate)}` : ''}`);
+  }
+  if (fx) {
+    text('fx-status', fx.running ? 'Checking ECB exchange rates…' : fx.lastSuccessAt ? `Last successful check: ${showTime(fx.lastSuccessAt)}` : 'Using saved ECB rates; first online check is pending.');
+    text('fx-coverage', `${fx.rateDate ? `ECB data through ${dateLabel(fx.rateDate)}. ` : ''}Automatic checks every 6 hours.${report?.fxVersion && report.fxVersion !== fx.version ? ' Updated rates are waiting to be applied to this report.' : ''}`);
+    if (fx.error) messages.push(fx.error);
+    if (fx.rateDate && new Date(fx.rateDate + 'T12:00:00Z') < new Date(Date.now() - 8 * 86400000)) messages.push('Saved ECB rates are more than seven days old.');
+  } else {
+    text('fx-status', 'Using saved workspace rates');
+    text('fx-coverage', 'Automatic FX refresh is not configured for this instance.');
+  }
+  byId('price-warning').hidden = messages.length === 0;
+  text('price-warning', messages.join(' '));
+}
+
+async function checkMarket() {
+  if (document.hidden) return;
+  try {
+    const response = await fetch('/api/price-updates', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Price status unavailable');
+    const data = await response.json();
+    setMarket(data);
+    if (report && data.fx && report.fxVersion !== data.fx.version) load(report.period.openingDate, report.period.closingDate, true);
+  } catch {
+    marketConnectionError = true;
+    renderMarket();
+  }
 }
 
 function renderBenchmarkOptions() {
@@ -296,10 +370,10 @@ async function load(from, to, silent = false) {
     if (requestController !== controller) return;
     const unchanged = silent && report && report.revision === data.revision && report.loadedAt === data.loadedAt
       && report.period.openingDate === data.period.openingDate && report.period.closingDate === data.period.closingDate
-      && report.benchmark?.uuid === data.benchmark?.uuid;
+      && report.benchmark?.uuid === data.benchmark?.uuid && report.fxVersion === data.fxVersion;
     refreshConnectionError = null;
     report = data;
-    if (unchanged) renderFreshness();
+    if (unchanged) { renderFreshness(); setMarket(data.market); }
     else render();
     if (!silent) text('status', '');
   } catch (error) {
@@ -317,6 +391,7 @@ async function load(from, to, silent = false) {
       busy = false;
       byId('dashboard').setAttribute('aria-busy', 'false');
       document.querySelectorAll('button, input[type=date], #benchmark').forEach(element => { element.disabled = false; });
+      renderMarket();
     }
   }
 }
@@ -330,6 +405,24 @@ byId('benchmark').addEventListener('change', event => {
   selectedBenchmark = event.target.value;
   if (selectedBenchmark) mode = 'return';
   load(report?.period.openingDate, report?.period.closingDate);
+});
+byId('refresh-prices').addEventListener('click', async () => {
+  if (priceRequestPending) return;
+  priceRequestPending = true;
+  priceActionError = null;
+  byId('refresh-prices').disabled = true;
+  text('price-action', 'Requesting a guarded price update…');
+  try {
+    const response = await fetch('/api/price-updates', { method: 'POST', headers: { 'X-Portfolio-Action': 'refresh-prices' } });
+    const data = await response.json();
+    if (data.quotes) setMarket(data);
+    else if (!response.ok) throw new Error(data.message || 'Price update unavailable');
+  } catch (error) {
+    priceActionError = error.message || 'The update could not be requested. Existing prices remain available.';
+  } finally {
+    priceRequestPending = false;
+    renderMarket();
+  }
 });
 for (const button of document.querySelectorAll('[data-period]')) {
   button.addEventListener('click', () => {
@@ -363,5 +456,7 @@ function checkForUpdates() {
   if (report && !document.hidden) load(report.period.openingDate, report.period.closingDate, true);
 }
 window.setInterval(checkForUpdates, 30000);
+window.setInterval(checkMarket, 10000);
 document.addEventListener('visibilitychange', checkForUpdates);
+document.addEventListener('visibilitychange', checkMarket);
 load();
