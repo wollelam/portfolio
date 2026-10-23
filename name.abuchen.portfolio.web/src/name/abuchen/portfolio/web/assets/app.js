@@ -9,13 +9,19 @@ const iso = date => date.toISOString().slice(0, 10);
 let report;
 let mode = 'return';
 let selected = 0;
-let chartGeometry;
+let instrumentSelected = 0;
+let hasChartSelection = false;
+let instrumentChart;
 let activePreset = '1Y';
 let busy = false;
 let requestController;
 let refreshConnectionError;
 let selectedBenchmark = '';
 let selectedInstrument = '';
+let currentRoute = 'overview';
+let currentRouteKey = '';
+let routeGeneration = 0;
+let restoringScroll = false;
 let market;
 let priceRequestPending = false;
 let priceActionError;
@@ -52,6 +58,140 @@ function emptyRow(body, columns, message) {
   row.append(td);
   body.append(row);
 }
+
+const routeMeta = {
+  overview: ['THE BIG PICTURE', 'Portfolio overview'],
+  performance: ['GROWTH OVER TIME', 'Portfolio performance'],
+  holdings: ['WHERE YOU’RE INVESTED', 'Holdings & cash'],
+  dividends: ['INCOME FROM YOUR INVESTMENTS', 'Received dividends'],
+  instrument: ['INSTRUMENT DETAIL', 'Instrument detail']
+};
+
+function routeUrl() {
+  const params = new URLSearchParams();
+  if (byId('from').value) params.set('from', byId('from').value);
+  if (byId('to').value) params.set('to', byId('to').value);
+  if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
+  if (mode !== 'return') params.set('mode', mode);
+  if (activePreset) params.set('preset', activePreset);
+  const route = currentRoute === 'instrument' ? `instrument/${encodeURIComponent(selectedInstrument)}` : currentRoute;
+  return `#/${route}${params.size ? `?${params}` : ''}`;
+}
+
+function saveEntryState() {
+  if (restoringScroll || !history.state?.appEntry) return;
+  history.replaceState({ ...history.state, routeKey: location.hash, scrollY: window.scrollY, selected, instrumentSelected }, '', location.href);
+}
+
+function syncRouteUrl() {
+  const url = routeUrl();
+  history.replaceState({ ...history.state, appEntry: true, routeKey: url,
+    scrollY: restoringScroll ? (history.state?.scrollY || 0) : window.scrollY, selected, instrumentSelected }, '', url);
+  const filters = url.includes('?') ? url.slice(url.indexOf('?')) : '';
+  for (const anchor of document.querySelectorAll('a[href^="#/"]')) anchor.setAttribute('href', anchor.hash.split('?')[0] + filters);
+}
+
+function showRoute() {
+  const meta = routeMeta[currentRoute] || routeMeta.overview;
+  text('page-eyebrow', meta[0]); text('page-title', currentRoute === 'instrument' && report?.instrument?.name ? report.instrument.name : meta[1]);
+  for (const section of document.querySelectorAll('[data-page]')) {
+    section.hidden = section.dataset.page !== currentRoute || section.id === 'warnings' && !report?.warnings?.length;
+  }
+  byId('date-controls').hidden = currentRoute === 'overview';
+  for (const link of document.querySelectorAll('nav [data-route]')) {
+    const active = link.dataset.route === currentRoute || currentRoute === 'instrument' && link.dataset.route === 'holdings';
+    link.classList.toggle('nav-active', active);
+    if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
+  }
+}
+
+function parseRoute() {
+  const match = location.hash.match(/^#\/(overview|performance|holdings|dividends|instrument\/([^?]+))(?:\?(.*))?$/);
+  if (!match) return { page: 'overview', instrument: '', params: new URLSearchParams() };
+  const page = match[1].startsWith('instrument/') ? 'instrument' : match[1];
+  let instrument = '';
+  try { instrument = page === 'instrument' ? decodeURIComponent(match[2]) : ''; } catch { instrument = ''; }
+  return { page, instrument, params: new URLSearchParams(match[3] || '') };
+}
+
+async function enterRoute() {
+  const key = `${location.hash}|${history.state?.entryId || ''}`;
+  if (key === currentRouteKey) return;
+  currentRouteKey = key;
+  const generation = ++routeGeneration;
+  const saved = history.state || {};
+  const restore = saved.routeKey === location.hash ? Number(saved.scrollY || 0) : 0;
+  clearTimeout(scrollTimer);
+  restoringScroll = true;
+  const route = parseRoute();
+  currentRoute = route.page; selectedInstrument = route.instrument;
+  selectedBenchmark = route.params.get('benchmark') || '';
+  mode = route.params.get('mode') === 'value' ? 'value' : 'return';
+  activePreset = route.params.get('preset') || null;
+  const from = route.params.get('from'), to = route.params.get('to');
+  if (from) byId('from').value = from;
+  if (to) byId('to').value = to;
+  if (report && (!from || !to)) {
+    byId('from').value = from || report.period.openingDate;
+    byId('to').value = to || report.period.closingDate;
+  }
+  if (!history.state?.appEntry) history.replaceState({ appEntry: true, canAppBack: false, routeKey: location.hash }, '', location.href);
+  if (Number.isInteger(saved.selected)) { selected = saved.selected; hasChartSelection = true; }
+  instrumentSelected = Number.isInteger(saved.instrumentSelected) ? saved.instrumentSelected : instrumentSelected;
+  showRoute();
+  const data = await load(from || byId('from').value, to || byId('to').value);
+  if (generation !== routeGeneration) return;
+  showRoute();
+  syncRouteUrl();
+  currentRouteKey = `${location.hash}|${history.state?.entryId || ''}`;
+  selected = Number.isInteger(saved.selected) ? saved.selected : selected;
+  if (report) { updateCursor(); }
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (generation !== routeGeneration) return;
+    restoringScroll = true; window.scrollTo(0, restore);
+    setTimeout(() => {
+      if (generation !== routeGeneration) return;
+      restoringScroll = false;
+      saveEntryState();
+    }, 220);
+  }));
+  return data;
+}
+
+function navigate(href) {
+  const url = new URL(href, location.href);
+  let hash = url.hash;
+  if (!hash.includes('?') && location.hash.includes('?')) hash += location.hash.slice(location.hash.indexOf('?'));
+  if (!hash.startsWith('#/')) return;
+  saveEntryState();
+  const newState = { appEntry: true, canAppBack: true, routeKey: hash, scrollY: 0, selected, instrumentSelected,
+    entryId: `${Date.now()}-${Math.random()}` };
+  history.pushState(newState, '', hash);
+  currentRouteKey = '';
+  enterRoute();
+}
+
+document.addEventListener('click', event => {
+  if (event.target.closest('a.skip[href="#main"]')) {
+    event.preventDefault();
+    byId('main').tabIndex = -1;
+    byId('main').focus();
+    return;
+  }
+  const anchor = event.target.closest('a[href^="#/"]');
+  if (!anchor || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  if (anchor.id === 'instrument-back' && history.state?.canAppBack) { saveEntryState(); history.back(); return; }
+  navigate(anchor.href);
+});
+window.addEventListener('popstate', enterRoute);
+window.addEventListener('hashchange', enterRoute);
+window.history.scrollRestoration = 'manual';
+let scrollTimer;
+window.addEventListener('scroll', () => {
+  if (restoringScroll) return;
+  clearTimeout(scrollTimer); scrollTimer = setTimeout(saveEntryState, 120);
+}, { passive: true });
 
 function render() {
   text('portfolio-label', report.label);
@@ -101,17 +241,10 @@ function render() {
     const row = document.createElement('tr');
     const nameCell = document.createElement('td');
     if (holding.type === 'security' && holding.uuid) {
-      const link = document.createElement('button'); link.type = 'button'; link.className = 'instrument-link';
-      link.textContent = holding.name; link.addEventListener('click', async () => {
-        selectedInstrument = holding.uuid;
-        await load(report.period.openingDate, report.period.closingDate);
-        if (report?.instrument?.uuid === selectedInstrument) {
-          const panel = byId('instrument-panel');
-          panel.tabIndex = -1;
-          panel.focus({ preventScroll: true });
-          panel.scrollIntoView({ block: 'start' });
-        }
-      });
+      const link = document.createElement('a'); link.className = 'instrument-link';
+      const filters = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '';
+      link.href = `#/instrument/${encodeURIComponent(holding.uuid)}${filters}`;
+      link.textContent = holding.name;
       nameCell.append(link);
     } else nameCell.textContent = holding.name;
     row.append(nameCell);
@@ -137,11 +270,9 @@ function render() {
   renderBenchmarkOptions();
   renderFreshness();
   setMarket(report.market);
-  selected = report.series.length - 1;
-  byId('chart-position').max = String(selected);
-  byId('chart-position').value = String(selected);
   drawChart();
   byId('dashboard').hidden = false;
+  showRoute();
 }
 
 function renderInstrument(instrument) {
@@ -168,19 +299,12 @@ function renderInstrument(instrument) {
   text('instrument-gain', instrument.gain === null ? 'Unavailable' : money(instrument.gain, true));
   text('instrument-dividends', money(instrument.dividends));
   text('instrument-currency', instrument.currency || 'currency unavailable');
-  const svg = byId('instrument-chart'); svg.replaceChildren();
-  if (!instrument.prices?.length) { svg.append(svgElement('text', { x: 90, y: 90, class: 'axis-label' }, 'No stored quotes in the selected period.')); return; }
-  const vals = instrument.prices.map(p => p.price / instrument.quoteScale), low = Math.min(...vals), high = Math.max(...vals), span = high - low || Math.abs(high) || 1;
-  const times = instrument.prices.map(p => Date.parse(p.date + 'T12:00:00Z')), firstTime = times[0], lastTime = times.at(-1);
-  const x = i => 100 + (times[i] - firstTime) / Math.max(1, lastTime - firstTime) * 680, y = v => 145 - (v - low) / span * 112;
-  const path = instrument.prices.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(p.price / instrument.quoteScale)}`).join(' ');
-  const priceFormat = value => new Intl.NumberFormat(undefined, { ...(instrument.currency ? { style: 'currency', currency: instrument.currency } : {}), maximumFractionDigits: 6 }).format(value);
-  svg.append(svgElement('text', { x: 90, y: 25, class: 'axis-label' }, priceFormat(high)));
-  svg.append(svgElement('text', { x: 90, y: 148, class: 'axis-label' }, priceFormat(low)));
-  svg.append(svgElement('text', { x: 100, y: 170, class: 'axis-label' }, dateLabel(instrument.prices[0].date)));
-  svg.append(svgElement('text', { x: 780, y: 170, 'text-anchor': 'end', class: 'axis-label' }, dateLabel(instrument.prices.at(-1).date)));
-  svg.append(svgElement('path', { d: path, class: 'chart-line' }));
-  if (instrument.prices.length === 1) svg.append(svgElement('circle', { cx: x(0), cy: y(vals[0]), r: 4, class: 'cursor-dot' }));
+  instrumentChart = new TimeSeriesChart(byId('instrument-chart'));
+  const format = value => new Intl.NumberFormat(undefined, { ...(instrument.currency ? { style: 'currency', currency: instrument.currency } : {}), maximumFractionDigits: 6 }).format(value);
+  instrumentChart.draw({ points: (instrument.prices || []).map(p => ({ date: p.date, value: p.price / instrument.quoteScale })),
+    format, output: byId('instrument-chart-detail'), selected: instrumentSelected, empty: 'No stored quotes in the selected period.',
+    title: `Stored price history in ${instrument.currency || 'instrument units'}`,
+    onSelect: index => { instrumentSelected = index; saveEntryState(); } });
 }
 
 function setMarket(data) {
@@ -315,69 +439,132 @@ function svgElement(name, attributes, content) {
   return element;
 }
 
+class TimeSeriesChart {
+  constructor(svg) {
+    this.svg = svg;
+    if (svg.chartInstance) return svg.chartInstance;
+    svg.chartInstance = this;
+    svg.tabIndex = 0;
+    svg.addEventListener('pointermove', event => this.pointerSelect(event));
+    svg.addEventListener('pointerdown', event => { if (event.pointerType !== 'mouse') this.pointerSelect(event); });
+    svg.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || !this.points?.length) return;
+      event.preventDefault();
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? this.points.length - 1 : this.index + (event.key === 'ArrowLeft' ? -1 : 1);
+      this.select(Math.max(0, Math.min(this.points.length - 1, next)));
+    });
+    return this;
+  }
+
+  draw(config) {
+    this.config = config; this.points = config.points || [];
+    this.index = Math.max(0, Math.min(this.points.length - 1, config.selected || 0));
+    const svg = this.svg; svg.replaceChildren();
+    svg.setAttribute('aria-labelledby', `${svg.id}-title ${svg.id}-description`);
+    svg.append(svgElement('title', { id: `${svg.id}-title` }, config.title || 'Time series'));
+    svg.append(svgElement('desc', { id: `${svg.id}-description` }, config.description || 'Move the pointer over the chart to inspect exact values. Use arrow keys to move between dates.'));
+    const mobile = window.matchMedia('(max-width:760px)').matches;
+    this.width = config.width || (mobile ? 500 : 800); this.height = config.height || (mobile ? 270 : 300);
+    svg.setAttribute('viewBox', `0 0 ${this.width} ${this.height}`);
+    this.left = mobile ? 70 : 85; this.right = this.width - (mobile ? 18 : 25); this.top = 22; this.bottom = this.height - 40;
+    const times = this.points.map(p => Date.parse(p.date + 'T12:00:00Z'));
+    this.first = Math.min(...times); this.last = Math.max(...times);
+    this.x = time => this.left + (time - this.first) / Math.max(1, this.last - this.first) * (this.right - this.left);
+    const series = config.series || [];
+    const values = [...this.points.map(p => p.value), ...series.flatMap(s => s.points.map(p => p.value))]
+      .filter(v => Number.isFinite(v));
+    if (!this.points.length || !values.length) {
+      svg.append(svgElement('text', { x: this.width / 2, y: this.height / 2, 'text-anchor': 'middle', class: 'axis-label' }, config.empty || 'No chart data available.'));
+      if (config.output) config.output.textContent = config.empty || 'No chart data available.';
+      return;
+    }
+    let low = Math.min(...values), high = Math.max(...values);
+    if (config.includeZero) { low = Math.min(low, 0); high = Math.max(high, 0); }
+    const pad = (high - low || Math.abs(high) || 1) * 0.12; low -= pad; high += pad;
+    this.y = value => this.bottom - (value - low) / (high - low) * (this.bottom - this.top);
+    for (let i = 0; i < 5; i++) {
+      const value = low + (high - low) * i / 4;
+      svg.append(svgElement('line', { x1: this.left, x2: this.right, y1: this.y(value), y2: this.y(value), class: 'grid-line' }));
+      svg.append(svgElement('text', { x: this.left - 8, y: this.y(value) + 4, 'text-anchor': 'end', class: 'axis-label' }, config.format(value)));
+    }
+    if (low < 0 && high > 0) svg.append(svgElement('line', { x1: this.left, x2: this.right, y1: this.y(0), y2: this.y(0), class: 'zero-line' }));
+    this.drawPath(this.points, 'chart-line');
+    for (const item of series) this.drawPath(item.points, item.className || 'benchmark-line');
+    const ticks = mobile ? 3 : 5;
+    for (let i = 0; i < ticks; i++) {
+      const time = this.first + (this.last - this.first) * i / (ticks - 1);
+      const date = new Date(time).toISOString().slice(0, 10);
+      const label = new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+      svg.append(svgElement('text', { x: this.x(time), y: this.height - 12, 'text-anchor': 'middle', class: 'axis-label' }, label));
+    }
+    if (config.area && this.points.every(point => Number.isFinite(point.value))) {
+      let area = this.points.map((point, index) => `${index ? 'L' : 'M'}${this.x(times[index]).toFixed(2)},${this.y(point.value).toFixed(2)} `).join('');
+      area += `L${this.x(this.last)},${this.bottom} L${this.x(this.first)},${this.bottom} Z`;
+      svg.append(svgElement('path', { d: area, class: 'chart-area' }));
+    }
+    this.cursor = svgElement('line', { y1: this.top, y2: this.bottom, class: 'cursor-line' }); svg.append(this.cursor);
+    this.dot = svgElement('circle', { r: 5, class: 'cursor-dot' }); svg.append(this.dot);
+    if (this.points.length === 1 && Number.isFinite(this.points[0].value)) svg.append(svgElement('circle', { cx: this.x(times[0]), cy: this.y(this.points[0].value), r: 3, class: 'cursor-dot' }));
+    this.timeMap = times; this.drawSelection();
+  }
+
+  drawPath(points, className) {
+    let path = '', previous = false;
+    for (const point of points) {
+      const value = point.value, time = Date.parse(point.date + 'T12:00:00Z');
+      if (!Number.isFinite(value)) { previous = false; continue; }
+      path += `${previous ? 'L' : 'M'}${this.x(time).toFixed(2)},${this.y(value).toFixed(2)} `; previous = true;
+    }
+    if (path) this.svg.append(svgElement('path', { d: path, class: className }));
+  }
+
+  pointerSelect(event) {
+    if (!this.points?.length || !this.timeMap?.length) return;
+    const bounds = this.svg.getBoundingClientRect();
+    const viewX = (event.clientX - bounds.left) / bounds.width * this.width;
+    const time = this.first + Math.max(0, Math.min(1, (viewX - this.left) / (this.right - this.left))) * (this.last - this.first);
+    let nearest = 0;
+    for (let i = 1; i < this.timeMap.length; i++) if (Math.abs(this.timeMap[i] - time) < Math.abs(this.timeMap[nearest] - time)) nearest = i;
+    this.select(nearest);
+  }
+
+  select(index) { this.index = index; this.drawSelection(); this.config.onSelect?.(index); }
+
+  drawSelection() {
+    if (!this.points?.length || !this.timeMap?.length || !this.cursor) return;
+    const point = this.points[this.index], time = this.timeMap[this.index], x = this.x(time);
+    this.cursor.setAttribute('x1', x); this.cursor.setAttribute('x2', x);
+    if (Number.isFinite(point.value)) {
+      this.dot.setAttribute('cx', x); this.dot.setAttribute('cy', this.y(point.value)); this.dot.setAttribute('visibility', 'visible');
+    } else this.dot.setAttribute('visibility', 'hidden');
+    const detail = `${dateLabel(point.date)} · ${Number.isFinite(point.value) ? this.config.format(point.value) : 'Unavailable'}`;
+    const seriesDetails = (this.config.series || []).map(series => {
+      const sample = series.points.find(candidate => candidate.date === point.date);
+      return sample && Number.isFinite(sample.value) ? `${series.name}: ${this.config.format(sample.value)}` : null;
+    }).filter(Boolean);
+    const exact = [detail, ...seriesDetails].join(' · ');
+    if (this.config.output) this.config.output.textContent = exact;
+    if (this.config.slider) { this.config.slider.value = String(this.index); this.config.slider.setAttribute('aria-valuetext', exact); }
+  }
+}
+
+let portfolioChart;
 function drawChart() {
   if (!report) return;
   renderBenchmarkDetails();
-  const svg = byId('chart');
-  svg.replaceChildren();
-  svg.append(svgElement('title', { id: 'chart-title' }, mode === 'return' ? 'Portfolio time-weighted return' : 'Portfolio value'));
-  svg.append(svgElement('desc', { id: 'chart-description' }, `Daily ${mode === 'return' ? 'cumulative return' : 'value'} from ${report.period.openingDate} to ${report.period.closingDate}. Use the date slider below for exact values.`));
-  const points = report.series;
-  const value = point => mode === 'return' ? point.rate : point.value;
-  const values = points.map(value).filter(v => v !== null && Number.isFinite(v));
-  const benchmark = mode === 'return' && report.benchmark && !report.benchmark.error ? report.benchmark : null;
-  const benchmarkRates = new Map((benchmark?.series || []).map(point => [point.date, point.rate]));
-  for (const rate of benchmarkRates.values()) if (Number.isFinite(rate)) values.push(rate);
-  if (!values.length) return;
-  let low = Math.min(...values), high = Math.max(...values);
-  if (mode === 'return') { low = Math.min(0, low); high = Math.max(0, high); }
-  const pad = (high - low || Math.abs(high) || (mode === 'return' ? 0.01 : 100)) * 0.12;
-  low -= pad; high += pad;
-  const mobile = window.matchMedia('(max-width:760px)').matches;
-  const width = mobile ? 500 : 1000;
-  const height = mobile ? 280 : 300;
-  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  const left = mobile ? 65 : 100, right = width - (mobile ? 20 : 30), top = 20, bottom = height - 45;
-  const x = index => left + index / Math.max(1, points.length - 1) * (right - left);
-  const y = v => bottom - (v - low) / (high - low) * (bottom - top);
-  for (let i = 0; i < 5; i++) {
-    const v = low + (high - low) * i / 4;
-    svg.append(svgElement('line', { x1: left, x2: right, y1: y(v), y2: y(v), class: 'grid-line' }));
-    const label = mode === 'return' ? new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 1 }).format(v) : new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(v / 100);
-    svg.append(svgElement('text', { x: left - 16, y: y(v) + 4, 'text-anchor': 'end', class: 'axis-label' }, label));
-  }
-  if (low < 0 && high > 0) svg.append(svgElement('line', { x1: left, x2: right, y1: y(0), y2: y(0), class: 'zero-line' }));
-  let path = '', previousValid = false;
-  points.forEach((point, index) => {
-    const v = value(point);
-    if (v === null || !Number.isFinite(v)) { previousValid = false; return; }
-    path += `${previousValid ? 'L' : 'M'}${x(index).toFixed(2)},${y(v).toFixed(2)} `;
-    previousValid = true;
-  });
-  if (points.every(point => Number.isFinite(value(point)))) svg.append(svgElement('path', { d: `${path}L${right},${bottom} L${left},${bottom} Z`, class: 'chart-area' }));
-  svg.append(svgElement('path', { d: path, class: 'chart-line' }));
-  if (benchmark) {
-    let comparisonPath = '', valid = false;
-    points.forEach((point, index) => {
-      const rate = benchmarkRates.get(point.date);
-      if (!Number.isFinite(rate)) { valid = false; return; }
-      comparisonPath += `${valid ? 'L' : 'M'}${x(index).toFixed(2)},${y(rate).toFixed(2)} `;
-      valid = true;
-    });
-    svg.append(svgElement('path', { d: comparisonPath, class: 'benchmark-line' }));
-    text('chart-title', 'Portfolio and benchmark returns');
-    text('chart-description', `Portfolio time-weighted return and ${benchmark.name} stored price-series return over the same selected dates. Use the date slider below for exact values.`);
-  }
-  const ticks = mobile ? 3 : 5;
-  for (let i = 0; i < ticks; i++) {
-    const index = Math.round((points.length - 1) * i / (ticks - 1));
-    const label = new Date(points[index].date + 'T12:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
-    svg.append(svgElement('text', { x: x(index), y: height - 16, 'text-anchor': 'middle', class: 'axis-label' }, label));
-  }
-  svg.append(svgElement('line', { id: 'cursor-line', y1: top, y2: bottom, class: 'cursor-line' }));
-  svg.append(svgElement('circle', { id: 'cursor-dot', r: 5, class: 'cursor-dot' }));
-  chartGeometry = { x, y, value, left, right, width, benchmarkRates };
-  updateCursor();
+  if (!hasChartSelection) { selected = report.series.length - 1; hasChartSelection = true; }
+  selected = Math.max(0, Math.min(report.series.length - 1, selected));
+  const points = report.series.map(point => ({ date: point.date, value: mode === 'return' ? point.rate : point.value }));
+  const series = mode === 'return' && report.benchmark && !report.benchmark.error ? [{
+    name: report.benchmark.name, className: 'benchmark-line', points: report.benchmark.series.map(point => ({ date: point.date, value: point.rate }))
+  }] : [];
+  const formatter = mode === 'return' ? percent : value => money(value);
+  portfolioChart = new TimeSeriesChart(byId('chart'));
+  portfolioChart.draw({ points, series, format: formatter, includeZero: mode === 'return', area: true, selected,
+    slider: byId('chart-position'), output: byId('chart-detail'), title: mode === 'return' ? 'Portfolio time-weighted return' : 'Portfolio value',
+    description: `Daily ${mode === 'return' ? 'cumulative return' : 'value'} from ${report.period.openingDate} to ${report.period.closingDate}.`,
+    onSelect: index => { selected = index; saveEntryState(); } });
+  byId('chart-position').max = String(Math.max(0, points.length - 1));
   byId('mode-return').setAttribute('aria-pressed', String(mode === 'return'));
   byId('mode-value').setAttribute('aria-pressed', String(mode === 'value'));
   text('chart-explanation', mode === 'return'
@@ -386,25 +573,11 @@ function drawChart() {
 }
 
 function updateCursor() {
-  if (!chartGeometry || !report) return;
-  const point = report.series[selected];
-  const { x, y, value } = chartGeometry;
-  const line = byId('cursor-line'), dot = byId('cursor-dot');
-  if (!line || !dot) return;
-  line.setAttribute('x1', x(selected)); line.setAttribute('x2', x(selected));
-  dot.setAttribute('cx', x(selected));
-  dot.setAttribute('cy', value(point) === null ? 0 : y(value(point)));
-  dot.setAttribute('visibility', value(point) === null ? 'hidden' : 'visible');
-  let detail = `${dateLabel(point.date)} · ${mode === 'return' ? percent(point.rate) : money(point.value)}`;
-  const benchmarkRate = chartGeometry.benchmarkRates.get(point.date);
-  if (Number.isFinite(benchmarkRate)) detail += ` · Series ${percent(benchmarkRate)}`;
-  text('chart-detail', detail);
-  byId('chart-position').setAttribute('aria-valuetext', detail);
-  byId('chart-position').value = String(selected);
+  if (portfolioChart && report?.series.length) portfolioChart.select(Math.max(0, Math.min(report.series.length - 1, selected)));
 }
 
 async function load(from, to, silent = false) {
-  if (busy && silent) return;
+  if (busy && silent) return null;
   requestController?.abort();
   const controller = new AbortController();
   requestController = controller;
@@ -424,7 +597,7 @@ async function load(from, to, silent = false) {
     const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal: controller.signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Could not load portfolio.');
-    if (requestController !== controller) return;
+    if (requestController !== controller) return null;
     const unchanged = silent && report && report.revision === data.revision && report.loadedAt === data.loadedAt
       && report.period.openingDate === data.period.openingDate && report.period.closingDate === data.period.closingDate
       && report.benchmark?.uuid === data.benchmark?.uuid && report.fxVersion === data.fxVersion
@@ -435,6 +608,7 @@ async function load(from, to, silent = false) {
     if (unchanged) { renderFreshness(); setMarket(data.market); }
     else render();
     if (!silent) text('status', '');
+    return data;
   } catch (error) {
     if (error.name === 'AbortError' || requestController !== controller) return;
     if (silent && report) {
@@ -445,6 +619,7 @@ async function load(from, to, silent = false) {
       byId('error').hidden = false;
       text('status', report ? 'The previously loaded figures remain displayed.' : 'Portfolio unavailable.');
     }
+    return null;
   } finally {
     if (requestController === controller) {
       busy = false;
@@ -457,13 +632,14 @@ async function load(from, to, silent = false) {
 
 byId('dates').addEventListener('submit', event => {
   event.preventDefault(); activePreset = null;
+  syncRouteUrl();
   load(byId('from').value, byId('to').value);
 });
 byId('refresh').addEventListener('click', () => load(report?.period.openingDate, report?.period.closingDate));
-byId('close-instrument').addEventListener('click', () => { selectedInstrument = ''; renderInstrument(null); });
 byId('benchmark').addEventListener('change', event => {
   selectedBenchmark = event.target.value;
   if (selectedBenchmark) mode = 'return';
+  syncRouteUrl();
   load(report?.period.openingDate, report?.period.closingDate);
 });
 byId('refresh-prices').addEventListener('click', async () => {
@@ -499,18 +675,13 @@ for (const button of document.querySelectorAll('[data-period]')) {
       const lastDay = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).getUTCDate();
       start.setUTCDate(Math.min(day, lastDay));
     }
+    byId('from').value = iso(start); byId('to').value = iso(end);
+    syncRouteUrl();
     load(iso(start), iso(end));
   });
 }
-for (const measure of ['return', 'value']) byId('mode-' + measure).addEventListener('click', () => { mode = measure; drawChart(); });
-byId('chart-position').addEventListener('input', event => { selected = Number(event.target.value); updateCursor(); });
-byId('chart').addEventListener('pointermove', event => {
-  if (!report || !chartGeometry) return;
-  const bounds = event.currentTarget.getBoundingClientRect();
-  const x = (event.clientX - bounds.left) / bounds.width * chartGeometry.width;
-  const ratio = Math.max(0, Math.min(1, (x - chartGeometry.left) / (chartGeometry.right - chartGeometry.left)));
-  selected = Math.round(ratio * (report.series.length - 1)); updateCursor();
-});
+for (const measure of ['return', 'value']) byId('mode-' + measure).addEventListener('click', () => { mode = measure; syncRouteUrl(); drawChart(); });
+byId('chart-position').addEventListener('input', event => { selected = Number(event.target.value); updateCursor(); saveEntryState(); });
 window.matchMedia('(max-width:760px)').addEventListener('change', drawChart);
 function checkForUpdates() {
   if (report && !document.hidden) load(report.period.openingDate, report.period.closingDate, true);
@@ -519,4 +690,5 @@ window.setInterval(checkForUpdates, 30000);
 window.setInterval(checkMarket, 10000);
 document.addEventListener('visibilitychange', checkForUpdates);
 document.addEventListener('visibilitychange', checkMarket);
-load();
+if (!location.hash) history.replaceState({ appEntry: true, canAppBack: false, routeKey: '#/overview' }, '', '#/overview');
+enterRoute();

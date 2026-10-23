@@ -830,3 +830,5 @@ footer {
 .instrument-metrics strong { font-size:18px; }
 #instrument-panel h3 { padding:8px 24px 0; }
 #instrument-chart { width:100%; min-height:150px; padding:0 16px; }
+[data-page][hidden],#date-controls[hidden] { display:none !important; }
+.time-series-chart { touch-action:pan-y; outline-offset:4px; }

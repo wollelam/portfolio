@@ -213,14 +213,33 @@ mvn -f portfolio-app/pom.xml verify -Plocal-dev \
   -am
 ```
 
-The frontend is small, dependency-free HTML/CSS/JavaScript, packaged as bundle resources. A future
-React interface can consume `GET /api/dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD&benchmark=SECURITY_UUID`.
+The frontend is small, dependency-free HTML/CSS/JavaScript, packaged as bundle resources. It uses
+linkable same-origin hash pages (`#/overview`, `#/performance`, `#/holdings`, `#/dividends`, and
+`#/instrument/SECURITY_UUID`) and retains date, benchmark, chart-mode, scroll, and chart-selection
+state in browser history. Instrument links are normal anchors, so direct links and opening a detail
+in a new tab work without server routes. The Back control returns to Holdings in a direct-open tab.
+
+Both graphs use the same internal `TimeSeriesChart` component for time-based axes, crosshair,
+pointer/touch selection, and keyboard navigation. It is bundled locally with no third-party graph
+library or CDN dependency. Portfolio benchmark lines retain gaps and use the same chart selection.
+A future framework interface can consume `GET /api/dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD&benchmark=SECURITY_UUID`.
 The optional `benchmark` parameter selects one series; responses include the available `benchmarks`
 and the selected `benchmark` result (or `null`). Benchmark failures are local to that result.
 All response fields belong to this prototype; this is separate from the desktop's published `/v1`
 contract. Calculations are serialized per immutable loaded client; a background worker constructs
 and validates replacements independently. `refresh` metadata is included in the dashboard response.
 Price-refresh control is a separate, opt-in endpoint from automatic file reload.
+
+The browser regression harness is `name.abuchen.portfolio.web.tests/browser/navigation-chart.test.cjs`.
+Run it against a synthetic demo server with Playwright Core available through `NODE_PATH`, for example:
+
+```sh
+BASE_URL=http://127.0.0.1:8097 NODE_PATH=/path/to/node_modules node \
+  name.abuchen.portfolio.web.tests/browser/navigation-chart.test.cjs
+```
+
+It augments the demo response in-browser with synthetic long-list rows and quote shapes. It never
+uses a real portfolio or sends a price-refresh POST.
 
 Transaction editing and SaaS
 tenancy are outside this slice. The launcher currently uses the Tycho test runtime; a dedicated
