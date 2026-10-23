@@ -255,7 +255,7 @@ mvn -f portfolio-app/pom.xml verify -Plocal-dev \
 
 The frontend is small, dependency-free HTML/CSS/JavaScript, packaged as bundle resources. It uses
 linkable same-origin hash pages (`#/overview`, `#/performance`, `#/waterfall`, `#/returns`, `#/drawdown`,
-`#/holdings`, `#/performers`, `#/dividends`, `#/live-quotes`, and
+`#/allocation`, `#/holdings`, `#/performers`, `#/dividends`, `#/live-quotes`, and
 `#/instrument/SECURITY_UUID`) and retains date, benchmark, chart-mode, scroll, and chart-selection
 state in browser history. Instrument links are normal anchors, so direct links and opening a detail
 in a new tab work without server routes. The Back control returns to Holdings in a direct-open tab.
@@ -287,6 +287,13 @@ and bottom subsets; header sorting changes their display order. Holdings and per
 name filtering. Sorts, name filters, entry count and waterfall mode travel in the hash URL so that
 Back and direct links retain them. Live watchlist sorting uses the current received values.
 
+The Allocation page partitions the existing closing holdings into a binary treemap using absolute
+reporting-currency values, including cash. It shows the largest 20 positions and groups the rest by
+sign and asset type, preserving both net value and gross exposure. Negative values are striped;
+net weights keep their native denominator and are unavailable when net value is zero. Concentration
+uses gross exposure, includes cash, and is not a performance measure. Tiles expose exact amounts
+on hover/focus and link securities to their detail page. No new data source or API route is used.
+
 The Returns calendar derives monthly and selected-year returns by compounding the endpoints of
 the native cumulative TTWROR series. It marks partial periods explicitly, keeps missing returns
 unavailable, and guards a zero denominator after a total loss. Month and year cells link to their
@@ -308,10 +315,11 @@ uses the same setup and checks original payments, period filtering, trade de-dup
 missing FX, empty lists and mobile layout.
 
 Additional synthetic/demo browser harnesses are `waterfall-sorting.test.cjs`,
-`returns-calendar.test.cjs`, and `drawdown.test.cjs` in the same directory. They cover bridge
+`returns-calendar.test.cjs`, `drawdown.test.cjs`, and `allocation.test.cjs` in the same directory. They cover bridge
 inspection and security navigation, numeric/null sorting, filtering, sorting before pagination,
 65 performers per side, compounded/partial/missing calendar returns, zero denominators,
-drawdown chart selection, Back/reload and mobile overflow.
+drawdown chart selection, proportional allocation areas, signed/cash exposure, grouped totals,
+zero-net-value cases, Back/reload and mobile overflow.
 
 The navigation harness augments the demo response in-browser with synthetic long-list rows and quote shapes. It never
 uses a real portfolio or sends a price-refresh POST.

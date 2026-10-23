@@ -21,6 +21,7 @@
       <a data-route="drawdown" href="#/drawdown"><span aria-hidden="true">⌁</span> Drawdown</a>
       <a data-route="returns" href="#/returns"><span aria-hidden="true">▦</span> Returns calendar</a>
       <a data-route="waterfall" href="#/waterfall"><span aria-hidden="true">▥</span> Waterfall</a>
+      <a data-route="allocation" href="#/allocation"><span aria-hidden="true">▧</span> Allocation</a>
       <a data-route="holdings" href="#/holdings"><span aria-hidden="true">▤</span> Holdings</a>
       <a data-route="performers" href="#/performers"><span aria-hidden="true">↕</span> Performers</a>
       <a data-route="dividends" href="#/dividends"><span aria-hidden="true">↓</span> Dividends</a>
@@ -87,6 +88,19 @@
         <p id="waterfall-detail" class="chart-explorer" role="status"></p>
         <p class="panel-note">Uses the native performance breakdown with FIFO costs, including taxes and fees. The value bridge includes external deposits and withdrawals. Security contributions exclude these flows and show the 20 largest contributors by absolute amount; remaining contributions are grouped under Other. Currency effects are shown separately. Hover or focus a bar for its amount; select a security to open its details.</p>
         <details><summary>View exact amounts</summary><div class="table-scroll"><table><thead><tr><th scope="col">Component</th><th scope="col" class="numeric">Amount</th></tr></thead><tbody id="waterfall-body"></tbody></table></div></details>
+      </section>
+      <section data-page="allocation" id="allocation" class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">THE SHAPE OF YOUR PORTFOLIO</p><h2>Allocation &amp; concentration</h2></div><a class="button secondary" href="#/holdings">Holdings details →</a></div>
+        <div class="instrument-metrics allocation-metrics">
+          <div><span>Largest position by magnitude</span><strong id="allocation-largest"></strong><small id="allocation-largest-weight" class="subtle"></small></div>
+          <div><span>Top five positions · gross exposure</span><strong id="allocation-top-five"></strong><small class="subtle">Sum of absolute position values</small></div>
+          <div><span>Cash · net value</span><strong id="allocation-cash"></strong><small id="allocation-cash-weight" class="subtle"></small></div>
+        </div>
+        <p id="allocation-summary" class="panel-note"></p>
+        <div class="allocation-legend"><span class="allocation-key securities"></span>Securities <span class="allocation-key cash"></span>Cash <span class="allocation-key negative"></span>Negative positions</div>
+        <div class="table-scroll allocation-map"><svg id="allocation-chart" role="group" aria-label="Position allocation by absolute closing value"></svg></div>
+        <p id="allocation-detail" class="chart-explorer" role="status"></p>
+        <p class="panel-note">Tile area shows absolute position value at the selected closing date, including cash. It measures exposure, not performance. Negative values have a red striped background; net portfolio weights retain their sign. The 20 largest positions are shown individually; remaining positions are grouped by sign and asset type. Hover or focus a tile for its exact value and weight; select a security to open its details.</p>
       </section>
       <section data-page="holdings" id="holdings" class="panel"><div class="panel-heading"><div><p class="eyebrow">WHERE YOU’RE INVESTED</p><h2>Holdings &amp; cash</h2></div><span id="holding-count" class="subtle"></span></div><div class="table-scroll"><table><thead><tr><th scope="col">Asset</th><th scope="col" class="numeric">Value</th><th scope="col" class="numeric">Weight</th><th scope="col">Quote date</th></tr></thead><tbody id="holdings-body"></tbody></table></div><p class="panel-note">Quote dates refer to the latest available price on or before the valuation date. Cash has no quote date.</p></section>
       <section data-page="live-quotes" id="live-quotes" class="panel">

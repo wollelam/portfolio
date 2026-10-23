@@ -138,6 +138,7 @@ const routeMeta = {
   drawdown: ['THE PATH BETWEEN THE HIGHS', 'Portfolio drawdown'],
   returns: ['THE RHYTHM OF YOUR RETURNS', 'Returns calendar'],
   waterfall: ['EXPLAIN THE CHANGE', 'Performance waterfall'],
+  allocation: ['THE SHAPE OF YOUR PORTFOLIO', 'Allocation & concentration'],
   holdings: ['WHERE YOU’RE INVESTED', 'Holdings & cash'],
   dividends: ['INCOME FROM YOUR INVESTMENTS', 'Received dividends'],
   performers: ['SECURITY PERFORMANCE', 'Top gainers & decliners'],
@@ -201,7 +202,7 @@ function showRoute() {
 }
 
 function parseRoute() {
-  const match = location.hash.match(/^#\/(overview|performance|holdings|dividends|performers|waterfall|returns|drawdown|live-quotes|instrument\/([^?]+))(?:\?(.*))?$/);
+  const match = location.hash.match(/^#\/(overview|performance|holdings|allocation|dividends|performers|waterfall|returns|drawdown|live-quotes|instrument\/([^?]+))(?:\?(.*))?$/);
   if (!match) return { page: 'overview', instrument: '', params: new URLSearchParams() };
   const page = match[1].startsWith('instrument/') ? 'instrument' : match[1];
   let instrument = '';
@@ -380,6 +381,7 @@ function render() {
   renderWaterfall(report.waterfall);
   renderReturnsCalendar();
   renderDrawdown();
+  renderAllocation();
   const income = byId('dividends-body');
   income.replaceChildren();
   text('income-currency', `All amounts in ${report.currency}`);
@@ -524,6 +526,88 @@ async function checkLiveQuotes() {
 }
 
 byId('live-follow').addEventListener('click', () => { liveFrozenHistory = null; liveHoveredTime = null; renderLiveQuotes(); });
+
+// Binary treemap partitions absolute native valuations; it does not calculate investment returns.
+function allocationTiles(items, x, y, width, height, result = []) {
+  if (!items.length) return result;
+  if (items.length === 1) { result.push({ item: items[0], x, y, width, height }); return result; }
+  const total = items.reduce((sum, item) => sum + Math.abs(item.value), 0);
+  let subtotal = Math.abs(items[0].value), split = 1;
+  while (split < items.length - 1 && Math.abs(subtotal + Math.abs(items[split].value) - total / 2) < Math.abs(subtotal - total / 2)) subtotal += Math.abs(items[split++].value);
+  const fraction = subtotal / total;
+  if (width >= height) {
+    allocationTiles(items.slice(0, split), x, y, width * fraction, height, result);
+    allocationTiles(items.slice(split), x + width * fraction, y, width * (1 - fraction), height, result);
+  } else {
+    allocationTiles(items.slice(0, split), x, y, width, height * fraction, result);
+    allocationTiles(items.slice(split), x, y + height * fraction, width, height * (1 - fraction), result);
+  }
+  return result;
+}
+function renderAllocation() {
+  const positions = (report.holdings || []).filter(item => Number.isFinite(item.value) && item.value !== 0)
+    .slice().sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name));
+  const gross = positions.reduce((sum, item) => sum + Math.abs(item.value), 0);
+  const cash = positions.filter(item => item.type === 'cash').reduce((sum, item) => sum + item.value, 0);
+  const largest = positions[0];
+  text('allocation-largest', largest?.name || 'No positions');
+  text('allocation-largest-weight', largest ? `${weight(Math.abs(largest.value) / gross)} of gross exposure` : 'No non-zero holdings');
+  text('allocation-top-five', gross ? weight(positions.slice(0, 5).reduce((sum, item) => sum + Math.abs(item.value), 0) / gross) : '—');
+  text('allocation-cash', money(cash));
+  text('allocation-cash-weight', report.totalValue === 0 ? 'Net portfolio weight unavailable at zero value' : `${weight(cash / report.totalValue)} of net portfolio value`);
+  text('allocation-summary', `${dateLabel(report.asOf)} · ${positions.length} non-zero positions · Gross exposure ${money(gross)} · Net portfolio value ${money(report.totalValue)}`);
+  const svg = byId('allocation-chart'); svg.replaceChildren();
+  const mobile = window.matchMedia('(max-width:760px)').matches;
+  const width = Math.max(650, Math.min(1100, window.innerWidth - (mobile ? 84 : 370))), height = 420;
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.style.minWidth = `${width}px`;
+  text('allocation-detail', gross ? 'Hover or focus a position to inspect it. Select a security to open its details.' : 'No non-zero holdings at this valuation date.');
+  if (!gross) {
+    svg.append(svgElement('text', { x: width / 2, y: height / 2, 'text-anchor': 'middle', class: 'axis-label' }, 'No non-zero holdings at this valuation date.')); return;
+  }
+  const items = positions.slice(0, 20), groups = new Map();
+  for (const item of positions.slice(20)) {
+    const key = `${item.type === 'cash' ? 'cash' : 'securities'}:${item.value < 0 ? 'negative' : 'positive'}`;
+    const group = groups.get(key) || { name: `Other ${item.value < 0 ? 'negative' : 'positive'} ${item.type === 'cash' ? 'cash positions' : 'securities'}`, type: item.type, value: 0, count: 0 };
+    group.value += item.value; group.count++; groups.set(key, group);
+  }
+  items.push(...groups.values());
+  const defs = svgElement('defs', {}), pattern = svgElement('pattern', { id: 'allocation-negative', width: 10, height: 10, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(35)' });
+  pattern.append(svgElement('rect', { width: 10, height: 10, fill: '#934052' }), svgElement('line', { x1: 0, x2: 0, y1: 0, y2: 10, stroke: '#bb6374', 'stroke-width': 3 }));
+  defs.append(pattern); svg.append(defs);
+  const palette = ['#286e62', '#3c6382', '#56618d', '#695b83', '#2b7581'];
+  allocationTiles(items, 0, 0, width, height).forEach((tile, index) => {
+    const item = tile.item, share = Math.abs(item.value) / gross, netWeight = report.totalValue === 0 ? null : item.value / report.totalValue;
+    const description = `${item.name}: ${money(item.value)} · ${weight(share)} of gross exposure · ${netWeight == null ? 'net weight unavailable' : `${weight(netWeight)} net portfolio weight`}${item.count ? ` · ${item.count} grouped positions` : ''}`;
+    const group = svgElement('g', { tabindex: 0, role: item.uuid ? 'link' : 'img', class: 'allocation-tile', 'aria-label': `${description}${item.uuid ? '. Open security details' : ''}`, 'data-allocation-value': item.value });
+    const fill = item.value < 0 ? 'url(#allocation-negative)' : item.type === 'cash' ? '#526479' : palette[index % palette.length];
+    group.append(svgElement('title', {}, description), svgElement('rect', { x: tile.x + 2, y: tile.y + 2, width: Math.max(0, tile.width - 4), height: Math.max(0, tile.height - 4), rx: 7, fill }));
+    if (tile.width > 100 && tile.height > 60) {
+      const clip = svgElement('clipPath', { id: `allocation-clip-${index}` });
+      clip.append(svgElement('rect', { x: tile.x + 12, y: tile.y + 8, width: Math.max(0, tile.width - 24), height: Math.max(0, tile.height - 16) })); defs.append(clip);
+      const labels = svgElement('g', { 'clip-path': `url(#allocation-clip-${index})`, 'aria-hidden': true });
+      const characters = Math.max(8, Math.floor((tile.width - 28) / 7.5));
+      const words = item.name.match(new RegExp(`.{1,${characters}}(?:\\s|$)|\\S{1,${characters}}`, 'g')) || [item.name];
+      const lineCount = tile.height > 100 ? 2 : 1;
+      words.slice(0, lineCount).forEach((word, line) => {
+        const label = line === lineCount - 1 && words.length > lineCount ? `${word.trim().slice(0, characters - 1)}…` : word.trim();
+        labels.append(svgElement('text', { x: tile.x + 14, y: tile.y + 25 + line * 18, class: 'allocation-name' }, label));
+      });
+      const narrow = tile.width < 190;
+      labels.append(svgElement('text', { x: tile.x + 14, y: tile.y + tile.height - (narrow && tile.height > 110 ? 35 : 17), class: 'allocation-size' }, narrow ? weight(share) : `${weight(share)} · ${money(item.value)}`));
+      if (narrow && tile.height > 110) labels.append(svgElement('text', { x: tile.x + 14, y: tile.y + tile.height - 17, class: 'allocation-size' }, new Intl.NumberFormat(undefined, { style: 'currency', currency: report.currency, notation: 'compact', maximumFractionDigits: 1 }).format(item.value / 100)));
+      group.append(labels);
+    }
+    const inspect = () => text('allocation-detail', description);
+    group.addEventListener('pointerenter', inspect); group.addEventListener('focus', inspect);
+    if (item.uuid) {
+      const open = () => navigate(`#/instrument/${encodeURIComponent(item.uuid)}`);
+      group.addEventListener('click', open);
+      group.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
+    }
+    svg.append(group);
+  });
+}
 
 function renderDrawdown() {
   const data = report.drawdown;
@@ -1161,7 +1245,7 @@ for (const button of document.querySelectorAll('[data-period]')) {
 byId('ranking-basis').addEventListener('change', event => { rankingBasis = event.target.value === 'gain' ? 'gain' : 'rate'; syncRouteUrl(); renderRankings(report?.rankings); });
 for (const measure of ['return', 'value']) byId('mode-' + measure).addEventListener('click', () => { mode = measure; syncRouteUrl(); drawChart(); });
 byId('chart-position').addEventListener('input', event => { selected = Number(event.target.value); updateCursor(); saveEntryState(); });
-window.matchMedia('(max-width:760px)').addEventListener('change', () => { drawChart(); if (currentRoute === 'live-quotes') renderLiveQuotes(); });
+window.matchMedia('(max-width:760px)').addEventListener('change', () => { drawChart(); if (currentRoute === 'live-quotes') renderLiveQuotes(); if (currentRoute === 'allocation') renderAllocation(); });
 function checkForUpdates() {
   if (report && !document.hidden && currentRoute !== 'live-quotes') load(report.period.openingDate, report.period.closingDate, true);
 }

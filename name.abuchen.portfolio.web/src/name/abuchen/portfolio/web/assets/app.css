@@ -965,3 +965,19 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .returns-legend { margin-left:26px; margin-right:26px; }
 
 #drawdown-chart .cursor-line { stroke:#cf4a55; }
+
+.allocation-metrics strong { overflow-wrap:anywhere; }
+.allocation-metrics small { font-size:11px; }
+.allocation-map { margin:20px 24px; }
+#allocation-chart { display:block; width:100%; height:auto; }
+.allocation-legend { display:flex; gap:9px; align-items:center; flex-wrap:wrap; margin:8px 26px; font-size:12px; color:var(--muted); }
+.allocation-key { width:13px; height:13px; border-radius:3px; margin-left:12px; }
+.allocation-key:first-child { margin-left:0; }
+.allocation-key.securities { background:#286e62; } .allocation-key.cash { background:#526479; }
+.allocation-key.negative { background:repeating-linear-gradient(35deg,#934052,#934052 4px,#bb6374 4px,#bb6374 7px); }
+.allocation-name { fill:#fff; font:600 13px Inter,ui-sans-serif,system-ui,sans-serif; }
+.allocation-size { fill:#f1f5f9; font:12px Inter,ui-sans-serif,system-ui,sans-serif; font-variant-numeric:tabular-nums; }
+.allocation-tile { outline:none; }
+.allocation-tile[role="link"] { cursor:pointer; }
+.allocation-tile:hover > rect, .allocation-tile:focus > rect { stroke:#172534; stroke-width:3; }
+#allocation .panel-heading { flex-wrap:wrap; }
