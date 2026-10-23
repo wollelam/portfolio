@@ -10,6 +10,8 @@ let report;
 let mode = 'return';
 let selected = 0;
 let instrumentSelected = 0;
+let drawdownSelected = 0;
+let drawdownChart;
 let hasChartSelection = false;
 let instrumentChart;
 let activePreset = '1Y';
@@ -19,6 +21,10 @@ let refreshConnectionError;
 let selectedBenchmark = '';
 let selectedInstrument = '';
 let rankingBasis = 'rate';
+let rankingLimit = '10';
+let waterfallMode = 'calculation';
+let tableSorts = {};
+let securitySearch = '';
 let securityActivity;
 let activityKey = '';
 const activityPages = { dividends: 0, transactions: 0 };
@@ -72,9 +78,66 @@ function emptyRow(body, columns, message) {
   body.append(row);
 }
 
+// Sort raw values, retain input order for ties, and keep missing values last in either direction.
+const originalAmount = field => row => [row.currency, row[field]];
+const sortColumns = {
+  'holdings-body': ['name', 'value', 'weight', 'quoteDate'],
+  'dividends-body': ['date', 'security', 'gross', 'taxes', 'fees', 'net'],
+  'gainers-body': ['name', 'rate', 'gain'],
+  'decliners-body': ['name', 'rate', 'gain'],
+  'security-dividends-body': ['date', originalAmount('gross'), originalAmount('taxes'), originalAmount('fees'), originalAmount('net'), 'reportingNet'],
+  'security-transactions-body': ['date', row => `${row.type} ${row.owner}`, 'shares', originalAmount('amount'), originalAmount('taxes'), originalAmount('fees'), 'reportingAmount'],
+  'live-quotes-body': [row => row.quote.name, row => row.quote.currency, row => [row.quote.currency, row.quote.last], row => [row.quote.currency, row.quote.bid], row => [row.quote.currency, row.quote.ask], row => row.quote.receivedAt, row => row.quote.marketDataType],
+  'waterfall-body': ['label', 'amount']
+};
+function compareValues(a, b) {
+  if (Array.isArray(a)) return compareValues(a[0], b[0]) || compareValues(a[1], b[1]);
+  return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b));
+}
+function sortedRows(id, rows) {
+  const sort = tableSorts[id];
+  if (!sort) return rows;
+  const field = sortColumns[id][sort.column];
+  const value = row => typeof field === 'function' ? field(row) : row[field];
+  const missing = v => v == null || (Array.isArray(v) && v[1] == null);
+  return rows.map((row, index) => ({ row, index })).sort((a, b) => {
+    const av = value(a.row), bv = value(b.row);
+    if (missing(av) || missing(bv)) return Number(missing(av)) - Number(missing(bv)) || a.index - b.index;
+    return (sort.direction === 'asc' ? 1 : -1) * compareValues(av, bv) || a.index - b.index;
+  }).map(item => item.row);
+}
+function sortLabel(heading, label) { (heading.querySelector('button') || heading).textContent = label; }
+function updateSortHeaders() {
+  for (const [id] of Object.entries(sortColumns)) {
+    const headers = byId(id).closest('table').querySelectorAll('thead th');
+    headers.forEach((heading, column) => {
+      const active = tableSorts[id]?.column === column;
+      heading.setAttribute('aria-sort', active ? (tableSorts[id].direction === 'asc' ? 'ascending' : 'descending') : 'none');
+    });
+  }
+}
+for (const [id, columns] of Object.entries(sortColumns)) {
+  byId(id).closest('table').querySelectorAll('thead th').forEach((heading, column) => {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'sort-button';
+    button.textContent = heading.textContent;
+    if (typeof columns[column] === 'function' && id.startsWith('security-') && column > 1) button.title = 'Original amounts are grouped by currency, then sorted by amount.';
+    button.addEventListener('click', () => {
+      const previous = tableSorts[id];
+      tableSorts[id] = { column, direction: previous?.column === column && previous.direction === 'asc' ? 'desc' : 'asc' };
+      if (id.startsWith('security-')) activityPages[id.includes('transactions') ? 'transactions' : 'dividends'] = 0;
+      syncRouteUrl(); updateSortHeaders();
+      if (id === 'live-quotes-body') renderLiveQuotes(); else if (report) render();
+    });
+    heading.replaceChildren(button);
+  });
+}
+
 const routeMeta = {
   overview: ['THE BIG PICTURE', 'Portfolio overview'],
   performance: ['GROWTH OVER TIME', 'Portfolio performance'],
+  drawdown: ['THE PATH BETWEEN THE HIGHS', 'Portfolio drawdown'],
+  returns: ['THE RHYTHM OF YOUR RETURNS', 'Returns calendar'],
+  waterfall: ['EXPLAIN THE CHANGE', 'Performance waterfall'],
   holdings: ['WHERE YOU’RE INVESTED', 'Holdings & cash'],
   dividends: ['INCOME FROM YOUR INVESTMENTS', 'Received dividends'],
   performers: ['SECURITY PERFORMANCE', 'Top gainers & decliners'],
@@ -91,19 +154,28 @@ function routeUrl() {
   if (activePreset) params.set('preset', activePreset);
   if (currentRoute === 'live-quotes' && selectedLiveQuote) params.set('quote', selectedLiveQuote);
   if (rankingBasis !== 'rate') params.set('basis', rankingBasis);
+  if (securitySearch) params.set('q', securitySearch);
+  if (rankingLimit !== '10') params.set('entries', rankingLimit);
+  if (waterfallMode !== 'calculation') params.set('waterfall', waterfallMode);
+  if (Object.keys(tableSorts).length) params.set('sort', Object.entries(tableSorts).map(([id, sort]) => `${id}:${sort.column}:${sort.direction}`).join(','));
   const route = currentRoute === 'instrument' ? `instrument/${encodeURIComponent(selectedInstrument)}` : currentRoute;
   return `#/${route}${params.size ? `?${params}` : ''}`;
 }
 
 function saveEntryState() {
   if (restoringScroll || !history.state?.appEntry) return;
-  history.replaceState({ ...history.state, routeKey: location.hash, scrollY: window.scrollY, selected, instrumentSelected }, '', location.href);
+  const tableScrolls = {};
+  for (const scroller of document.querySelectorAll('.table-scroll')) {
+    const id = scroller.querySelector('tbody[id], svg[id]')?.id;
+    if (id && scroller.scrollLeft) tableScrolls[id] = scroller.scrollLeft;
+  }
+  history.replaceState({ ...history.state, routeKey: location.hash, scrollY: window.scrollY, selected, instrumentSelected, drawdownSelected, tableScrolls, activityPages: { ...activityPages } }, '', location.href);
 }
 
 function syncRouteUrl() {
   const url = routeUrl();
   history.replaceState({ ...history.state, appEntry: true, routeKey: url,
-    scrollY: restoringScroll ? (history.state?.scrollY || 0) : window.scrollY, selected, instrumentSelected }, '', url);
+    scrollY: restoringScroll ? (history.state?.scrollY || 0) : window.scrollY, selected, instrumentSelected, drawdownSelected }, '', url);
   const filters = url.includes('?') ? url.slice(url.indexOf('?')) : '';
   for (const anchor of document.querySelectorAll('a[href^="#/"]')) anchor.setAttribute('href', anchor.hash.split('?')[0] + filters);
 }
@@ -119,6 +191,7 @@ function showRoute() {
   for (const section of document.querySelectorAll('[data-page]')) {
     section.hidden = section.dataset.page !== currentRoute || section.id === 'warnings' && !report?.warnings?.length;
   }
+  byId('security-filter').hidden = !['holdings', 'performers'].includes(currentRoute);
   byId('date-controls').hidden = ['overview', 'live-quotes'].includes(currentRoute);
   for (const link of document.querySelectorAll('nav [data-route]')) {
     const active = link.dataset.route === currentRoute || currentRoute === 'instrument' && link.dataset.route === 'holdings';
@@ -128,7 +201,7 @@ function showRoute() {
 }
 
 function parseRoute() {
-  const match = location.hash.match(/^#\/(overview|performance|holdings|dividends|performers|live-quotes|instrument\/([^?]+))(?:\?(.*))?$/);
+  const match = location.hash.match(/^#\/(overview|performance|holdings|dividends|performers|waterfall|returns|drawdown|live-quotes|instrument\/([^?]+))(?:\?(.*))?$/);
   if (!match) return { page: 'overview', instrument: '', params: new URLSearchParams() };
   const page = match[1].startsWith('instrument/') ? 'instrument' : match[1];
   let instrument = '';
@@ -153,6 +226,18 @@ async function enterRoute() {
   activePreset = route.params.get('preset') || null;
   rankingBasis = route.params.get('basis') === 'gain' ? 'gain' : 'rate';
   byId('ranking-basis').value = rankingBasis;
+  securitySearch = (route.params.get('q') || '').slice(0, 120);
+  byId('security-search').value = securitySearch;
+  rankingLimit = ['10', '25', '50', 'all'].includes(route.params.get('entries')) ? route.params.get('entries') : '10';
+  byId('ranking-limit').value = rankingLimit;
+  waterfallMode = route.params.get('waterfall') === 'contributions' ? 'contributions' : 'calculation';
+  byId('waterfall-mode').value = waterfallMode;
+  tableSorts = {};
+  for (const value of (route.params.get('sort') || '').slice(0, 1000).split(',')) {
+    const [id, column, direction] = value.split(':');
+    if (Object.hasOwn(sortColumns, id) && /^\d+$/.test(column || '') && Number(column) < sortColumns[id].length && ['asc', 'desc'].includes(direction)) tableSorts[id] = { column: Number(column), direction };
+  }
+  updateSortHeaders();
   const from = route.params.get('from'), to = route.params.get('to');
   if (from) byId('from').value = from;
   if (to) byId('to').value = to;
@@ -163,9 +248,16 @@ async function enterRoute() {
   if (!history.state?.appEntry) history.replaceState({ appEntry: true, canAppBack: false, routeKey: location.hash }, '', location.href);
   if (Number.isInteger(saved.selected)) { selected = saved.selected; hasChartSelection = true; }
   instrumentSelected = Number.isInteger(saved.instrumentSelected) ? saved.instrumentSelected : instrumentSelected;
+  drawdownSelected = Number.isInteger(saved.drawdownSelected) ? saved.drawdownSelected : drawdownSelected;
   showRoute();
   const data = await load(from || byId('from').value, to || byId('to').value);
   if (generation !== routeGeneration) return;
+  if (currentRoute === 'instrument' && saved.activityPages) {
+    for (const kind of ['dividends', 'transactions']) {
+      activityPages[kind] = Number.isInteger(saved.activityPages[kind]) ? saved.activityPages[kind] : 0;
+      renderActivityTable(kind);
+    }
+  }
   showRoute();
   syncRouteUrl();
   currentRouteKey = `${location.hash}|${history.state?.entryId || ''}`;
@@ -174,6 +266,9 @@ async function enterRoute() {
   requestAnimationFrame(() => requestAnimationFrame(() => {
     if (generation !== routeGeneration) return;
     restoringScroll = true; window.scrollTo(0, restore);
+    for (const [id, left] of Object.entries(saved.tableScrolls || {})) {
+      if (Number.isFinite(left)) byId(id)?.closest('.table-scroll')?.scrollTo({ left });
+    }
     setTimeout(() => {
       if (generation !== routeGeneration) return;
       restoringScroll = false;
@@ -189,7 +284,7 @@ function navigate(href) {
   if (!hash.includes('?') && location.hash.includes('?')) hash += location.hash.slice(location.hash.indexOf('?'));
   if (!hash.startsWith('#/')) return;
   saveEntryState();
-  const newState = { appEntry: true, canAppBack: true, routeKey: hash, scrollY: 0, selected, instrumentSelected,
+  const newState = { appEntry: true, canAppBack: true, routeKey: hash, scrollY: 0, selected, instrumentSelected, drawdownSelected,
     entryId: `${Date.now()}-${Math.random()}` };
   history.pushState(newState, '', hash);
   currentRouteKey = '';
@@ -261,8 +356,9 @@ function render() {
   }
   const holdings = byId('holdings-body');
   holdings.replaceChildren();
-  text('holding-count', `${report.holdings.length} positions`);
-  for (const holding of report.holdings) {
+  const visibleHoldings = report.holdings.filter(matchesSecurity);
+  text('holding-count', `${visibleHoldings.length} of ${report.holdings.length} positions`);
+  for (const holding of sortedRows('holdings-body', visibleHoldings)) {
     const row = document.createElement('tr');
     const nameCell = document.createElement('td');
     if (holding.type === 'security' && holding.uuid) {
@@ -278,13 +374,16 @@ function render() {
     cell(row, holding.quoteDate ? dateLabel(holding.quoteDate) : '—');
     holdings.append(row);
   }
-  if (!report.holdings.length) emptyRow(holdings, 4, 'No holdings or cash accounts at this valuation date.');
+  if (!visibleHoldings.length) emptyRow(holdings, 4, securitySearch ? 'No positions match your search.' : 'No holdings or cash accounts at this valuation date.');
   renderInstrument(report.instrument);
   renderRankings(report.rankings);
+  renderWaterfall(report.waterfall);
+  renderReturnsCalendar();
+  renderDrawdown();
   const income = byId('dividends-body');
   income.replaceChildren();
   text('income-currency', `All amounts in ${report.currency}`);
-  for (const dividend of report.dividends) {
+  for (const dividend of sortedRows('dividends-body', report.dividends)) {
     const row = document.createElement('tr');
     cell(row, dateLabel(dividend.date), false, dividend.account);
     cell(row, dividend.security, false, dividend.originalCurrency !== report.currency ? `Original net: ${new Intl.NumberFormat(undefined, { style: 'currency', currency: dividend.originalCurrency }).format(dividend.originalNet / 100)}` : null);
@@ -348,7 +447,7 @@ function renderLiveQuotes() {
   const error = liveConnectionError ? 'Connection to the web server is unavailable. Last received quotes are shown.' : feed.error;
   byId('live-error').hidden = !error;
   text('live-error', error || '');
-  const entries = feed.quotes || [];
+  const entries = sortedRows('live-quotes-body', feed.quotes || []);
   if (!entries.some(entry => entry.quote.key === selectedLiveQuote)) {
     selectedLiveQuote = entries[0]?.quote.key || '';
     liveFrozenHistory = null;
@@ -426,9 +525,135 @@ async function checkLiveQuotes() {
 
 byId('live-follow').addEventListener('click', () => { liveFrozenHistory = null; liveHoveredTime = null; renderLiveQuotes(); });
 
+function renderDrawdown() {
+  const data = report.drawdown;
+  text('drawdown-maximum', data?.maximum == null ? 'Unavailable' : percent(-data.maximum));
+  text('drawdown-current', data?.current == null ? 'Unavailable' : percent(data.current));
+  text('drawdown-duration', data?.longestWithoutNewHigh == null ? 'Unavailable' : `${data.longestWithoutNewHigh} calendar days`);
+  tone('drawdown-maximum', -(data?.maximum || 0)); tone('drawdown-current', data?.current || 0);
+  text('drawdown-summary', !data ? 'Drawdown unavailable for this period.' : data.maximum === 0
+    ? 'No decline from a high within the selected period.'
+    : `Largest decline: peak ${dateLabel(data.peakDate)} → trough ${dateLabel(data.troughDate)}. Both dates are inside the selected period.`);
+  drawdownChart = new TimeSeriesChart(byId('drawdown-chart'));
+  drawdownChart.draw({ points: (data?.series || []).map(point => ({ date: point.date, value: point.rate })),
+    format: percent, includeZero: true, area: true, areaBaseline: 0, output: byId('drawdown-detail'), selected: drawdownSelected,
+    title: 'Portfolio time-weighted drawdown', empty: 'No drawdown data available.',
+    onSelect: index => { drawdownSelected = index; saveEntryState(); } });
+}
+
+// Compounding cumulative native TTWROR endpoints preserves the engine's flow adjustment.
+function intervalReturn(opening, closing) {
+  if (!Number.isFinite(opening?.rate) || !Number.isFinite(closing?.rate) || opening.rate <= -1) return null;
+  const value = (1 + closing.rate) / (1 + opening.rate) - 1;
+  return Number.isFinite(value) ? value : null;
+}
+function renderReturnsCalendar() {
+  const points = report.series || [], body = byId('returns-body');
+  body.replaceChildren();
+  const months = new Map(), years = new Map();
+  for (let i = 1; i < points.length; i++) {
+    const point = points[i], month = point.date.slice(0, 7), year = point.date.slice(0, 4);
+    if (!months.has(month)) months.set(month, { opening: points[i - 1], closing: point });
+    else months.get(month).closing = point;
+    if (!years.has(year)) years.set(year, { opening: points[i - 1], closing: point });
+    else years.get(year).closing = point;
+  }
+  const result = intervalReturn(points[0], points.at(-1));
+  const available = [...months.values()].map(period => intervalReturn(period.opening, period.closing)).filter(Number.isFinite);
+  const positive = available.filter(value => value > 0).length;
+  text('returns-summary', `${report.period.openingDate} → ${report.period.closingDate} · ${percent(result)} for the selected period · ${positive} positive, ${available.filter(value => value < 0).length} negative and ${available.filter(value => value === 0).length} flat months (including partial months)`);
+  const paintCell = (row, period, key, annual = false) => {
+    const td = document.createElement('td');
+    if (!period) { td.textContent = '—'; td.className = 'return-outside'; row.append(td); return; }
+    const value = intervalReturn(period.opening, period.closing);
+    const [year, month] = key.split('-').map(Number);
+    const expectedStart = annual ? `${year - 1}-12-31` : iso(new Date(Date.UTC(year, month - 1, 0)));
+    const expectedEnd = annual ? `${year}-12-31` : iso(new Date(Date.UTC(year, month, 0)));
+    const partial = period.opening.date !== expectedStart || period.closing.date !== expectedEnd;
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'return-cell';
+    button.textContent = value == null ? 'N/A' : `${percent(value)}${partial ? '*' : ''}`;
+    button.title = `${key}: ${period.opening.date} → ${period.closing.date}${partial ? ' (partial period)' : ''}. Open performance chart.`;
+    button.setAttribute('aria-label', `${key}: ${value == null ? 'Unavailable' : percent(value)}${partial ? ', partial period' : ''}. Open performance chart`);
+    if (value != null) {
+      button.classList.add(value > 0 ? 'return-profit' : value < 0 ? 'return-loss' : 'return-flat');
+      button.style.setProperty('--return-strength', String(Math.min(.8, .12 + Math.abs(value) * 3)));
+    }
+    button.addEventListener('click', () => {
+      const params = new URLSearchParams(routeUrl().split('?')[1] || '');
+      params.set('from', period.opening.date); params.set('to', period.closing.date); params.delete('preset');
+      navigate(`#/performance?${params}`);
+    });
+    td.append(button); row.append(td);
+  };
+  for (const [year, period] of [...years].reverse()) {
+    const row = document.createElement('tr'), heading = document.createElement('th');
+    heading.scope = 'row'; heading.textContent = year; row.append(heading);
+    for (let month = 1; month <= 12; month++) {
+      const key = `${year}-${String(month).padStart(2, '0')}`; paintCell(row, months.get(key), key);
+    }
+    paintCell(row, period, year, true); body.append(row);
+  }
+  if (!years.size) emptyRow(body, 14, 'No daily performance points available in this period.');
+}
+
+function renderWaterfall(data) {
+  const svg = byId('waterfall-chart'), body = byId('waterfall-body');
+  svg.replaceChildren(); body.replaceChildren();
+  const entries = data?.entries || [];
+  text('waterfall-summary', data?.message || `${report.period.openingDate} → ${report.period.closingDate} · ${report.currency} · ${waterfallMode === 'calculation' ? 'Opening value to closing value' : 'Contributions to investment gain / loss'}`);
+  text('waterfall-detail', entries.length ? 'Hover or focus a bar to inspect its exact amount.' : 'No breakdown available.');
+  if (!entries.length) { emptyRow(body, 2, data?.message || 'No breakdown available.'); return; }
+  let running = 0;
+  const bars = entries.map(entry => {
+    const start = entry.kind === 'CHANGE' ? running : 0;
+    const end = entry.kind === 'CHANGE' ? running + entry.amount : entry.amount;
+    if (entry.kind === 'START' || entry.kind === 'CHANGE') running = end;
+    return { ...entry, start, end };
+  });
+  const low = Math.min(0, ...bars.flatMap(bar => [bar.start, bar.end]));
+  const high = Math.max(0, ...bars.flatMap(bar => [bar.start, bar.end]));
+  const span = high - low || 1;
+  const width = Math.max(900, entries.length * 112 + 120), height = 420, left = 115, right = width - 25;
+  const y = value => 285 - (value - low) / span * 240;
+  const step = (right - left) / bars.length;
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.style.width = '100%'; svg.style.minWidth = `${width}px`; svg.style.maxWidth = 'none';
+  svg.append(svgElement('title', {}, 'Performance waterfall in portfolio reporting currency'));
+  for (let i = 0; i <= 4; i++) {
+    const value = low + span * i / 4, py = y(value);
+    svg.append(svgElement('line', { x1: left, x2: right, y1: py, y2: py, class: 'waterfall-grid' }));
+    svg.append(svgElement('text', { x: left - 10, y: py + 4, 'text-anchor': 'end', class: 'waterfall-axis' }, money(value)));
+  }
+  bars.forEach((bar, index) => {
+    const x = left + index * step + step * .2, barWidth = step * .6;
+    const group = svgElement('g', { tabindex: '0', role: bar.uuid ? 'link' : 'img', class: 'waterfall-bar',
+      'aria-label': `${bar.label}: ${money(bar.amount, bar.kind === 'CHANGE')}${bar.uuid ? '. Open security details' : ''}` });
+    group.append(svgElement('title', {}, `${bar.label}: ${money(bar.amount, bar.kind === 'CHANGE')}`));
+    const total = bar.kind !== 'CHANGE';
+    group.append(svgElement('rect', { x, y: Math.min(y(bar.start), y(bar.end)) - (bar.start === bar.end ? 1 : 0), width: barWidth,
+      height: Math.max(2, Math.abs(y(bar.start) - y(bar.end))), class: total ? 'waterfall-total' : bar.amount >= 0 ? 'waterfall-positive' : 'waterfall-negative' }));
+    const words = bar.label.match(/.{1,17}(?:\s|$)|\S{1,17}/g) || [bar.label];
+    words.slice(0, 4).forEach((word, line) => group.append(svgElement('text', { x: x + barWidth / 2, y: 315 + line * 17, 'text-anchor': 'middle', class: 'waterfall-label' }, word.trim())));
+    const inspect = () => text('waterfall-detail', `${bar.label}: ${money(bar.amount, !total)}${!total ? ` · Running total ${money(bar.end)}` : ''}`);
+    group.addEventListener('pointerenter', inspect); group.addEventListener('focus', inspect);
+    if (bar.uuid) {
+      const open = () => navigate(`#/instrument/${encodeURIComponent(bar.uuid)}`);
+      group.addEventListener('click', open);
+      group.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
+    }
+    svg.append(group);
+    if (index < bars.length - 1) svg.append(svgElement('line', { x1: x + barWidth, x2: left + (index + 1) * step + step * .2, y1: y(bar.end), y2: y(bar.end), class: 'waterfall-connector' }));
+  });
+  for (const entry of sortedRows('waterfall-body', entries)) {
+    const row = document.createElement('tr'); cell(row, entry.label); cell(row, money(entry.amount, entry.kind === 'CHANGE'), true); body.append(row);
+  }
+}
+
+function matchesSecurity(row) { return !securitySearch || (row.name || '').toLocaleLowerCase().includes(securitySearch.toLocaleLowerCase().trim()); }
+
 function renderRankings(rankings) {
   const key = rankingBasis;
-  const rows = rankings?.securities || [];
+  const rows = (rankings?.securities || []).filter(matchesSecurity);
   const valid = rows.filter(row => Number.isFinite(row[key]));
   const compare = direction => (a, b) => direction * (a[key] - b[key])
     || (a.name || '').localeCompare(b.name || '') || a.uuid.localeCompare(b.uuid);
@@ -436,7 +661,7 @@ function renderRankings(rankings) {
     const body = byId(id);
     body.replaceChildren();
     if (!items.length) { emptyRow(body, 3, empty); return; }
-    for (const item of items) {
+    for (const item of sortedRows(id, items)) {
       const row = document.createElement('tr');
       const name = document.createElement('td');
       const link = document.createElement('a');
@@ -451,13 +676,13 @@ function renderRankings(rankings) {
       body.append(row);
     }
   };
-  fill('gainers-body', valid.filter(row => row[key] > 0).sort(compare(-1)).slice(0, 5),
+  fill('gainers-body', valid.filter(row => row[key] > 0).sort(compare(-1)).slice(0, rankingLimit === 'all' ? undefined : Number(rankingLimit)),
     `No positive ${key === 'rate' ? 'returns' : 'gains'} in this period.`);
-  fill('decliners-body', valid.filter(row => row[key] < 0).sort(compare(1)).slice(0, 5),
+  fill('decliners-body', valid.filter(row => row[key] < 0).sort(compare(1)).slice(0, rankingLimit === 'all' ? undefined : Number(rankingLimit)),
     `No negative ${key === 'rate' ? 'returns' : 'gains'} in this period.`);
   const neutral = valid.filter(row => row[key] === 0).length;
-  text('ranking-summary', `${dateLabel(report.period.openingDate)} → ${dateLabel(report.period.closingDate)} · ${valid.length} securities with results · ${rows.length - valid.length} unavailable for this measure · ${neutral} unchanged`);
-  for (const heading of document.querySelectorAll('[data-ranking-currency]')) heading.textContent = `Gain / loss (${report.currency})`;
+  text('ranking-summary', `${dateLabel(report.period.openingDate)} → ${dateLabel(report.period.closingDate)} · Showing ${Math.min(valid.filter(row => row[key] > 0).length, rankingLimit === 'all' ? Infinity : Number(rankingLimit))} gainers and ${Math.min(valid.filter(row => row[key] < 0).length, rankingLimit === 'all' ? Infinity : Number(rankingLimit))} decliners · ${valid.length} securities with results · ${rows.length - valid.length} unavailable for this measure · ${neutral} unchanged`);
+  for (const heading of document.querySelectorAll('[data-ranking-currency]')) sortLabel(heading, `Gain / loss (${report.currency})`);
 }
 
 function originalMoney(value, currency) {
@@ -476,7 +701,7 @@ function renderSecurityActivity(activity) {
 }
 
 function renderActivityTable(kind) {
-  const items = securityActivity?.[kind] || [];
+  const items = sortedRows(`security-${kind}-body`, securityActivity?.[kind] || []);
   const pageCount = Math.max(1, Math.ceil(items.length / activityPageSize));
   activityPages[kind] = Math.max(0, Math.min(pageCount - 1, activityPages[kind]));
   const body = byId(`security-${kind}-body`);
@@ -506,7 +731,7 @@ function renderActivityTable(kind) {
   text(`security-${kind}-page`, items.length ? `${start + 1}–${Math.min(start + activityPageSize, items.length)} of ${items.length}` : '0 results');
   byId(`security-${kind}-previous`).disabled = activityPages[kind] === 0;
   byId(`security-${kind}-next`).disabled = activityPages[kind] + 1 >= pageCount;
-  for (const label of document.querySelectorAll('[data-activity-currency]')) label.textContent = `In ${report.currency}`;
+  for (const label of document.querySelectorAll('[data-activity-currency]')) sortLabel(label, `In ${report.currency}`);
 }
 
 function renderInstrument(instrument) {
@@ -739,7 +964,8 @@ class TimeSeriesChart {
     }
     if (config.area && this.points.every(point => Number.isFinite(point.value))) {
       let area = this.points.map((point, index) => `${index ? 'L' : 'M'}${this.x(times[index]).toFixed(2)},${this.y(point.value).toFixed(2)} `).join('');
-      area += `L${this.x(this.last)},${this.bottom} L${this.x(this.first)},${this.bottom} Z`;
+      const baseline = Number.isFinite(config.areaBaseline) ? this.y(config.areaBaseline) : this.bottom;
+      area += `L${this.x(this.last)},${baseline} L${this.x(this.first)},${baseline} Z`;
       svg.append(svgElement('path', { d: area, class: 'chart-area' }));
     }
     this.cursor = svgElement('line', { y1: this.top, y2: this.bottom, class: 'cursor-line' }); svg.append(this.cursor);
@@ -835,6 +1061,7 @@ async function load(from, to, silent = false) {
     if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
     if (selectedInstrument) params.set('instrument', selectedInstrument);
     if (currentRoute === 'performers') params.set('rankings', 'true');
+    if (currentRoute === 'waterfall') params.set('waterfall', waterfallMode);
     const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal: controller.signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Could not load portfolio.');
@@ -875,7 +1102,7 @@ async function load(from, to, silent = false) {
 
 for (const kind of ['dividends', 'transactions']) {
   for (const [action, step] of [['previous', -1], ['next', 1]]) {
-    byId(`security-${kind}-${action}`).addEventListener('click', () => { activityPages[kind] += step; renderActivityTable(kind); });
+    byId(`security-${kind}-${action}`).addEventListener('click', () => { activityPages[kind] += step; renderActivityTable(kind); saveEntryState(); });
   }
 }
 
@@ -946,3 +1173,9 @@ document.addEventListener('visibilitychange', checkMarket);
 document.addEventListener('visibilitychange', checkLiveQuotes);
 if (!location.hash) history.replaceState({ appEntry: true, canAppBack: false, routeKey: '#/overview' }, '', '#/overview');
 enterRoute();
+
+byId('ranking-limit').addEventListener('change', event => { rankingLimit = event.target.value; syncRouteUrl(); renderRankings(report?.rankings); });
+byId('waterfall-mode').addEventListener('change', event => { waterfallMode = event.target.value; syncRouteUrl(); load(byId('from').value, byId('to').value); });
+
+byId('security-search').addEventListener('input', event => { securitySearch = event.target.value.slice(0, 120); syncRouteUrl(); if (report) render(); });
+byId('clear-security-search').addEventListener('click', () => { securitySearch = ''; byId('security-search').value = ''; syncRouteUrl(); if (report) render(); byId('security-search').focus(); });

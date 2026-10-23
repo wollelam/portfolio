@@ -17,7 +17,9 @@ import name.abuchen.portfolio.model.Transaction.Unit.Type;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Values;
+import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
+import name.abuchen.portfolio.snapshot.PerformanceBreakdown;
 import name.abuchen.portfolio.snapshot.PerformanceIndex;
 import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceSnapshot;
 import name.abuchen.portfolio.util.Interval;
@@ -63,7 +65,24 @@ final class DashboardService
                     long totalValue, Period day, Period week, Period period, List<Point> series, List<Holding> holdings,
                     List<Dividend> dividends, List<String> warnings, List<BenchmarkService.Option> benchmarks,
                     BenchmarkService.Result benchmark, PriceCoverage priceCoverage, String fxVersion, Instrument instrument,
-                    SecurityRankingService.Rankings rankings)
+                    SecurityRankingService.Rankings rankings, Waterfall waterfall, Drawdown drawdown)
+    {
+    }
+
+    record WaterfallEntry(String kind, String type, String label, long amount, String uuid)
+    {
+    }
+
+    record Waterfall(List<WaterfallEntry> entries, String message)
+    {
+    }
+
+    record DrawdownPoint(String date, Double rate)
+    {
+    }
+
+    record Drawdown(Double maximum, String peakDate, String troughDate, Double current,
+                    long longestWithoutNewHigh, List<DrawdownPoint> series)
     {
     }
 
@@ -135,6 +154,14 @@ final class DashboardService
     synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate, String benchmark, String instrumentId,
                     boolean includeRankings)
     {
+        return dashboard(openingDate, closingDate, benchmark, instrumentId, includeRankings, null);
+    }
+
+    synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate, String benchmark, String instrumentId,
+                    boolean includeRankings, String waterfallMode)
+    {
+        if (waterfallMode != null && !waterfallMode.equals("calculation") && !waterfallMode.equals("contributions"))
+            throw new IllegalArgumentException("Invalid waterfall mode");
         if (!openingDate.isBefore(closingDate) || closingDate.isAfter(LocalDate.now(clock))
                         || ChronoUnit.DAYS.between(openingDate, closingDate) > 3660)
             throw new IllegalArgumentException("Choose an opening date before the closing date, no future dates, and at most 10 years.");
@@ -230,7 +257,40 @@ final class DashboardService
                         converter.getTermCurrency(), closingDate.toString(), total, day, week, period(index), series,
                         holdings, List.copyOf(dividends), List.copyOf(warnings), BenchmarkService.options(portfolio.client()),
                         BenchmarkService.calculate(portfolio.client(), converter, openingDate, closingDate, benchmark),
-                        coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate), rankings);
+                        coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate), rankings,
+                        waterfallMode == null ? null : waterfall(openingDate, closingDate, waterfallMode), drawdown(index));
+    }
+
+    private Drawdown drawdown(PerformanceIndex index)
+    {
+        var drawdown = index.getDrawdown();
+        var values = drawdown.getMaxDrawdownSerie();
+        var points = new ArrayList<DrawdownPoint>();
+        for (int i = 0; i < index.getDates().length; i++)
+            points.add(new DrawdownPoint(index.getDates()[i].toString(), finite(values[i])));
+        var interval = drawdown.getIntervalOfMaxDrawdown();
+        return new Drawdown(finite(drawdown.getMaxDrawdown()), interval.getStart().toString(),
+                        interval.getEnd().toString(), points.getLast().rate(),
+                        drawdown.getMaxDrawdownDuration().getDays(), List.copyOf(points));
+    }
+
+    private Waterfall waterfall(LocalDate from, LocalDate to, String mode)
+    {
+        try
+        {
+            var snapshot = new ClientPerformanceSnapshot(portfolio.client(), converter, Interval.of(from, to), true);
+            var breakdown = mode.equals("calculation") ? PerformanceBreakdown.createCalculation(snapshot)
+                            : PerformanceBreakdown.createContributions(snapshot).limitContributions(20);
+            if (!breakdown.isReconciled())
+                return new Waterfall(List.of(), "The breakdown could not be reconciled for this period.");
+            return new Waterfall(breakdown.getEntries().stream().map(entry -> new WaterfallEntry(
+                            entry.getKind().name(), entry.getType().name(), entry.getLabel(), entry.getAmount().getAmount(),
+                            entry.getSecurity() == null ? null : entry.getSecurity().getUUID())).toList(), null);
+        }
+        catch (RuntimeException e)
+        {
+            return new Waterfall(List.of(), "The breakdown is unavailable for this period. Check market-data warnings.");
+        }
     }
 
     private Instrument instrument(String uuid, LocalDate openingDate, LocalDate closingDate)

@@ -254,7 +254,8 @@ mvn -f portfolio-app/pom.xml verify -Plocal-dev \
 ```
 
 The frontend is small, dependency-free HTML/CSS/JavaScript, packaged as bundle resources. It uses
-linkable same-origin hash pages (`#/overview`, `#/performance`, `#/holdings`, `#/dividends`, and
+linkable same-origin hash pages (`#/overview`, `#/performance`, `#/waterfall`, `#/returns`, `#/drawdown`,
+`#/holdings`, `#/performers`, `#/dividends`, `#/live-quotes`, and
 `#/instrument/SECURITY_UUID`) and retains date, benchmark, chart-mode, scroll, and chart-selection
 state in browser history. Instrument links are normal anchors, so direct links and opening a detail
 in a new tab work without server routes. The Back control returns to Holdings in a direct-open tab.
@@ -270,6 +271,30 @@ contract. Calculations are serialized per immutable loaded client; a background 
 and validates replacements independently. `refresh` metadata is included in the dashboard response.
 Price-refresh control is a separate, opt-in endpoint from automatic file reload.
 
+The Waterfall page reuses the core `PerformanceBreakdown` from the desktop waterfall feature.
+`GET /api/dashboard?waterfall=calculation` returns the opening-to-closing value bridge, including
+external transfers. `waterfall=contributions` attributes absolute performance to securities, shows
+the largest 20 by absolute contribution, and retains the rest as Other. Both use FIFO costs and
+include tax and fees. Every breakdown must reconcile before it is displayed. Without this optional
+parameter the expensive breakdown is not calculated. The chart exposes exact values on hover and
+keyboard focus, security bars open the instrument detail, and an accessible table lists all amounts.
+
+Table headers sort raw numbers and dates, keep missing values last, and expose `aria-sort`.
+Original-currency amounts in instrument activity are grouped by currency before comparing amounts;
+reporting-currency columns provide a common basis. Activity sorting happens before pagination.
+Performer entries default to ten per side, with 25, 50 and All options. Rank basis selects the top
+and bottom subsets; header sorting changes their display order. Holdings and performers support
+name filtering. Sorts, name filters, entry count and waterfall mode travel in the hash URL so that
+Back and direct links retain them. Live watchlist sorting uses the current received values.
+
+The Returns calendar derives monthly and selected-year returns by compounding the endpoints of
+the native cumulative TTWROR series. It marks partial periods explicitly, keeps missing returns
+unavailable, and guards a zero denominator after a total loss. Month and year cells link to their
+exact performance interval. The Drawdown page uses `PerformanceIndex.getDrawdown()` directly,
+including its dated series, maximum drawdown interval and longest interval between new highs.
+It reuses `TimeSeriesChart`, retains inspected dates in browser history, and considers only peaks
+inside the selected range. Durations use calendar days. No volatility annualization is inferred.
+
 The browser regression harness is `name.abuchen.portfolio.web.tests/browser/navigation-chart.test.cjs`.
 Run it against a synthetic demo server with Playwright Core available through `NODE_PATH`, for example:
 
@@ -281,6 +306,12 @@ BASE_URL=http://127.0.0.1:8097 NODE_PATH=/path/to/node_modules node \
 The activity browser harness, `name.abuchen.portfolio.web.tests/browser/security-activity.test.cjs`,
 uses the same setup and checks original payments, period filtering, trade de-duplication, pagination,
 missing FX, empty lists and mobile layout.
+
+Additional synthetic/demo browser harnesses are `waterfall-sorting.test.cjs`,
+`returns-calendar.test.cjs`, and `drawdown.test.cjs` in the same directory. They cover bridge
+inspection and security navigation, numeric/null sorting, filtering, sorting before pagination,
+65 performers per side, compounded/partial/missing calendar returns, zero denominators,
+drawdown chart selection, Back/reload and mobile overflow.
 
 The navigation harness augments the demo response in-browser with synthetic long-list rows and quote shapes. It never
 uses a real portfolio or sends a price-refresh POST.

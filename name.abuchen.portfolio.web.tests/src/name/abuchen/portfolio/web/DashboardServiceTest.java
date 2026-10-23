@@ -22,7 +22,9 @@ import name.abuchen.portfolio.model.Transaction;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Money;
+import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
+import name.abuchen.portfolio.snapshot.PerformanceBreakdown;
 import name.abuchen.portfolio.snapshot.PerformanceIndex;
 import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceSnapshot;
 import name.abuchen.portfolio.util.Interval;
@@ -32,6 +34,85 @@ public class DashboardServiceTest
 {
     private final LocalDate end = LocalDate.of(2025, 6, 12);
     private final Clock clock = Clock.fixed(end.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+
+    @Test
+    public void drawdownMatchesNativeTimeWeightedSeriesAndDates()
+    {
+        var loaded = DemoPortfolio.create(end);
+        var service = new DashboardService(loaded, clock, List.of());
+        var from = end.minusYears(1);
+        var converter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(loaded.client()), "EUR");
+        var index = PerformanceIndex.forClient(loaded.client(), converter, Interval.of(from, end), new java.util.ArrayList<>());
+        var expected = index.getDrawdown();
+        var actual = service.dashboard(from, end).drawdown();
+        assertEquals(expected.getMaxDrawdown(), actual.maximum(), 0.00000001);
+        assertEquals(expected.getIntervalOfMaxDrawdown().getStart().toString(), actual.peakDate());
+        assertEquals(expected.getIntervalOfMaxDrawdown().getEnd().toString(), actual.troughDate());
+        assertEquals(expected.getMaxDrawdownDuration().getDays(), actual.longestWithoutNewHigh());
+        assertEquals(index.getDates().length, actual.series().size());
+        for (int i = 0; i < actual.series().size(); i++)
+        {
+            assertEquals(index.getDates()[i].toString(), actual.series().get(i).date());
+            assertEquals(expected.getMaxDrawdownSerie()[i], actual.series().get(i).rate(), 0.00000001);
+        }
+        assertEquals(actual.series().getLast().rate(), actual.current());
+    }
+
+    @Test
+    public void waterfallReusesNativeBreakdownAndIsOptIn()
+    {
+        var loaded = DemoPortfolio.create(end);
+        var service = new DashboardService(loaded, clock, List.of());
+        var from = end.minusYears(1);
+        assertEquals(null, service.dashboard(from, end).waterfall());
+        var converter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(loaded.client()), "EUR");
+        var nativeSnapshot = new ClientPerformanceSnapshot(loaded.client(), converter, Interval.of(from, end), true);
+        for (var mode : List.of("calculation", "contributions"))
+        {
+            var nativeBreakdown = mode.equals("calculation") ? PerformanceBreakdown.createCalculation(nativeSnapshot)
+                            : PerformanceBreakdown.createContributions(nativeSnapshot).limitContributions(20);
+            var actual = service.dashboard(from, end, null, null, false, mode).waterfall();
+            assertEquals(null, actual.message());
+            assertEquals(nativeBreakdown.getEntries().size(), actual.entries().size());
+            long running = 0;
+            for (int i = 0; i < actual.entries().size(); i++)
+            {
+                var entry = actual.entries().get(i);
+                var expected = nativeBreakdown.getEntries().get(i);
+                assertEquals(expected.getAmount().getAmount(), entry.amount());
+                assertEquals(expected.getType().name(), entry.type());
+                assertEquals(expected.getSecurity() == null ? null : expected.getSecurity().getUUID(), entry.uuid());
+                if (entry.kind().equals("START")) running = entry.amount();
+                else if (entry.kind().equals("CHANGE")) running += entry.amount();
+                else if (entry.kind().equals("TOTAL")) assertEquals(running, entry.amount());
+            }
+        }
+        assertThrows(IllegalArgumentException.class, () -> service.dashboard(from, end, null, null, false, "unknown"));
+    }
+
+    @Test
+    public void waterfallSeparatesExternalFlowsFromAfterTaxPerformance()
+    {
+        var client = new Client(); client.setBaseCurrency("EUR");
+        var account = new Account("Cash"); account.setCurrencyCode("EUR"); client.addAccount(account);
+        account.addTransaction(new AccountTransaction(end.minusDays(10).atStartOfDay(), "EUR", 100_000, null, AccountTransaction.Type.DEPOSIT));
+        account.addTransaction(new AccountTransaction(end.atTime(9, 0), "EUR", 50_000, null, AccountTransaction.Type.DEPOSIT));
+        var dividend = new AccountTransaction(end.atTime(12, 0), "EUR", 850, null, AccountTransaction.Type.DIVIDENDS);
+        dividend.addUnit(new Transaction.Unit(Transaction.Unit.Type.TAX, Money.of("EUR", 100)));
+        dividend.addUnit(new Transaction.Unit(Transaction.Unit.Type.FEE, Money.of("EUR", 50)));
+        account.addTransaction(dividend);
+        var service = service(client);
+        var bridge = service.dashboard(end.minusDays(1), end, null, null, false, "calculation").waterfall();
+        assertEquals(null, bridge.message());
+        assertEquals(100_000, bridge.entries().getFirst().amount());
+        assertEquals(150_850, bridge.entries().getLast().amount());
+        assertEquals(50_000, bridge.entries().stream().filter(e -> e.type().equals("TRANSFERS")).findFirst().orElseThrow().amount());
+        assertEquals(-100, bridge.entries().stream().filter(e -> e.type().equals("TAXES")).findFirst().orElseThrow().amount());
+        assertEquals(-50, bridge.entries().stream().filter(e -> e.type().equals("FEES")).findFirst().orElseThrow().amount());
+        var contributions = service.dashboard(end.minusDays(1), end, null, null, false, "contributions").waterfall();
+        assertEquals(850, contributions.entries().getLast().amount());
+        assertFalse(contributions.entries().stream().anyMatch(e -> e.type().equals("TRANSFERS")));
+    }
 
     @Test
     public void depositsChangeValueButNotGainOrReturn()
@@ -52,6 +133,8 @@ public class DashboardServiceTest
         assertEquals(50_000, report.day().netFlows());
         assertEquals(0, report.day().gain());
         assertEquals(0, report.day().rate(), 0.0000001);
+        assertEquals(0, report.drawdown().maximum(), 0.0000001);
+        assertEquals(0, report.drawdown().current(), 0.0000001);
         assertEquals(2, report.series().size());
         assertEquals(0, report.priceCoverage().securities());
         assertEquals(0, report.priceCoverage().missing());
