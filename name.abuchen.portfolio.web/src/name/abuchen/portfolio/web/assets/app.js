@@ -73,6 +73,7 @@ function render() {
   byId('to').value = report.period.closingDate;
   const today = new Date();
   const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  text('day-label', report.asOf === localToday ? 'Today’s performance' : 'Daily performance');
   byId('from').max = report.period.closingDate;
   byId('to').max = localToday;
   for (const button of document.querySelectorAll('[data-period]')) button.setAttribute('aria-pressed', String(button.dataset.period === activePreset));
