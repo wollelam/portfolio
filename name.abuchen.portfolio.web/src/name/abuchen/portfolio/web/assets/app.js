@@ -31,6 +31,9 @@ const activityPages = { dividends: 0, transactions: 0 };
 const activityPageSize = 25;
 let allocationDate = '';
 let allocationTimer;
+let allocationPlaying = false;
+let allocationPlaybackTimer;
+let allocationPlaybackGeneration = 0;
 let currentRoute = 'overview';
 let currentRouteKey = '';
 let routeGeneration = 0;
@@ -216,6 +219,7 @@ function parseRoute() {
 }
 
 async function enterRoute() {
+  stopAllocationPlayback();
   const key = `${location.hash}|${history.state?.entryId || ''}`;
   if (key === currentRouteKey) return;
   currentRouteKey = key;
@@ -558,7 +562,8 @@ function renderAllocationTimeline() {
   text('allocation-start', dateLabel(report.inceptionDate)); text('allocation-end', dateLabel(report.today));
   text('allocation-date-status', `Showing allocation at ${dateLabel(report.asOf)}`);
 }
-function selectAllocationDate(date, immediate = false) {
+function selectAllocationDate(date, immediate = false, playback = false) {
+  if (!playback) stopAllocationPlayback();
   if (!report || date < report.inceptionDate || date > report.today || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
   allocationDate = date;
   byId('allocation-date').value = date;
@@ -567,9 +572,42 @@ function selectAllocationDate(date, immediate = false) {
   syncRouteUrl(); clearTimeout(allocationTimer); allocationTimer = null;
   if (report.asOf === date && !busy) return;
   text('allocation-date-status', `Loading ${dateLabel(date)}; chart still shows ${dateLabel(report.asOf)}`);
-  const refresh = () => { allocationTimer = null; if (currentRoute === 'allocation') load(); };
-  if (immediate) refresh(); else allocationTimer = setTimeout(refresh, 250);
+  const refresh = () => { allocationTimer = null; return currentRoute === 'allocation' ? load() : null; };
+  if (immediate) return refresh(); else allocationTimer = setTimeout(refresh, 250);
 }
+function stopAllocationPlayback() {
+  allocationPlaying = false; allocationPlaybackGeneration++;
+  clearTimeout(allocationPlaybackTimer); allocationPlaybackTimer = null;
+  text('allocation-play', '▶ Play'); byId('allocation-play').setAttribute('aria-pressed', 'false');
+}
+function nextAllocationDate(date) {
+  const next = new Date(date + 'T12:00:00Z'), pace = byId('allocation-pace').value;
+  if (pace === 'day') next.setUTCDate(next.getUTCDate() + 1);
+  else {
+    const day = next.getUTCDate(); next.setUTCDate(1);
+    next.setUTCMonth(next.getUTCMonth() + (pace === 'year' ? 12 : 1));
+    next.setUTCDate(Math.min(day, new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate()));
+  }
+  return iso(next) > report.today ? report.today : iso(next);
+}
+byId('allocation-play').addEventListener('click', () => {
+  if (allocationPlaying) { stopAllocationPlayback(); return; }
+  if (!report || busy || currentRoute !== 'allocation') return;
+  allocationPlaying = true; const generation = ++allocationPlaybackGeneration;
+  text('allocation-play', 'Ⅱ Pause'); byId('allocation-play').setAttribute('aria-pressed', 'true');
+  const advance = async (restart = false) => {
+    if (!allocationPlaying || generation !== allocationPlaybackGeneration || currentRoute !== 'allocation') return;
+    const next = restart ? report.inceptionDate : nextAllocationDate(allocationDate || report.asOf);
+    const data = await selectAllocationDate(next, true, true);
+    if (!allocationPlaying || generation !== allocationPlaybackGeneration) return;
+    if (!data) { allocationDate = report.asOf; renderAllocationTimeline(); stopAllocationPlayback(); return; }
+    if (next >= report.today) { stopAllocationPlayback(); return; }
+    allocationPlaybackTimer = setTimeout(advance, 700);
+  };
+  advance((allocationDate || report.asOf) >= report.today);
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopAllocationPlayback(); });
+
 byId('allocation-position').addEventListener('input', event => selectAllocationDate(iso(new Date(Date.parse(report.inceptionDate + 'T12:00:00Z') + Number(event.target.value) * 86400000))));
 byId('allocation-position').addEventListener('change', () => { if (allocationTimer) selectAllocationDate(allocationDate, true); });
 byId('allocation-date').addEventListener('change', event => { if (event.target.checkValidity()) selectAllocationDate(event.target.value, true); });
@@ -1212,7 +1250,7 @@ async function load(from, to, silent = false) {
     byId('error').hidden = true;
     text('status', 'Calculating portfolio…');
     byId('dashboard').setAttribute('aria-busy', 'true');
-    document.querySelectorAll('button, input[type=date], #benchmark').forEach(element => { element.disabled = true; });
+    document.querySelectorAll('button, input[type=date], #benchmark').forEach(element => { if (element.id !== 'allocation-play' || !allocationPlaying) element.disabled = true; });
   }
   try {
     const params = new URLSearchParams();
@@ -1323,6 +1361,7 @@ for (const button of document.querySelectorAll('[data-ranking-basis]')) button.a
 for (const measure of ['return', 'value']) byId('mode-' + measure).addEventListener('click', () => { mode = measure; syncRouteUrl(); drawChart(); });
 window.matchMedia('(max-width:760px)').addEventListener('change', () => { drawChart(); if (currentRoute === 'live-quotes') renderLiveQuotes(); if (currentRoute === 'allocation') renderAllocation(); });
 function checkForUpdates() {
+  if (allocationPlaying) return;
   if (report && !document.hidden && currentRoute !== 'live-quotes') load(report.period.openingDate, report.period.closingDate, true);
 }
 window.setInterval(checkLiveQuotes, 1000);

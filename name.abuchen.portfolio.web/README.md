@@ -351,3 +351,14 @@ requested closing date. Pending dates are labelled separately from the currently
 The asof hash parameter survives reload and Back. Scrubbing keeps the performance date range intact;
 security and holdings links open at the displayed snapshot date. Other graphs retain direct chart
 inspection without sliders.
+
+Reviewed non-cash spin-off distributions use `PP-NONCASH-SPINOFF:<acquisition UUID>` notes. The web
+app classifies one as non-cash only when the matching purchase has the same account, amount,
+currency, timestamp and acquisition marker. These distributions remain in native performance and
+are explicitly labelled in instrument transactions, while paid-dividend lists/totals and instrument
+paid-dividend gross exclude them. An unmatched or unbalanced marker remains ordinary cash income.
+
+Allocation playback uses an explicit Play/Pause toggle and daily/monthly/yearly advances. Play at
+the end restarts from inception; reaching today stops. Each frame waits for its native snapshot
+before scheduling the next, and Pause stays available during loading. Manual date changes, leaving
+the page, hidden tabs and failed frames stop playback. Back never starts playback automatically.

@@ -57,7 +57,9 @@ final class SecurityActivityService
 
             String owner = pair.getOwner() instanceof Account account ? account.getName()
                             : ((Portfolio) pair.getOwner()).getName();
-            String type = transaction instanceof AccountTransaction account ? account.getType().toString()
+            boolean nonCash = transaction instanceof AccountTransaction at && pair.getOwner() instanceof Account cashOwner
+                            && NonCashDistributions.isSpinOff(client, cashOwner, at);
+            String type = nonCash ? "Spin-off distribution (non-cash)" : transaction instanceof AccountTransaction account ? account.getType().toString()
                             : ((PortfolioTransaction) transaction).getType().toString();
             long taxes = transaction.getUnitSum(Type.TAX).getAmount();
             long fees = transaction.getUnitSum(Type.FEE).getAmount();
@@ -66,7 +68,7 @@ final class SecurityActivityService
                             transaction.getShares() == 0 ? null : transaction.getShares(), transaction.getCurrencyCode(),
                             transaction.getAmount(), taxes, fees, reportingAmount));
 
-            if (transaction instanceof AccountTransaction account && account.getType() == AccountTransaction.Type.DIVIDENDS)
+            if (!nonCash && transaction instanceof AccountTransaction account && account.getType() == AccountTransaction.Type.DIVIDENDS)
             {
                 dividends.add(new Payment(transaction.getUUID(), date.toString(), owner, transaction.getCurrencyCode(),
                                 transaction.getGrossValue().getAmount(), taxes, fees, transaction.getAmount(), reportingAmount));

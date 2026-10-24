@@ -94,7 +94,7 @@
       <section data-page="allocation" id="allocation" class="panel">
         <div class="panel-heading"><div><p class="eyebrow">THE SHAPE OF YOUR PORTFOLIO</p><h2>Allocation &amp; concentration</h2></div><a id="allocation-holdings" class="button secondary" href="#/holdings">Holdings details →</a></div>
         <div class="allocation-timeline">
-          <div class="allocation-date-row"><label for="allocation-date">As of <input id="allocation-date" type="date" required></label><button id="allocation-today" class="button secondary" type="button">Today</button></div>
+          <div class="allocation-date-row"><label for="allocation-date">As of <input id="allocation-date" type="date" required></label><button id="allocation-today" class="button secondary" type="button">Today</button><button id="allocation-play" class="button secondary" type="button" aria-pressed="false">▶ Play</button><label for="allocation-pace">Advance by <select id="allocation-pace"><option value="day">Day</option><option value="month" selected>Month</option><option value="year">Year</option></select></label></div>
           <label class="subtle" for="allocation-position">Explore allocation over time</label>
           <input id="allocation-position" type="range" min="0" max="1" value="1" step="1">
           <div class="allocation-timeline-ends"><span id="allocation-start"></span><span id="allocation-end"></span></div>
@@ -158,7 +158,7 @@
           <div><span>TTWROR · selected period</span><strong id="instrument-ttwror"></strong></div>
           <div><span>IRR · annualized</span><strong id="instrument-irr"></strong></div>
           <div><span>Investment gain / loss</span><strong id="instrument-gain"></strong></div>
-          <div><span>Dividends · gross</span><strong id="instrument-dividends"></strong></div>
+          <div><span>Paid dividends · gross</span><strong id="instrument-dividends"></strong></div>
         </div>
         <h3>Stored price history · <span id="instrument-currency"></span></h3>
         <svg id="instrument-chart" class="time-series-chart" viewBox="0 0 800 180" role="img" aria-label="Stored instrument price history in instrument currency"></svg>
@@ -180,7 +180,7 @@
           </table></div>
           <div class="activity-pagination"><span id="security-transactions-page"></span><button id="security-transactions-previous" class="button secondary" type="button">Previous</button><button id="security-transactions-next" class="button secondary" type="button">Next</button></div>
         </section>
-        <p class="panel-note">Booked activity in the selected period, excluding its opening date. Original currencies are retained; reporting-currency amounts use the transaction date’s rate and show unavailable if it is missing. Recorded trade amounts include tax and fees. Transfers and deliveries show recorded valuations, not cash payments. Linked cash-side trade copies are omitted.</p>
+        <p class="panel-note">Booked activity in the selected period, excluding its opening date. Original currencies are retained; reporting-currency amounts use the transaction date’s rate and show unavailable if it is missing. Recorded trade amounts include tax and fees. Transfers and deliveries show recorded valuations, not cash payments. Linked cash-side trade copies are omitted. Balanced spin-off distributions are labelled non-cash in transactions and excluded from paid dividends.</p>
       </section>
       <section data-page="dividends" id="income" class="panel"><div class="panel-heading"><div><p class="eyebrow">INCOME FROM YOUR INVESTMENTS</p><h2>Received dividends</h2></div><span id="income-currency" class="subtle"></span></div><div class="table-scroll"><table><thead><tr><th scope="col">Payment / account</th><th scope="col">Investment</th><th scope="col" class="numeric">Gross</th><th scope="col" class="numeric">Tax</th><th scope="col" class="numeric">Fees</th><th scope="col" class="numeric">Net received</th></tr></thead><tbody id="dividends-body"></tbody></table></div><p class="panel-note">Received payments in the selected period, converted at the transaction date. The opening date is an opening valuation and is excluded from the payment period.</p></section>
       <footer><span id="revision"></span><span id="refresh-mode">Read-only portfolio</span></footer>

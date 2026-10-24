@@ -997,3 +997,5 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 #allocation-position { width:100%; accent-color:var(--green); margin:14px 0 5px; }
 .allocation-timeline-ends { display:flex; justify-content:space-between; gap:12px; font-size:11px; color:var(--muted); }
 #allocation-date-status { font-size:12px; margin:14px 0 0; }
+
+#allocation-pace { font:inherit; padding:8px; border:1px solid var(--border); border-radius:6px; background:#fff; }

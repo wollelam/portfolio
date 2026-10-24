@@ -214,8 +214,9 @@ final class DashboardService
             for (var transaction : account.getTransactions())
             {
                 var date = transaction.getDateTime().toLocalDate();
-                if (transaction.getType() != AccountTransaction.Type.DIVIDENDS || !date.isAfter(openingDate)
-                                || date.isAfter(closingDate))
+                if (transaction.getType() != AccountTransaction.Type.DIVIDENDS
+                                || NonCashDistributions.isSpinOff(portfolio.client(), account, transaction)
+                                || !date.isAfter(openingDate) || date.isAfter(closingDate))
                     continue;
                 var gross = transaction.getGrossValue();
                 var taxes = transaction.getUnitSum(Type.TAX);
@@ -323,6 +324,11 @@ final class DashboardService
         boolean hasClosingQuote = SecurityRankingService.usableQuote(security, closingDate);
         boolean validPeriod = SecurityRankingService.pricesAvailable(security, openingDate, closingDate,
                         atStart.getAssetPositions().anyMatch(p -> security.equals(p.getSecurity())), position != null);
+        long nonCashDividends = portfolio.client().getAccounts().stream().flatMap(account -> account.getTransactions().stream()
+                        .filter(t -> security.equals(t.getSecurity()) && t.getDateTime().toLocalDate().isAfter(openingDate)
+                                        && !t.getDateTime().toLocalDate().isAfter(closingDate)
+                                        && NonCashDistributions.isSpinOff(portfolio.client(), account, t)))
+                        .mapToLong(t -> converter.convert(t.getDateTime().toLocalDate(), t.getGrossValue()).getAmount()).sum();
         return new Instrument(security.getUUID(), security.getName(), security.getCurrencyCode(), Values.Quote.divider(),
                         record == null ? 0 : record.getSharesHeld(),
                         position == null || !hasClosingQuote ? null : position.getValuation().getAmount(),
@@ -330,7 +336,7 @@ final class DashboardService
                         record == null || !validPeriod ? null : finite(record.getTrueTimeWeightedRateOfReturn()),
                         record == null || !validPeriod ? null : finite(record.getIrr()),
                         record == null || !validPeriod ? null : record.getDelta().getAmount(),
-                        record == null ? 0 : record.getSumOfDividends().getAmount(), points,
+                        record == null ? 0 : record.getSumOfDividends().getAmount() - nonCashDividends, points,
                         !validPeriod ? (hasClosingQuote ? "The opening quote is missing or invalid; period performance is unavailable."
                                         : "No stored quote on or before the selected closing date is usable; valuation and period performance are unavailable.") :
                                         points.isEmpty() ? "No stored quotes in the selected period." : null,
