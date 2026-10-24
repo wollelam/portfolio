@@ -999,3 +999,48 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 #allocation-date-status { font-size:12px; margin:14px 0 0; }
 
 #allocation-pace { font:inherit; padding:8px; border:1px solid var(--border); border-radius:6px; background:#fff; }
+
+.asset-icon {
+  display:inline-flex;
+  position:relative;
+  width:28px;
+  height:28px;
+  margin-right:10px;
+  border-radius:6px;
+  background:#edf2ef;
+  color:var(--muted);
+  align-items:center;
+  justify-content:center;
+  vertical-align:middle;
+  flex-shrink:0;
+  overflow:hidden;
+}
+.asset-icon::before {
+  content:attr(data-initials);
+  font-size:10px;
+  font-weight:700;
+}
+.asset-icon.has-logo::before {
+  content:none;
+}
+.asset-icon img {
+  display:block;
+  width:24px;
+  height:24px;
+  object-fit:contain;
+}
+.instrument-title {
+  display:flex;
+  align-items:center;
+}
+.instrument-title h2 {
+  margin:0;
+}
+.instrument-title .asset-icon {
+  width:40px;
+  height:40px;
+}
+.instrument-title .asset-icon img {
+  width:32px;
+  height:32px;
+}

@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -37,7 +38,7 @@ final class DashboardService
     {
     }
 
-    record Holding(String name, String uuid, long value, Double weight, String quoteDate, String type)
+    record Holding(String name, String uuid, long value, Double weight, String quoteDate, String type, String icon)
     {
     }
 
@@ -65,7 +66,7 @@ final class DashboardService
                     long totalValue, Period day, Period week, Period period, List<Point> series, List<Holding> holdings,
                     List<Dividend> dividends, List<String> warnings, List<BenchmarkService.Option> benchmarks,
                     BenchmarkService.Result benchmark, PriceCoverage priceCoverage, String fxVersion, Instrument instrument,
-                    SecurityRankingService.Rankings rankings, Waterfall waterfall, Drawdown drawdown, String inceptionDate, String today)
+                    SecurityRankingService.Rankings rankings, Waterfall waterfall, Drawdown drawdown, String inceptionDate, String today, Map<String, String> icons)
     {
     }
 
@@ -90,6 +91,7 @@ final class DashboardService
     private final CurrencyConverterImpl converter;
     private final Clock clock;
     private final LocalDate inceptionDate;
+    private final PortfolioIcons icons;
     private final List<String> startupWarnings;
     private final FxRates.View rates;
 
@@ -102,6 +104,7 @@ final class DashboardService
                     FxRates.View rates)
     {
         this.portfolio = portfolio;
+        this.icons = new PortfolioIcons(portfolio.client());
         this.clock = clock;
         var accountDates = portfolio.client().getAccounts().stream().flatMap(a -> a.getTransactions().stream())
                         .map(t -> t.getDateTime().toLocalDate());
@@ -114,6 +117,11 @@ final class DashboardService
         this.converter = new CurrencyConverterImpl(rates == null ? new ExchangeRateProviderFactory(portfolio.client())
                         : rates.factory(portfolio.client()),
                         portfolio.client().getBaseCurrency());
+    }
+
+    byte[] icon(String uuid)
+    {
+        return icons.image(uuid);
     }
 
     String fxVersion()
@@ -199,7 +207,7 @@ final class DashboardService
             }
             return new Holding(position.getDescription(), position.getInvestmentVehicle() instanceof Security security ? security.getUUID() : null, position.getValuation().getAmount(),
                             total == 0 ? null : position.getValuation().getAmount() / (double) total, quoteDate,
-                            position.getInvestmentVehicle() instanceof Security ? "security" : "cash");
+                            position.getInvestmentVehicle() instanceof Security ? "security" : "cash", icons.url(position.getInvestmentVehicle().getUUID()));
         }).sorted(Comparator.comparingLong(Holding::value).reversed()).toList();
 
         var series = new ArrayList<Point>();
@@ -269,7 +277,7 @@ final class DashboardService
                         holdings, List.copyOf(dividends), List.copyOf(warnings), BenchmarkService.options(portfolio.client()),
                         BenchmarkService.calculate(portfolio.client(), converter, openingDate, closingDate, benchmark),
                         coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate), rankings,
-                        waterfallMode == null ? null : waterfall(openingDate, closingDate, waterfallMode), drawdown(index), inceptionDate.toString(), defaultClosingDate().toString());
+                        waterfallMode == null ? null : waterfall(openingDate, closingDate, waterfallMode), drawdown(index), inceptionDate.toString(), defaultClosingDate().toString(), icons.urls());
     }
 
     private Drawdown drawdown(PerformanceIndex index)

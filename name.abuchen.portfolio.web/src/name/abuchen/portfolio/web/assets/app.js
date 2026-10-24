@@ -1,5 +1,21 @@
 'use strict';
 
+// Decorative logos never change link names, sorting or keyboard navigation.
+function assetIcon(name, url) {
+  const icon = document.createElement('span');
+  icon.className = 'asset-icon'; icon.setAttribute('aria-hidden', 'true');
+  icon.dataset.initials = (name || '?').trim().slice(0, 2).toLocaleUpperCase();
+  if (url && /^\/api\/icon\?id=[0-9a-f-]{36}(?:&v=[0-9a-f]{64})?$/i.test(url)) {
+    const image = document.createElement('img');
+    image.alt = ''; image.width = 24; image.height = 24;
+    image.loading = 'lazy'; image.decoding = 'async';
+    image.addEventListener('error', () => { image.remove(); icon.classList.remove('has-logo'); });
+    icon.classList.add('has-logo'); image.src = url; icon.append(image);
+  }
+  return icon;
+}
+
+
 const byId = id => document.getElementById(id);
 const text = (id, value) => { byId(id).textContent = value; };
 const percent = value => value === null ? 'Unavailable' : new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 2, signDisplay: 'exceptZero' }).format(value);
@@ -378,13 +394,14 @@ function render() {
   for (const holding of sortedRows('holdings-body', visibleHoldings)) {
     const row = document.createElement('tr');
     const nameCell = document.createElement('td');
+    nameCell.append(assetIcon(holding.name, holding.icon || report.icons?.[holding.uuid]));
     if (holding.type === 'security' && holding.uuid) {
       const link = document.createElement('a'); link.className = 'instrument-link';
       const filters = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '';
       link.href = `#/instrument/${encodeURIComponent(holding.uuid)}${filters}`;
       link.textContent = holding.name;
       nameCell.append(link);
-    } else nameCell.textContent = holding.name;
+    } else nameCell.append(document.createTextNode(holding.name));
     row.append(nameCell);
     cell(row, money(holding.value), true);
     cell(row, weight(holding.weight), true);
@@ -673,12 +690,19 @@ function renderAllocation() {
       const clip = svgElement('clipPath', { id: `allocation-clip-${index}` });
       clip.append(svgElement('rect', { x: tile.x + 12, y: tile.y + 8, width: Math.max(0, tile.width - 24), height: Math.max(0, tile.height - 16) })); defs.append(clip);
       const labels = svgElement('g', { 'clip-path': `url(#allocation-clip-${index})`, 'aria-hidden': true });
-      const characters = Math.max(8, Math.floor((tile.width - 28) / 7.5));
+      const logo = item.icon || report.icons?.[item.uuid];
+      const logoOffset = logo && tile.width > 140 ? 30 : 0;
+      if (logoOffset) {
+        const image = svgElement('image', { href: logo, x: tile.x + 13, y: tile.y + 11, width: 24, height: 24 });
+        image.addEventListener('error', () => image.remove());
+        labels.append(image);
+      }
+      const characters = Math.max(8, Math.floor((tile.width - 28 - logoOffset) / 7.5));
       const words = item.name.match(new RegExp(`.{1,${characters}}(?:\\s|$)|\\S{1,${characters}}`, 'g')) || [item.name];
       const lineCount = tile.height > 100 ? 2 : 1;
       words.slice(0, lineCount).forEach((word, line) => {
         const label = line === lineCount - 1 && words.length > lineCount ? `${word.trim().slice(0, characters - 1)}…` : word.trim();
-        labels.append(svgElement('text', { x: tile.x + 14, y: tile.y + 25 + line * 18, class: 'allocation-name' }, label));
+        labels.append(svgElement('text', { x: tile.x + 14 + logoOffset, y: tile.y + 25 + line * 18, class: 'allocation-name' }, label));
       });
       const narrow = tile.width < 190;
       labels.append(svgElement('text', { x: tile.x + 14, y: tile.y + tile.height - (narrow && tile.height > 110 ? 35 : 17), class: 'allocation-size' }, narrow ? weight(share) : `${weight(share)} · ${money(item.value)}`));
@@ -864,7 +888,7 @@ function renderRankings(rankings) {
       link.className = 'instrument-link';
       link.href = `#/instrument/${encodeURIComponent(item.uuid)}${filters}`;
       link.textContent = item.name || 'Unnamed security';
-      name.append(link);
+      name.append(assetIcon(item.name, report.icons?.[item.uuid]), link);
       row.append(name);
       cell(row, percent(item.rate), true);
       cell(row, item.gain == null ? 'Unavailable' : money(item.gain, true), true);
@@ -933,6 +957,7 @@ function renderInstrument(instrument) {
   const panel = byId('instrument-panel');
   panel.hidden = !selectedInstrument;
   if (!selectedInstrument) return;
+  byId('instrument-icon').replaceChildren(assetIcon(instrument?.name, report.icons?.[instrument?.uuid]));
   renderSecurityActivity(instrument?.activity);
   if (!instrument) {
     text('instrument-name', 'Instrument unavailable'); text('instrument-message', 'The selected instrument detail is unavailable.');

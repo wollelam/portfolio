@@ -200,6 +200,7 @@ async function main() {
     await page.locator('[data-route="holdings"]').click(); await waitForRoute(page, 'holdings', fixture);
     await page.locator('.instrument-link').first().click(); await waitForRoute(page, 'instrument', fixture);
     const instrumentSvg = page.locator('#instrument-chart');
+    await instrumentSvg.scrollIntoViewIfNeeded();
     const instrumentBox = await instrumentSvg.boundingBox();
     await page.mouse.move(instrumentBox.x + instrumentBox.width * 0.60, instrumentBox.y + instrumentBox.height * 0.5);
     const irregularHover = await page.locator('#instrument-chart-detail').innerText();

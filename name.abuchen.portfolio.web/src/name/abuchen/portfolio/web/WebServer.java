@@ -119,7 +119,21 @@ final class WebServer implements AutoCloseable
                 json(exchange, 405, Map.of("message", "This application is read-only."));
                 return;
             }
-            if ("/api/dashboard".equals(path))
+            if ("/api/icon".equals(path))
+            {
+                var raw = exchange.getRequestURI().getRawQuery();
+                if (raw == null || !raw.matches("id=[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:&v=[0-9a-f]{64})?"))
+                    json(exchange, 400, Map.of("message", "A single icon UUID is required."));
+                else
+                {
+                    var image = portfolios.snapshot().service().icon(raw.substring(3, 39).toLowerCase(java.util.Locale.ROOT));
+                    if (image == null)
+                        json(exchange, 404, Map.of("message", "Icon unavailable."));
+                    else
+                        send(exchange, 200, "image/png", image);
+                }
+            }
+            else if ("/api/dashboard".equals(path))
             {
                 try
                 {

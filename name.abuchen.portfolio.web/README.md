@@ -67,6 +67,22 @@ valuation through the closing valuation**, matching core interval semantics. Mon
 are integer hundredths of a currency unit, as in the core; return fields are decimal ratios.
 The chart includes every daily core data point, without financial formulas in JavaScript.
 
+## Embedded portfolio icons
+
+Holdings, performers, instrument headers and allocation tiles reuse the native **Logo** image
+attribute from securities and cash accounts. Missing or invalid images show initials in lists and
+headers; small allocation tiles retain their text labels. Logos follow the accepted portfolio
+snapshot and update through the normal automatic reload. Content fingerprints in icon URLs prevent
+the browser from reusing an outdated logo after a change.
+
+Only embedded PNGs are accepted, with bounded file size and dimensions. The server decodes and
+re-encodes them in memory, without fetching external URLs or reading image paths. The source
+portfolio is never modified. Dashboard JSON contains same-origin icon URLs rather than image data.
+`GET /api/icon?id=UUID` (with an optional `v=SHA256` cache version) returns a validated PNG or 404, with `Cache-Control: no-store`. Malformed
+queries return 400; other methods are rejected. Keep this exact route behind the same authentication
+as the dashboard and GET-only in any reverse-proxy allowlist. No CSP or CORS changes are required.
+The synthetic logo/browser regression is `name.abuchen.portfolio.web.tests/browser/icons.test.cjs`.
+
 ## Security performers
 
 The Performers page calculates per-security results only when opened. It uses the core's security
