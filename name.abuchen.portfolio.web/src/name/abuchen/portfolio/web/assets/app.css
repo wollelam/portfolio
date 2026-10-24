@@ -1050,3 +1050,12 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
   stroke:#dbe2e8;
   stroke-width:1;
 }
+
+.portfolio-scope { margin:14px 0; padding:16px; border:1px solid var(--border); border-radius:9px; background:#fff; }
+.portfolio-scope summary { cursor:pointer; font-weight:600; }
+#scope-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin:16px 0; max-height:360px; overflow:auto; }
+#scope-options fieldset { border:1px solid var(--border); border-radius:6px; min-width:0; }
+#scope-options label { display:flex; gap:8px; align-items:baseline; margin:8px 0; font-size:13px; }
+#scope-options input { flex-shrink:0; }
+.holding-live-price { font-size:12px; }
+.holding-live-price small { display:block; margin-top:4px; color:var(--muted); font-size:10px; white-space:nowrap; }

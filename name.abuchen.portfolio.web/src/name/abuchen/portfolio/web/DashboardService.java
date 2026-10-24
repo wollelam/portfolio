@@ -6,11 +6,13 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import name.abuchen.portfolio.model.Account;
 import name.abuchen.portfolio.model.AccountTransaction;
 import name.abuchen.portfolio.model.ClientFactory;
 import name.abuchen.portfolio.model.Security;
@@ -20,6 +22,7 @@ import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
+import name.abuchen.portfolio.snapshot.filter.ReadOnlyAccount;
 import name.abuchen.portfolio.snapshot.PerformanceBreakdown;
 import name.abuchen.portfolio.snapshot.PerformanceIndex;
 import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceSnapshot;
@@ -38,7 +41,7 @@ final class DashboardService
     {
     }
 
-    record Holding(String name, String uuid, long value, Double weight, String quoteDate, String type, String icon)
+    record Holding(String name, String uuid, long value, Double weight, String quoteDate, String type, String icon, String id, long shares, String quoteCurrency, String symbol)
     {
     }
 
@@ -66,7 +69,7 @@ final class DashboardService
                     long totalValue, Period day, Period week, Period period, List<Point> series, List<Holding> holdings,
                     List<Dividend> dividends, List<String> warnings, List<BenchmarkService.Option> benchmarks,
                     BenchmarkService.Result benchmark, PriceCoverage priceCoverage, String fxVersion, Instrument instrument,
-                    SecurityRankingService.Rankings rankings, Waterfall waterfall, Drawdown drawdown, String inceptionDate, String today, Map<String, String> icons)
+                    SecurityRankingService.Rankings rankings, Waterfall waterfall, Drawdown drawdown, String inceptionDate, String today, Map<String, String> icons, PortfolioScope.Selection scope)
     {
     }
 
@@ -92,6 +95,9 @@ final class DashboardService
     private final Clock clock;
     private final LocalDate inceptionDate;
     private final PortfolioIcons icons;
+    private final PortfolioScope scope;
+    private final List<String> exclusions;
+    private final Map<String, DashboardService> filtered = new LinkedHashMap<>();
     private final List<String> startupWarnings;
     private final FxRates.View rates;
 
@@ -103,20 +109,69 @@ final class DashboardService
     DashboardService(PortfolioSource.LoadedPortfolio portfolio, Clock clock, List<String> startupWarnings,
                     FxRates.View rates)
     {
+        this(portfolio, clock, startupWarnings, rates, new PortfolioScope(portfolio.client()), List.of(), null);
+    }
+
+    private DashboardService(PortfolioSource.LoadedPortfolio portfolio, Clock clock, List<String> startupWarnings,
+                    FxRates.View rates, PortfolioScope scope, List<String> exclusions, CurrencyConverterImpl inheritedConverter)
+    {
         this.portfolio = portfolio;
-        this.icons = new PortfolioIcons(portfolio.client());
+        this.scope = scope;
+        this.exclusions = exclusions;
+        this.icons = new PortfolioIcons(scope.client);
         this.clock = clock;
-        var accountDates = portfolio.client().getAccounts().stream().flatMap(a -> a.getTransactions().stream())
+        var accountDates = scope.client.getAccounts().stream().flatMap(a -> a.getTransactions().stream())
                         .map(t -> t.getDateTime().toLocalDate());
-        var portfolioDates = portfolio.client().getPortfolios().stream().flatMap(p -> p.getTransactions().stream())
+        var portfolioDates = scope.client.getPortfolios().stream().flatMap(p -> p.getTransactions().stream())
                         .map(t -> t.getDateTime().toLocalDate());
         this.inceptionDate = Stream.concat(accountDates, portfolioDates).filter(date -> !date.isAfter(LocalDate.now(clock)))
                         .min(Comparator.naturalOrder()).orElse(LocalDate.now(clock)).minusDays(1);
         this.startupWarnings = List.copyOf(startupWarnings);
         this.rates = rates;
-        this.converter = new CurrencyConverterImpl(rates == null ? new ExchangeRateProviderFactory(portfolio.client())
+        this.converter = inheritedConverter != null ? inheritedConverter : new CurrencyConverterImpl(rates == null ? new ExchangeRateProviderFactory(portfolio.client())
                         : rates.factory(portfolio.client()),
                         portfolio.client().getBaseCurrency());
+    }
+
+    synchronized DashboardService excluding(String value)
+    {
+        var selected = scope.parse(value);
+        if (selected.isEmpty())
+            return this;
+        var key = String.join(",", selected);
+        var existing = filtered.get(key);
+        if (existing != null)
+            return existing;
+        var loaded = new PortfolioSource.LoadedPortfolio(scope.filter(selected), portfolio.label(), portfolio.revision(),
+                        portfolio.loadedAt(), portfolio.demo());
+        var result = new DashboardService(loaded, clock, startupWarnings, rates, scope, selected, converter);
+        if (filtered.size() >= 12)
+            filtered.remove(filtered.keySet().iterator().next());
+        filtered.put(key, result);
+        return result;
+    }
+
+    record AllocationFrame(String date, long totalValue, List<Holding> holdings)
+    {
+    }
+
+    record AllocationFrames(String revision, String fxVersion, PortfolioScope.Selection scope, List<AllocationFrame> frames)
+    {
+    }
+
+    synchronized AllocationFrames allocationFrames(LocalDate from, LocalDate to)
+    {
+        if (from.isBefore(inceptionDate) || to.isAfter(defaultClosingDate()) || to.isBefore(from)
+                        || java.time.temporal.ChronoUnit.DAYS.between(from, to) > 92)
+            throw new IllegalArgumentException("Choose at most 93 recorded allocation dates");
+        var frames = new ArrayList<AllocationFrame>();
+        for (var date = from; !date.isAfter(to); date = date.plusDays(1))
+        {
+            var snapshot = ClientSnapshot.create(portfolio.client(), converter, date);
+            frames.add(new AllocationFrame(date.toString(), snapshot.getMonetaryAssets().getAmount(),
+                            holdings(snapshot, date, new LinkedHashSet<>())));
+        }
+        return new AllocationFrames(portfolio.revision(), fxVersion(), scope.selection(exclusions), List.copyOf(frames));
     }
 
     byte[] icon(String uuid)
@@ -189,26 +244,7 @@ final class DashboardService
         var week = period(index(closingDate.minusWeeks(1), closingDate, warnings));
         var snapshot = ClientSnapshot.create(portfolio.client(), converter, closingDate);
         long total = snapshot.getMonetaryAssets().getAmount();
-        var holdings = snapshot.getAssetPositions().map(position -> {
-            String quoteDate = null;
-            if (position.getInvestmentVehicle() instanceof Security security)
-            {
-                var prices = security.getPricesIncludingLatest().stream()
-                                .filter(p -> !p.getDate().isAfter(closingDate))
-                                .max(Comparator.comparing(p -> p.getDate()));
-                if (prices.isEmpty())
-                    warnings.add("Missing closing quote: " + security.getName());
-                else
-                {
-                    quoteDate = prices.get().getDate().toString();
-                    if (prices.get().getDate().isBefore(closingDate.minusDays(7)))
-                        warnings.add("Quote older than 7 calendar days: " + security.getName() + " (" + quoteDate + ")");
-                }
-            }
-            return new Holding(position.getDescription(), position.getInvestmentVehicle() instanceof Security security ? security.getUUID() : null, position.getValuation().getAmount(),
-                            total == 0 ? null : position.getValuation().getAmount() / (double) total, quoteDate,
-                            position.getInvestmentVehicle() instanceof Security ? "security" : "cash", icons.url(position.getInvestmentVehicle().getUUID()));
-        }).sorted(Comparator.comparingLong(Holding::value).reversed()).toList();
+        var holdings = holdings(snapshot, closingDate, warnings);
 
         var series = new ArrayList<Point>();
         var investedCapital = index.calculateInvestedCapital();
@@ -274,10 +310,40 @@ final class DashboardService
                         ? SecurityRankingService.calculate(portfolio.client(), converter, openingDate, closingDate) : null;
         return new Dashboard(portfolio.label(), portfolio.revision(), portfolio.loadedAt().toString(), portfolio.demo(),
                         converter.getTermCurrency(), closingDate.toString(), total, day, week, period(index), series,
-                        holdings, List.copyOf(dividends), List.copyOf(warnings), BenchmarkService.options(portfolio.client()),
-                        BenchmarkService.calculate(portfolio.client(), converter, openingDate, closingDate, benchmark),
+                        holdings, List.copyOf(dividends), List.copyOf(warnings), BenchmarkService.options(scope.client),
+                        BenchmarkService.calculate(scope.client, converter, openingDate, closingDate, benchmark),
                         coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate), rankings,
-                        waterfallMode == null ? null : waterfall(openingDate, closingDate, waterfallMode), drawdown(index), inceptionDate.toString(), defaultClosingDate().toString(), icons.urls());
+                        waterfallMode == null ? null : waterfall(openingDate, closingDate, waterfallMode), drawdown(index), inceptionDate.toString(), defaultClosingDate().toString(), icons.urls(), scope.selection(exclusions));
+    }
+
+    private List<Holding> holdings(ClientSnapshot snapshot, LocalDate closingDate, Set<String> warnings)
+    {
+        long total = snapshot.getMonetaryAssets().getAmount();
+        return snapshot.getAssetPositions().map(position -> {
+            String quoteDate = null;
+            if (position.getInvestmentVehicle() instanceof Security security)
+            {
+                var prices = security.getPricesIncludingLatest().stream()
+                                .filter(p -> !p.getDate().isAfter(closingDate))
+                                .max(Comparator.comparing(p -> p.getDate()));
+                if (prices.isEmpty())
+                    warnings.add("Missing closing quote: " + security.getName());
+                else
+                {
+                    quoteDate = prices.get().getDate().toString();
+                    if (prices.get().getDate().isBefore(closingDate.minusDays(7)))
+                        warnings.add("Quote older than 7 calendar days: " + security.getName() + " (" + quoteDate + ")");
+                }
+            }
+            var vehicle = position.getInvestmentVehicle();
+            var vehicleId = vehicle instanceof Account account ? ReadOnlyAccount.unwrap(account).getUUID() : vehicle.getUUID();
+            return new Holding(position.getDescription(), position.getInvestmentVehicle() instanceof Security security ? security.getUUID() : null, position.getValuation().getAmount(),
+                            total == 0 ? null : position.getValuation().getAmount() / (double) total, quoteDate,
+                            position.getInvestmentVehicle() instanceof Security ? "security" : "cash", icons.url(vehicleId),
+                            vehicleId, position.getPosition().getShares(),
+                            position.getInvestmentVehicle().getCurrencyCode(),
+                            position.getInvestmentVehicle() instanceof Security security ? security.getTickerSymbol() : null);
+        }).sorted(Comparator.comparingLong(Holding::value).reversed()).toList();
     }
 
     private Drawdown drawdown(PerformanceIndex index)
@@ -314,7 +380,7 @@ final class DashboardService
 
     private Instrument instrument(String uuid, LocalDate openingDate, LocalDate closingDate)
     {
-        var security = portfolio.client().getSecurities().stream().filter(s -> uuid.equals(s.getUUID())).findFirst().orElse(null);
+        var security = scope.client.getSecurities().stream().filter(s -> uuid.equals(s.getUUID())).findFirst().orElse(null);
         if (security == null)
             return new Instrument(uuid, null, null, Values.Quote.divider(), 0, null, null, null, null, null, 0, List.of(),
                             "This instrument is no longer available in the loaded portfolio.", SecurityActivityService.empty());

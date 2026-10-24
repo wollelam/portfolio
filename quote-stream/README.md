@@ -66,10 +66,34 @@ unavailable indication. Gateway disconnections use reconnect backoff and rebuild
 login/2FA and server-side permissions remain operational prerequisites. Raw broker error strings
 and account identifiers are not included in the web-facing snapshot.
 
-This pilot does **not** apply quotes to portfolio performance, infer holdings from IBKR, or persist
-quotes to the Google Drive portfolio. The next step after validating real Gateway data is reviewed
-portfolio-security mapping, then an explicitly labelled live valuation overlay using the native
-calculation engine and known position/FX timestamps.
+## Portfolio Holdings integration
+
+The Holdings page has separate **IBKR price** and **IBKR position value** columns, polled once per
+second while visible. To map a contract, set its collector `key` to the exact portfolio security UUID
+(the ID in its instrument-detail URL). Review and qualify the IBKR contract, including its currency,
+primary exchange and, preferably, pinned `con_id`. Symbols alone are never used to match a holding.
+Only a connected real IBKR feed with one matching key, matching quote currency, a positive qualified
+contract ID and a fresh usable price is shown. Simulated, duplicate, stale and mismatched rows do not
+produce a value. Delayed and frozen feeds are labelled explicitly, alongside currency and receipt time.
+
+Position value uses the file's current held quantity, including any selected native group filters,
+and is displayed in the instrument's currency. It is an indicative gross value without live FX,
+taxes or fees. Historical valuation dates disable the overlay. These columns do not change saved
+portfolio values, performance, allocation, or the Google Drive file, and do not infer broker positions.
+The authenticated Gateway path still needs to be verified with the new IBKR username.
+
+Create a private watchlist **draft**, outside the checkout, using selected instrument IDs:
+
+```sh
+python3 quote-stream/prepare_watchlist.py --security SECURITY_UUID --security ANOTHER_UUID \
+  --output ~/.local/state/portfolio-web-admin/ibkr-watchlist-draft.json
+```
+
+The tool reads the loopback dashboard, writes a new mode-0600 file, refuses overwrite and does not
+connect to IBKR. `--exclude` accepts exclusion IDs from a filtered dashboard URL. It deliberately
+sets `primary_exchange` to `REVIEW`: verify every symbol, currency and listing, replace that marker,
+add verified contract IDs, and set the actual Gateway host/port before using the config. The web
+quote currency must match; no automatic GBX/GBP or other price-unit conversions are performed.
 
 ## Gateway container option
 

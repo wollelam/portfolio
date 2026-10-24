@@ -87,6 +87,30 @@ as the dashboard and GET-only in any reverse-proxy allowlist. No CSP or CORS cha
 Synthetic logo/browser regressions are `name.abuchen.portfolio.web.tests/browser/icons.test.cjs`
 and `chart-logos.test.cjs`.
 
+## Portfolio scope and allocation playback
+
+Open **Portfolio filters** and check groups to exclude. The options reuse saved native account/portfolio
+groups, including pensions where configured, and expose individual securities and cash accounts.
+Exclusions apply to native transactions before calculating values, returns, dividends, instrument
+activity, rankings and waterfalls. Securities held outside an excluded account remain in scope.
+Weighted ownership groups retain the complementary share; overlapping exclusions use the largest
+excluded weight once. Benchmarks and FX retain the original portfolio context. Choices travel in
+the URL and survive navigation/reload; **Include all groups** restores the entire portfolio.
+
+Allocation playback defaults to daily steps at ten per second, with four and twenty steps per second
+available. It buffers 31 daily native position snapshots per request instead of recalculating the
+full performance report for each date. Tile geometry transitions locally between dated snapshots;
+values and tooltips always refer to the displayed native date. Reduced-motion preferences disable
+the transitions. Pause, manual dates, group changes, navigation and hidden tabs stop playback.
+The frame cache is bounded and keyed by source revision, FX context and group exclusions.
+The existing protected dashboard endpoint accepts `frames=true`, ISO `from`/`to`, and optional
+`exclude` IDs for at most 93 daily snapshots. Invalid IDs and out-of-history dates are rejected.
+
+Holdings also shows explicitly mapped IBKR quotes and indicative position values in instrument
+currencies. See [quote-stream/README.md](../quote-stream/README.md) for private watchlist preparation
+and the remaining authenticated-Gateway setup. Synthetic integration checks are in
+`name.abuchen.portfolio.web.tests/browser/live-scope-playback.test.cjs`.
+
 ## Security performers
 
 The Performers page calculates per-security results only when opened. It uses the core's security

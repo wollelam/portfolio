@@ -15,6 +15,7 @@ import name.abuchen.portfolio.model.Account;
 import name.abuchen.portfolio.model.AccountTransaction;
 import name.abuchen.portfolio.model.BuySellEntry;
 import name.abuchen.portfolio.model.Client;
+import name.abuchen.portfolio.model.Classification;
 import name.abuchen.portfolio.model.CostMethod;
 import name.abuchen.portfolio.model.Portfolio;
 import name.abuchen.portfolio.model.PortfolioTransaction;
@@ -25,6 +26,7 @@ import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceSnapshot;
+import name.abuchen.portfolio.snapshot.filter.PortfolioClientFilter;
 import name.abuchen.portfolio.util.Interval;
 
 @SuppressWarnings("nls")
@@ -72,6 +74,17 @@ public class NonCashDistributionsTest
         var childRecord = LazySecurityPerformanceSnapshot.create(client, converter, Interval.of(day.minusDays(1), day))
                         .getRecord(child).orElseThrow();
         assertEquals(0, childRecord.getRealizedCapitalGains(CostMethod.FIFO).getCapitalGains().getAmount());
+        for (var weights : List.of(java.util.Map.<Object, Integer>of(),
+                        java.util.Map.<Object, Integer>of(portfolio, Classification.ONE_HUNDRED_PERCENT / 2,
+                                        cash, Classification.ONE_HUNDRED_PERCENT / 2)))
+        {
+            var filtered = new PortfolioClientFilter(List.of(portfolio), List.of(cash), weights).filter(client);
+            var view = new DashboardService(new PortfolioSource.LoadedPortfolio(filtered, "Filtered", "filtered", clock.instant(), true), clock, List.of());
+            var filteredReport = view.dashboard(day.minusDays(1), day, null, parent.getUUID(), true);
+            assertTrue(filteredReport.dividends().isEmpty());
+            assertEquals(0, filteredReport.instrument().dividends());
+            assertTrue(filteredReport.instrument().activity().dividends().isEmpty());
+        }
         distribution.setAmount(29_999);
         assertFalse(NonCashDistributions.isSpinOff(client, cash, distribution));
         assertEquals(1, service.dashboard(day.minusDays(1), day).dividends().size());

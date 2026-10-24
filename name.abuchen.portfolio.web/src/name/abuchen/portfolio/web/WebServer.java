@@ -139,9 +139,14 @@ final class WebServer implements AutoCloseable
                 {
                     var params = query(exchange.getRequestURI().getRawQuery());
                     var snapshot = portfolios.snapshot();
-                    var service = snapshot.service();
+                    var service = snapshot.service().excluding(params.get("exclude"));
                     var to = params.containsKey("to") ? LocalDate.parse(params.get("to")) : service.defaultClosingDate();
                     var from = params.containsKey("from") ? LocalDate.parse(params.get("from")) : to.minusYears(1);
+                    if ("true".equals(params.get("frames")))
+                    {
+                        json(exchange, 200, service.allocationFrames(from, to));
+                        return;
+                    }
                     var dashboard = gson.toJsonTree(service.dashboard(from, to, params.get("benchmark"), params.get("instrument"),
                                     Boolean.parseBoolean(params.getOrDefault("rankings", "false")), params.get("waterfall"))).getAsJsonObject();
                     dashboard.add("refresh", gson.toJsonTree(snapshot.status()));
@@ -150,7 +155,7 @@ final class WebServer implements AutoCloseable
                 }
                 catch (IllegalArgumentException | DateTimeParseException e)
                 {
-                    json(exchange, 400, Map.of("message", "Invalid date range. Use ISO dates, from before to, no future dates, and a range within 10 years or the portfolio's recorded history."));
+                    json(exchange, 400, Map.of("message", "Invalid portfolio request. Check ISO dates, excluded group IDs and selected instruments. Use a recorded range with no future dates; allocation batches support at most 93 days."));
                 }
                 catch (RuntimeException e)
                 {
@@ -183,10 +188,12 @@ final class WebServer implements AutoCloseable
         {
             var parts = pair.split("=", 2);
             var key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
-            if (!(key.equals("from") || key.equals("to") || key.equals("benchmark") || key.equals("instrument") || key.equals("rankings") || key.equals("waterfall")) || parts.length != 2
+            if (!(key.equals("exclude") || key.equals("frames") || key.equals("from") || key.equals("to") || key.equals("benchmark") || key.equals("instrument") || key.equals("rankings") || key.equals("waterfall")) || parts.length != 2
                             || params.putIfAbsent(key, URLDecoder.decode(parts[1], StandardCharsets.UTF_8)) != null)
                 throw new IllegalArgumentException("Unknown or duplicate parameter");
         }
+        if (params.containsKey("frames") && !params.get("frames").equals("true"))
+            throw new IllegalArgumentException("Invalid allocation frame flag");
         if (params.containsKey("rankings") && !(params.get("rankings").equals("true") || params.get("rankings").equals("false")))
             throw new IllegalArgumentException("Invalid rankings flag");
         if (params.containsKey("instrument") && !params.get("instrument")

@@ -45,7 +45,13 @@ let securityActivity;
 let activityKey = '';
 const activityPages = { dividends: 0, transactions: 0 };
 const activityPageSize = 25;
+let excludedGroups = new Set();
 let allocationDate = '';
+let allocationFrameController;
+let allocationFrameKey = '';
+let allocationFramePromise;
+const allocationFrames = new Map();
+let allocationTransition = 0;
 let allocationTimer;
 let allocationPlaying = false;
 let allocationPlaybackTimer;
@@ -178,6 +184,7 @@ function routeUrl() {
   if (rankingBasis !== 'rate') params.set('basis', rankingBasis);
   if (currentRoute === 'allocation' && allocationDate) params.set('asof', allocationDate);
   if (securitySearch) params.set('q', securitySearch);
+  if (excludedGroups.size) params.set('exclude', [...excludedGroups].sort().join(','));
   if (rankingLimit !== '10') params.set('entries', rankingLimit);
   if (waterfallMode !== 'calculation') params.set('waterfall', waterfallMode);
   if (Object.keys(tableSorts).length) params.set('sort', Object.entries(tableSorts).map(([id, sort]) => `${id}:${sort.column}:${sort.direction}`).join(','));
@@ -207,6 +214,7 @@ function syncRouteUrl() {
 function showRoute() {
   hideWaterfallTooltip();
   const quotePage = currentRoute === 'live-quotes';
+  byId('portfolio-scope').hidden = quotePage;
   document.body.classList.toggle('quote-page', quotePage);
   text('portfolio-label', quotePage ? 'Independent, read-only quote watchlist' : report?.label || 'Loading portfolio…');
   text('refresh', quotePage ? '↻ Refresh quotes' : '↻ Refresh dashboard');
@@ -254,6 +262,7 @@ async function enterRoute() {
   activePreset = route.params.get('preset') || null;
   rankingBasis = route.params.get('basis') === 'gain' ? 'gain' : 'rate';
   updateChoiceButtons();
+  excludedGroups = new Set((route.params.get('exclude') || '').split(',').filter(Boolean));
   securitySearch = (route.params.get('q') || '').slice(0, 120);
   byId('security-search').value = securitySearch;
   rankingLimit = ['10', '25', '50', 'all'].includes(route.params.get('entries')) ? route.params.get('entries') : '10';
@@ -387,6 +396,7 @@ function render() {
     li.textContent = warning;
     warnings.append(li);
   }
+  renderPortfolioScope();
   const holdings = byId('holdings-body');
   holdings.replaceChildren();
   const visibleHoldings = report.holdings.filter(matchesSecurity);
@@ -406,9 +416,14 @@ function render() {
     cell(row, money(holding.value), true);
     cell(row, weight(holding.weight), true);
     cell(row, holding.quoteDate ? dateLabel(holding.quoteDate) : '—');
+    const livePrice = document.createElement('td'), liveValue = document.createElement('td');
+    livePrice.className = 'holding-live-price numeric'; liveValue.className = 'holding-live-value numeric';
+    livePrice.dataset.uuid = holding.uuid || ''; liveValue.dataset.uuid = holding.uuid || '';
+    row.append(livePrice, liveValue);
     holdings.append(row);
   }
-  if (!visibleHoldings.length) emptyRow(holdings, 4, securitySearch ? 'No positions match your search.' : 'No holdings or cash accounts at this valuation date.');
+  if (!visibleHoldings.length) emptyRow(holdings, 6, securitySearch ? 'No positions match your search.' : 'No holdings or cash accounts at this valuation date.');
+  renderHoldingsLive();
   renderInstrument(report.instrument);
   renderRankings(report.rankings);
   renderWaterfall(report.waterfall);
@@ -466,6 +481,73 @@ function renderLivePrice(cell, value, currency, field) {
   cell.setAttribute('aria-label', `${field}: ${formatted} ${currency}${direction ? `, ${direction} since previous update` : ''}`);
 }
 
+
+function renderPortfolioScope() {
+  const options = report.scope?.options || [];
+  text('scope-summary', excludedGroups.size ? `Portfolio filters · ${excludedGroups.size} excluded` : 'Portfolio filters · all groups included');
+  const holder = byId('scope-options');
+  const key = JSON.stringify([options, [...excludedGroups].sort()]);
+  if (holder.dataset.key === key) return;
+  holder.dataset.key = key; holder.replaceChildren();
+  for (const type of [...new Set(options.map(option => option.type))]) {
+    const fieldset = document.createElement('fieldset'), legend = document.createElement('legend');
+    legend.textContent = type; fieldset.append(legend);
+    for (const option of options.filter(option => option.type === type)) {
+      const label = document.createElement('label'), checkbox = document.createElement('input');
+      checkbox.type = 'checkbox'; checkbox.checked = excludedGroups.has(option.id); checkbox.value = option.id;
+      checkbox.addEventListener('change', () => {
+        stopAllocationPlayback();
+        if (checkbox.checked) excludedGroups.add(option.id); else excludedGroups.delete(option.id);
+        syncRouteUrl(); load(byId('from').value, byId('to').value);
+      });
+      label.append(checkbox, document.createTextNode(`Exclude ${option.name}`)); fieldset.append(label);
+    }
+    holder.append(fieldset);
+  }
+}
+byId('scope-reset').addEventListener('click', () => {
+  stopAllocationPlayback(); excludedGroups.clear(); syncRouteUrl(); load(byId('from').value, byId('to').value);
+});
+
+function holdingBrokerQuote(holding) {
+  const feed = market?.liveQuotes;
+  if (report.asOf !== report.today) return { message: 'Historical date' };
+  if (liveConnectionError || !feed?.available || !feed.connected || feed.mode !== 'ibkr') return { message: feed?.mode === 'demo' ? 'Simulation only' : 'Not connected' };
+  const matches = (feed.quotes || []).filter(entry => entry.quote.key === holding.uuid);
+  if (matches.length !== 1) return { message: 'Not mapped' };
+  const entry = matches[0], quote = entry.quote;
+  if (quote.currency !== holding.quoteCurrency || !Number.isSafeInteger(quote.conId) || quote.conId <= 0) return { message: 'Identity mismatch' };
+  const received = Date.parse(quote.receivedAt), heartbeat = Date.parse(feed.generatedAt);
+  if (entry.stale || quote.status !== 'active' || !Number.isFinite(received) || !Number.isFinite(heartbeat)
+      || Date.now() - received > 60000 || Date.now() - heartbeat > 8000) return { message: 'Stale / unavailable' };
+  if (!['real_time', 'delayed', 'frozen', 'delayed_frozen'].includes(quote.marketDataType)
+      || !Number.isFinite(quote.last) || quote.last <= 0 || !Number.isSafeInteger(holding.shares)) return { message: 'Price unavailable' };
+  return { quote, message: `${quote.marketDataType.replaceAll('_', ' ')} · ${quote.currency} · ${liveTime(quote.receivedAt)}` };
+}
+
+function renderHoldingsLive() {
+  if (!report || currentRoute !== 'holdings') return;
+  let covered = 0;
+  const holdings = new Map(report.holdings.filter(item => item.uuid).map(item => [item.uuid, item]));
+  for (const cell of document.querySelectorAll('.holding-live-price')) {
+    const holding = holdings.get(cell.dataset.uuid);
+    const value = cell.parentElement.querySelector('.holding-live-value');
+    if (!holding) { cell.textContent = '—'; value.textContent = '—'; continue; }
+    const broker = holdingBrokerQuote(holding);
+    if (!broker.quote) { cell.textContent = broker.message; cell.classList.remove('quote-up', 'quote-down'); cell.dataset.value = ''; value.textContent = '—'; continue; }
+    covered++;
+    let tick = cell.querySelector('.holding-live-tick'), meta = cell.querySelector('small');
+    if (!tick) {
+      tick = document.createElement('span'); tick.className = 'holding-live-tick'; meta = document.createElement('small');
+      cell.replaceChildren(tick, meta);
+    }
+    renderLivePrice(tick, broker.quote.last, broker.quote.currency, 'IBKR price');
+    meta.textContent = broker.message;
+    const amount = broker.quote.last * holding.shares / 1e8;
+    value.textContent = Number.isFinite(amount) ? new Intl.NumberFormat(undefined, { style: 'currency', currency: broker.quote.currency }).format(amount) : 'Unavailable';
+  }
+  text('holdings-live-status', `${covered} of ${holdings.size} securities have a fresh, explicitly mapped IBKR quote. Broker position values use stored quantities and instrument currencies. Saved portfolio performance is unchanged.`);
+}
 
 function renderLiveQuotes() {
   const feed = market?.liveQuotes;
@@ -545,7 +627,7 @@ function renderLiveQuotes() {
 }
 
 async function checkLiveQuotes() {
-  if (document.hidden || currentRoute !== 'live-quotes' || livePollBusy) return;
+  if (document.hidden || !['live-quotes', 'holdings'].includes(currentRoute) || livePollBusy) return;
   livePollBusy = true;
   try {
     const response = await fetch('/api/price-updates', { cache: 'no-store' });
@@ -554,7 +636,8 @@ async function checkLiveQuotes() {
     setMarket(await response.json());
   } catch {
     liveConnectionError = true;
-    renderLiveQuotes();
+    if (currentRoute === 'live-quotes') renderLiveQuotes();
+    renderHoldingsLive();
   } finally { livePollBusy = false; }
 }
 
@@ -589,12 +672,78 @@ function selectAllocationDate(date, immediate = false, playback = false) {
   syncRouteUrl(); clearTimeout(allocationTimer); allocationTimer = null;
   if (report.asOf === date && !busy) return;
   text('allocation-date-status', `Loading ${dateLabel(date)}; chart still shows ${dateLabel(report.asOf)}`);
+  if (playback) return showBufferedAllocation(date);
   const refresh = () => { allocationTimer = null; return currentRoute === 'allocation' ? load() : null; };
   if (immediate) return refresh(); else allocationTimer = setTimeout(refresh, 250);
 }
+function allocationCacheIdentity() {
+  return JSON.stringify([report.revision, report.fxVersion, [...excludedGroups].sort()]);
+}
+async function fetchAllocationFrames(date) {
+  const key = allocationCacheIdentity();
+  if (allocationFrameKey !== key) { allocationFrames.clear(); allocationFrameKey = key; }
+  if (allocationFrames.size && date < [...allocationFrames.keys()].sort()[0]) allocationFrames.clear();
+  if (allocationFrames.has(date)) return allocationFrames.get(date);
+  if (allocationFramePromise) {
+    await allocationFramePromise;
+    if (allocationFrames.has(date)) return allocationFrames.get(date);
+  }
+  const controller = new AbortController(); allocationFrameController = controller;
+  const end = iso(new Date(Math.min(Date.parse(report.today + 'T12:00:00Z'), Date.parse(date + 'T12:00:00Z') + 30 * 86400000)));
+  const params = new URLSearchParams({ frames: 'true', from: date, to: end });
+  if (excludedGroups.size) params.set('exclude', [...excludedGroups].sort().join(','));
+  const pending = (async () => {
+    const response = await fetch(`/api/dashboard?${params}`, { cache: 'no-store', signal: controller.signal });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Allocation history unavailable.');
+    if (controller.signal.aborted || key !== allocationCacheIdentity()
+        || data.revision !== report.revision || data.fxVersion !== report.fxVersion
+        || JSON.stringify(data.scope?.excluded || []) !== JSON.stringify([...excludedGroups].sort())) throw new Error('Portfolio changed during playback; refresh before playing again.');
+    for (const frame of data.frames) allocationFrames.set(frame.date, frame);
+    // Bound memory for long histories and stop retaining frames from earlier windows.
+    if (allocationFrames.size > 186) {
+      const oldest = [...allocationFrames.keys()].sort().slice(0, allocationFrames.size - 186);
+      oldest.forEach(day => allocationFrames.delete(day));
+    }
+  })();
+  allocationFramePromise = pending;
+  try { await pending; }
+  finally {
+    if (allocationFrameController === controller) { allocationFrameController = null; allocationFramePromise = null; }
+  }
+  return allocationFrames.get(date);
+}
+async function showBufferedAllocation(date) {
+  const generation = allocationPlaybackGeneration;
+  try {
+    const frame = await fetchAllocationFrames(date);
+    if (!allocationPlaying || generation !== allocationPlaybackGeneration || currentRoute !== 'allocation') return null;
+    if (!frame) throw new Error('Allocation date unavailable.');
+    report = { ...report, asOf: frame.date, totalValue: frame.totalValue, holdings: frame.holdings };
+    allocationTransition = Number(byId('allocation-speed').value);
+    renderAllocation(); allocationTransition = 0;
+    // Keep a window of daily native valuations ahead of the player.
+    const ahead = iso(new Date(Math.min(Date.parse(report.today + 'T12:00:00Z'), Date.parse(date + 'T12:00:00Z') + 15 * 86400000)));
+    if (!allocationFramePromise && !allocationFrames.has(ahead)) {
+      fetchAllocationFrames(ahead).catch(error => {
+        if (error.name !== 'AbortError' && allocationPlaying && generation === allocationPlaybackGeneration) {
+          stopAllocationPlayback(); text('allocation-date-status', error.message);
+        }
+      });
+    }
+    return frame;
+  } catch (error) {
+    if (error.name !== 'AbortError') { text('error', error.message || 'Could not load allocation history.'); byId('error').hidden = false; }
+    return null;
+  }
+}
+
 function stopAllocationPlayback() {
+  const wasPlaying = allocationPlaying;
   allocationPlaying = false; allocationPlaybackGeneration++;
   clearTimeout(allocationPlaybackTimer); allocationPlaybackTimer = null;
+  allocationFrameController?.abort(); allocationFrameController = null; allocationFramePromise = null;
+  if (wasPlaying && report && currentRoute === 'allocation') { allocationDate = report.asOf; renderAllocationTimeline(); }
   text('allocation-play', '▶ Play'); byId('allocation-play').setAttribute('aria-pressed', 'false');
 }
 function nextAllocationDate(date) {
@@ -608,7 +757,7 @@ function nextAllocationDate(date) {
   return iso(next) > report.today ? report.today : iso(next);
 }
 byId('allocation-play').addEventListener('click', () => {
-  if (allocationPlaying) { stopAllocationPlayback(); return; }
+  if (allocationPlaying) { stopAllocationPlayback(); allocationDate = report.asOf; renderAllocationTimeline(); syncRouteUrl(); return; }
   if (!report || busy || currentRoute !== 'allocation') return;
   allocationPlaying = true; const generation = ++allocationPlaybackGeneration;
   text('allocation-play', 'Ⅱ Pause'); byId('allocation-play').setAttribute('aria-pressed', 'true');
@@ -619,11 +768,11 @@ byId('allocation-play').addEventListener('click', () => {
     if (!allocationPlaying || generation !== allocationPlaybackGeneration) return;
     if (!data) { allocationDate = report.asOf; renderAllocationTimeline(); stopAllocationPlayback(); return; }
     if (next >= report.today) { stopAllocationPlayback(); return; }
-    allocationPlaybackTimer = setTimeout(advance, 700);
+    allocationPlaybackTimer = setTimeout(advance, Number(byId('allocation-speed').value));
   };
   advance((allocationDate || report.asOf) >= report.today);
 });
-document.addEventListener('visibilitychange', () => { if (document.hidden) stopAllocationPlayback(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { stopAllocationPlayback(); if (currentRoute === 'allocation') syncRouteUrl(); } });
 
 byId('allocation-position').addEventListener('input', event => selectAllocationDate(iso(new Date(Date.parse(report.inceptionDate + 'T12:00:00Z') + Number(event.target.value) * 86400000))));
 byId('allocation-position').addEventListener('change', () => { if (allocationTimer) selectAllocationDate(allocationDate, true); });
@@ -716,7 +865,13 @@ function renderAllocation() {
   text('allocation-cash', money(cash));
   text('allocation-cash-weight', report.totalValue === 0 ? 'Net portfolio weight unavailable at zero value' : `${weight(cash / report.totalValue)} of net portfolio value`);
   text('allocation-summary', `${dateLabel(report.asOf)} · ${positions.length} non-zero positions · Gross exposure ${money(gross)} · Net portfolio value ${money(report.totalValue)}`);
-  const svg = byId('allocation-chart'); svg.replaceChildren();
+  const svg = byId('allocation-chart');
+  const previousTiles = new Map([...svg.querySelectorAll('.allocation-tile')].map(group => {
+    const rect = group.querySelector('rect');
+    return [group.dataset.key, { x: Number(rect.getAttribute('x')) - 2, y: Number(rect.getAttribute('y')) - 2,
+      width: Number(rect.getAttribute('width')) + 4, height: Number(rect.getAttribute('height')) + 4 }];
+  }));
+  svg.replaceChildren();
   const mobile = window.matchMedia('(max-width:760px)').matches;
   const width = Math.max(650, Math.min(1100, window.innerWidth - (mobile ? 84 : 370))), height = 420;
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -740,9 +895,16 @@ function renderAllocation() {
     const item = tile.item, share = Math.abs(item.value) / gross, netWeight = report.totalValue === 0 ? null : item.value / report.totalValue;
     const description = `${item.name}: ${money(item.value)} · ${weight(share)} of gross exposure · ${netWeight == null ? 'net weight unavailable' : `${weight(netWeight)} net portfolio weight`}${item.count ? ` · ${item.count} grouped positions` : ''}`;
     const group = svgElement('g', { tabindex: 0, role: item.uuid ? 'link' : 'img', class: 'allocation-tile', 'aria-label': `${description}${item.uuid ? '. Open security details' : ''}`, 'data-allocation-value': item.value });
+    group.dataset.key = item.uuid || item.id || item.name;
     const fill = item.value < 0 ? 'url(#allocation-negative)' : item.type === 'cash' ? '#526479' : palette[index % palette.length];
     group.append(svgElement('title', {}, description), svgElement('rect', { x: tile.x + 2, y: tile.y + 2, width: Math.max(0, tile.width - 4), height: Math.max(0, tile.height - 4), rx: 7, fill }));
     renderAllocationLabel(group, defs, tile, index, share);
+    const previous = previousTiles.get(group.dataset.key);
+    if (allocationTransition && previous && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      group.style.transformOrigin = `${tile.x}px ${tile.y}px`;
+      group.animate([{ transform: `translate(${previous.x - tile.x}px, ${previous.y - tile.y}px) scale(${previous.width / tile.width}, ${previous.height / tile.height})` },
+        { transform: 'none' }], { duration: allocationTransition, easing: 'linear' });
+    }
     const inspect = () => text('allocation-detail', description);
     group.addEventListener('pointerenter', inspect); group.addEventListener('focus', inspect);
     if (item.uuid) {
@@ -1030,6 +1192,7 @@ function setMarket(data) {
   }
   renderMarket();
   if (currentRoute === 'live-quotes') renderLiveQuotes();
+  renderHoldingsLive();
 }
 
 function renderMarket() {
@@ -1318,6 +1481,7 @@ async function load(from, to, silent = false) {
     if (from) params.set('from', from);
     if (to) params.set('to', to);
     if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
+    if (excludedGroups.size) params.set('exclude', [...excludedGroups].sort().join(','));
     if (selectedInstrument) params.set('instrument', selectedInstrument);
     if (currentRoute === 'performers') params.set('rankings', 'true');
     if (currentRoute === 'waterfall') params.set('waterfall', waterfallMode);
@@ -1328,7 +1492,8 @@ async function load(from, to, silent = false) {
     const unchanged = silent && report && report.revision === data.revision && report.loadedAt === data.loadedAt
       && report.period.openingDate === data.period.openingDate && report.period.closingDate === data.period.closingDate
       && report.benchmark?.uuid === data.benchmark?.uuid && report.fxVersion === data.fxVersion
-      && report.instrument?.uuid === data.instrument?.uuid;
+      && report.instrument?.uuid === data.instrument?.uuid
+      && JSON.stringify(report.scope?.excluded) === JSON.stringify(data.scope?.excluded);
 
     refreshConnectionError = null;
     report = data;
@@ -1423,7 +1588,7 @@ for (const measure of ['return', 'value']) byId('mode-' + measure).addEventListe
 window.matchMedia('(max-width:760px)').addEventListener('change', () => { drawChart(); if (currentRoute === 'live-quotes') renderLiveQuotes(); if (currentRoute === 'allocation') renderAllocation(); });
 function checkForUpdates() {
   if (allocationPlaying) return;
-  if (report && !document.hidden && currentRoute !== 'live-quotes') load(report.period.openingDate, report.period.closingDate, true);
+  if (report && !document.hidden && currentRoute !== 'live-quotes' && !allocationPlaying) load(report.period.openingDate, report.period.closingDate, true);
 }
 window.setInterval(checkLiveQuotes, 1000);
 window.setInterval(checkForUpdates, 30000);
