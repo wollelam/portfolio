@@ -981,3 +981,11 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .allocation-tile[role="link"] { cursor:pointer; }
 .allocation-tile:hover > rect, .allocation-tile:focus > rect { stroke:#172534; stroke-width:3; }
 #allocation .panel-heading { flex-wrap:wrap; }
+
+.chart-tooltip { width:max-content; position:fixed; z-index:100; max-width:min(340px,calc(100vw - 16px)); padding:12px 15px; border-radius:8px; background:#172534; color:#fff; box-shadow:0 5px 22px #17253435; font-size:13px; line-height:1.6; pointer-events:none; overflow-wrap:anywhere; }
+#ranking-basis, #waterfall-mode { max-width:100%; flex-wrap:wrap; }
+
+.periods { flex-wrap:wrap; }
+
+.capital-line { fill:none; stroke:#a56a16; stroke-width:2.5; stroke-dasharray:7 4; stroke-linecap:round; stroke-linejoin:round; }
+.legend-capital::before { content:""; display:inline-block; width:18px; border-top:3px dashed #a56a16; margin-right:7px; vertical-align:middle; }

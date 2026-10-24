@@ -276,13 +276,14 @@ The Waterfall page reuses the core `PerformanceBreakdown` from the desktop water
 external transfers. `waterfall=contributions` attributes absolute performance to securities, shows
 the largest 20 by absolute contribution, and retains the rest as Other. Both use FIFO costs and
 include tax and fees. Every breakdown must reconcile before it is displayed. Without this optional
-parameter the expensive breakdown is not calculated. The chart exposes exact values on hover and
-keyboard focus, security bars open the instrument detail, and an accessible table lists all amounts.
+parameter the expensive breakdown is not calculated. The chart exposes exact values in a pointer-adjacent tooltip on hover and
+keyboard focus (Escape dismisses it), security bars open the instrument detail, and an accessible table lists all amounts.
 
 Table headers sort raw numbers and dates, keep missing values last, and expose `aria-sort`.
 Original-currency amounts in instrument activity are grouped by currency before comparing amounts;
 reporting-currency columns provide a common basis. Activity sorting happens before pagination.
-Performer entries default to ten per side, with 25, 50 and All options. Rank basis selects the top
+Binary choices for ranking basis and waterfall breakdown use toggle buttons with an explicit
+pressed state rather than dropdowns. Performer entries default to ten per side, with 25, 50 and All options. Rank basis selects the top
 and bottom subsets; header sorting changes their display order. Holdings and performers support
 name filtering. Sorts, name filters, entry count and waterfall mode travel in the hash URL so that
 Back and direct links retain them. Live watchlist sorting uses the current received values.
@@ -327,3 +328,18 @@ uses a real portfolio or sends a price-refresh POST.
 Transaction editing and SaaS
 tenancy are outside this slice. The launcher currently uses the Tycho test runtime; a dedicated
 distributable server product is a later packaging task.
+
+Preset ranges include 2Y, 5Y, 10Y and MAX. Multi-year periods clamp leap-day boundaries to the
+last valid day of the destination month. MAX opens the day before the first booked account or
+portfolio transaction, so the initial cash flow is included; future-dated transactions are ignored.
+An empty portfolio uses the previous day. The API retains a ten-year bound for empty history but
+allows older ranges back to the actual portfolio inception. Presets and toggle states survive Back
+and reload through the existing hash URL.
+
+The Value chart overlays `PerformanceIndex.calculateInvestedCapital()` as a dashed staircase:
+opening portfolio value plus cumulative external inflows minus outflows. Opening-date flows are
+already included in the baseline. The engine includes external security deliveries at their booked
+value and excludes internal trades, transfers and dividends from new contributions. Hover/keyboard
+inspection displays the baseline and investment gain/loss; the closing gap matches the selected
+period's gain. Return mode keeps its existing benchmark comparison. Charts use direct pointer,
+touch and keyboard inspection without a date slider.

@@ -36,6 +36,41 @@ public class DashboardServiceTest
     private final Clock clock = Clock.fixed(end.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
 
     @Test
+    public void investedCapitalTracksDepositsAndWithdrawalsWithoutCountingIncome()
+    {
+        var client = new Client(); client.setBaseCurrency("EUR");
+        var account = new Account("Cash"); account.setCurrencyCode("EUR"); client.addAccount(account);
+        account.addTransaction(new AccountTransaction(end.minusDays(5).atStartOfDay(), "EUR", 100_000, null, AccountTransaction.Type.DEPOSIT));
+        account.addTransaction(new AccountTransaction(end.minusDays(1).atStartOfDay(), "EUR", 20_000, null, AccountTransaction.Type.DEPOSIT));
+        account.addTransaction(new AccountTransaction(end.atTime(9, 0), "EUR", 5_000, null, AccountTransaction.Type.REMOVAL));
+        account.addTransaction(new AccountTransaction(end.atTime(12, 0), "EUR", 850, null, AccountTransaction.Type.INTEREST));
+        var report = service(client).dashboard(end.minusDays(5), end);
+        assertEquals(100_000, report.series().getFirst().investedCapital());
+        assertEquals(120_000, report.series().get(report.series().size() - 2).investedCapital());
+        assertEquals(115_000, report.series().getLast().investedCapital());
+        assertEquals(115_850, report.series().getLast().value());
+        assertEquals(850, report.period().gain());
+    }
+
+    @Test
+    public void maximumRangeIncludesFirstActivityAndHistoryOlderThanTenYears()
+    {
+        var client = new Client(); client.setBaseCurrency("EUR");
+        var account = new Account("Cash"); account.setCurrencyCode("EUR"); client.addAccount(account);
+        var first = end.minusYears(20);
+        account.addTransaction(new AccountTransaction(first.atStartOfDay(), "EUR", 100_000, null, AccountTransaction.Type.DEPOSIT));
+        account.addTransaction(new AccountTransaction(end.plusDays(1).atStartOfDay(), "EUR", 50_000, null, AccountTransaction.Type.DEPOSIT));
+        var report = service(client).dashboard(first.minusDays(1), end);
+        assertEquals(first.minusDays(1).toString(), report.inceptionDate());
+        assertEquals(100_000, report.totalValue());
+        assertEquals(100_000, report.period().netFlows());
+        assertEquals(0, report.period().gain());
+        assertThrows(IllegalArgumentException.class, () -> service(client).dashboard(first.minusDays(2), end));
+        var empty = new Client(); empty.setBaseCurrency("EUR");
+        assertEquals(end.minusDays(1).toString(), service(empty).dashboard(end.minusDays(1), end).inceptionDate());
+    }
+
+    @Test
     public void drawdownMatchesNativeTimeWeightedSeriesAndDates()
     {
         var loaded = DemoPortfolio.create(end);
@@ -136,6 +171,8 @@ public class DashboardServiceTest
         assertEquals(0, report.drawdown().maximum(), 0.0000001);
         assertEquals(0, report.drawdown().current(), 0.0000001);
         assertEquals(2, report.series().size());
+        assertEquals(100_000, report.series().getFirst().investedCapital());
+        assertEquals(150_000, report.series().getLast().investedCapital());
         assertEquals(0, report.priceCoverage().securities());
         assertEquals(0, report.priceCoverage().missing());
     }
@@ -177,6 +214,8 @@ public class DashboardServiceTest
         var report = service(client).dashboard(end.minusWeeks(1), end);
         assertEquals(0, report.period().netFlows());
         assertEquals(850, report.period().gain());
+        assertEquals(100_000, report.series().getLast().investedCapital());
+        assertEquals(850, report.series().getLast().value() - report.series().getLast().investedCapital());
         assertEquals(1000, report.dividends().getFirst().gross());
         assertEquals(850, report.dividends().getFirst().net());
         assertEquals(100, report.dividends().getFirst().taxes());
@@ -194,6 +233,9 @@ public class DashboardServiceTest
                         new java.util.ArrayList<>());
         var report = new DashboardService(loaded, clock, List.of()).dashboard(end.minusYears(1), end);
         assertEquals(index.getDates().length, report.series().size());
+        var nativeCapital = index.calculateInvestedCapital();
+        for (int i = 0; i < nativeCapital.length; i++) assertEquals(nativeCapital[i], report.series().get(i).investedCapital());
+        assertEquals(report.period().gain(), report.series().getLast().value() - report.series().getLast().investedCapital());
         for (int ii = 0; ii < index.getDates().length; ii++)
         {
             assertEquals(index.getDates()[ii].toString(), report.series().get(ii).date());

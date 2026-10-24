@@ -136,7 +136,7 @@ final class WebServer implements AutoCloseable
                 }
                 catch (IllegalArgumentException | DateTimeParseException e)
                 {
-                    json(exchange, 400, Map.of("message", "Invalid date range. Use ISO dates, from before to, no future dates, and at most 10 years."));
+                    json(exchange, 400, Map.of("message", "Invalid date range. Use ISO dates, from before to, no future dates, and a range within 10 years or the portfolio's recorded history."));
                 }
                 catch (RuntimeException e)
                 {

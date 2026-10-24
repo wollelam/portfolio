@@ -182,6 +182,7 @@ function syncRouteUrl() {
 }
 
 function showRoute() {
+  hideWaterfallTooltip();
   const quotePage = currentRoute === 'live-quotes';
   document.body.classList.toggle('quote-page', quotePage);
   text('portfolio-label', quotePage ? 'Independent, read-only quote watchlist' : report?.label || 'Loading portfolio…');
@@ -226,13 +227,13 @@ async function enterRoute() {
   mode = route.params.get('mode') === 'value' ? 'value' : 'return';
   activePreset = route.params.get('preset') || null;
   rankingBasis = route.params.get('basis') === 'gain' ? 'gain' : 'rate';
-  byId('ranking-basis').value = rankingBasis;
+  updateChoiceButtons();
   securitySearch = (route.params.get('q') || '').slice(0, 120);
   byId('security-search').value = securitySearch;
   rankingLimit = ['10', '25', '50', 'all'].includes(route.params.get('entries')) ? route.params.get('entries') : '10';
   byId('ranking-limit').value = rankingLimit;
   waterfallMode = route.params.get('waterfall') === 'contributions' ? 'contributions' : 'calculation';
-  byId('waterfall-mode').value = waterfallMode;
+  updateChoiceButtons();
   tableSorts = {};
   for (const value of (route.params.get('sort') || '').slice(0, 1000).split(',')) {
     const [id, column, direction] = value.split(':');
@@ -680,7 +681,26 @@ function renderReturnsCalendar() {
   if (!years.size) emptyRow(body, 14, 'No daily performance points available in this period.');
 }
 
+function updateChoiceButtons() {
+  for (const button of document.querySelectorAll('[data-ranking-basis]')) button.setAttribute('aria-pressed', String(button.dataset.rankingBasis === rankingBasis));
+  for (const button of document.querySelectorAll('[data-waterfall-mode]')) button.setAttribute('aria-pressed', String(button.dataset.waterfallMode === waterfallMode));
+}
+function hideWaterfallTooltip() { byId('waterfall-tooltip').hidden = true; }
+function showWaterfallTooltip(label, event, group) {
+  const tooltip = byId('waterfall-tooltip');
+  tooltip.textContent = label; tooltip.hidden = false;
+  const bar = group.getBoundingClientRect(), box = tooltip.getBoundingClientRect();
+  const x = event?.clientX ?? bar.left + bar.width / 2;
+  const y = event?.clientY ?? bar.top;
+  tooltip.style.left = `${Math.max(8, Math.min(x + 14, innerWidth - box.width - 8))}px`;
+  tooltip.style.top = `${Math.max(8, Math.min(y + 14, innerHeight - box.height - 8))}px`;
+}
+window.addEventListener('scroll', hideWaterfallTooltip, true);
+window.addEventListener('resize', hideWaterfallTooltip);
+document.addEventListener('keydown', event => { if (event.key === 'Escape') hideWaterfallTooltip(); });
+
 function renderWaterfall(data) {
+  hideWaterfallTooltip();
   const svg = byId('waterfall-chart'), body = byId('waterfall-body');
   svg.replaceChildren(); body.replaceChildren();
   const entries = data?.entries || [];
@@ -712,14 +732,19 @@ function renderWaterfall(data) {
     const x = left + index * step + step * .2, barWidth = step * .6;
     const group = svgElement('g', { tabindex: '0', role: bar.uuid ? 'link' : 'img', class: 'waterfall-bar',
       'aria-label': `${bar.label}: ${money(bar.amount, bar.kind === 'CHANGE')}${bar.uuid ? '. Open security details' : ''}` });
-    group.append(svgElement('title', {}, `${bar.label}: ${money(bar.amount, bar.kind === 'CHANGE')}`));
+    group.setAttribute('aria-describedby', 'waterfall-tooltip');
     const total = bar.kind !== 'CHANGE';
     group.append(svgElement('rect', { x, y: Math.min(y(bar.start), y(bar.end)) - (bar.start === bar.end ? 1 : 0), width: barWidth,
       height: Math.max(2, Math.abs(y(bar.start) - y(bar.end))), class: total ? 'waterfall-total' : bar.amount >= 0 ? 'waterfall-positive' : 'waterfall-negative' }));
     const words = bar.label.match(/.{1,17}(?:\s|$)|\S{1,17}/g) || [bar.label];
     words.slice(0, 4).forEach((word, line) => group.append(svgElement('text', { x: x + barWidth / 2, y: 315 + line * 17, 'text-anchor': 'middle', class: 'waterfall-label' }, word.trim())));
-    const inspect = () => text('waterfall-detail', `${bar.label}: ${money(bar.amount, !total)}${!total ? ` · Running total ${money(bar.end)}` : ''}`);
-    group.addEventListener('pointerenter', inspect); group.addEventListener('focus', inspect);
+    const description = `${bar.label}: ${money(bar.amount, !total)}${!total ? ` · Running total ${money(bar.end)}` : ''}`;
+    const inspect = event => { text('waterfall-detail', description); showWaterfallTooltip(description, event, group); };
+    group.addEventListener('pointerenter', inspect);
+    group.addEventListener('pointermove', inspect);
+    group.addEventListener('pointerleave', hideWaterfallTooltip);
+    group.addEventListener('focus', () => inspect());
+    group.addEventListener('blur', hideWaterfallTooltip);
     if (bar.uuid) {
       const open = () => navigate(`#/instrument/${encodeURIComponent(bar.uuid)}`);
       group.addEventListener('click', open);
@@ -1038,7 +1063,7 @@ class TimeSeriesChart {
     }
     if (low < 0 && high > 0) svg.append(svgElement('line', { x1: this.left, x2: this.right, y1: this.y(0), y2: this.y(0), class: 'zero-line' }));
     this.drawPath(this.points, 'chart-line');
-    for (const item of series) this.drawPath(item.points, item.className || 'benchmark-line');
+    for (const item of series) this.drawPath(item.points, item.className || 'benchmark-line', item.step);
     const ticks = mobile ? 3 : 5;
     for (let i = 0; i < ticks; i++) {
       const time = this.first + (this.last - this.first) * i / (ticks - 1);
@@ -1058,12 +1083,12 @@ class TimeSeriesChart {
     this.timeMap = times; this.drawSelection();
   }
 
-  drawPath(points, className) {
+  drawPath(points, className, step = false) {
     let path = '', previous = false;
     for (const point of points) {
       const value = point.value, time = seriesTime(point.date);
       if (!Number.isFinite(value)) { previous = false; continue; }
-      path += `${previous ? 'L' : 'M'}${this.x(time).toFixed(2)},${this.y(value).toFixed(2)} `; previous = true;
+      path += previous && step ? `H${this.x(time).toFixed(2)} V${this.y(value).toFixed(2)} ` : `${previous ? 'L' : 'M'}${this.x(time).toFixed(2)},${this.y(value).toFixed(2)} `; previous = true;
     }
     if (path) this.svg.append(svgElement('path', { d: path, class: className }));
   }
@@ -1092,9 +1117,8 @@ class TimeSeriesChart {
       const sample = series.points.find(candidate => candidate.date === point.date);
       return sample && Number.isFinite(sample.value) ? `${series.name}: ${this.config.format(sample.value)}` : null;
     }).filter(Boolean);
-    const exact = [detail, ...seriesDetails].join(' · ');
+    const exact = [detail, ...seriesDetails, this.config.extraDetail?.(this.index)].filter(Boolean).join(' · ');
     if (this.config.output) this.config.output.textContent = exact;
-    if (this.config.slider) { this.config.slider.value = String(this.index); this.config.slider.setAttribute('aria-valuetext', exact); }
   }
 }
 
@@ -1107,19 +1131,20 @@ function drawChart() {
   const points = report.series.map(point => ({ date: point.date, value: mode === 'return' ? point.rate : point.value }));
   const series = mode === 'return' && report.benchmark && !report.benchmark.error ? [{
     name: report.benchmark.name, className: 'benchmark-line', points: report.benchmark.series.map(point => ({ date: point.date, value: point.rate }))
-  }] : [];
+  }] : mode === 'value' ? [{ name: 'Opening value + net contributions', className: 'capital-line', step: true, points: report.series.map(point => ({ date: point.date, value: point.investedCapital })) }] : [];
+  byId('value-legend').hidden = mode !== 'value';
   const formatter = mode === 'return' ? percent : value => money(value);
   portfolioChart = new TimeSeriesChart(byId('chart'));
   portfolioChart.draw({ points, series, format: formatter, includeZero: mode === 'return', area: true, selected,
-    slider: byId('chart-position'), output: byId('chart-detail'), title: mode === 'return' ? 'Portfolio time-weighted return' : 'Portfolio value',
+    extraDetail: index => mode === 'value' && Number.isFinite(report.series[index]?.investedCapital) ? `Investment gain / loss: ${money(report.series[index].value - report.series[index].investedCapital, true)}` : '',
+    output: byId('chart-detail'), title: mode === 'return' ? 'Portfolio time-weighted return' : 'Portfolio value',
     description: `Daily ${mode === 'return' ? 'cumulative return' : 'value'} from ${report.period.openingDate} to ${report.period.closingDate}.`,
     onSelect: index => { selected = index; saveEntryState(); } });
-  byId('chart-position').max = String(Math.max(0, points.length - 1));
   byId('mode-return').setAttribute('aria-pressed', String(mode === 'return'));
   byId('mode-value').setAttribute('aria-pressed', String(mode === 'value'));
   text('chart-explanation', mode === 'return'
     ? 'Time-weighted return (TTWROR) adjusts for deposits and withdrawals. Currency gains exclude net external flows.'
-    : `Portfolio value in ${report.currency}, including cash. Deposits and withdrawals change this line; it is not an investment-return measure.`);
+    : `Portfolio value in ${report.currency}, including cash. The dashed line starts at the opening value and adds external deposits minus withdrawals, including securities delivered in or out at their recorded value. The gap is investment gain / loss for this period; trades and dividends are not new contributions.`);
 }
 
 function updateCursor() {
@@ -1228,10 +1253,11 @@ for (const button of document.querySelectorAll('[data-period]')) {
     let start;
     if (activePreset === 'YTD') start = new Date(Date.UTC(end.getUTCFullYear() - 1, 11, 31, 12));
     else if (activePreset === '1D') start = new Date(report.day.openingDate + 'T12:00:00Z');
+    else if (activePreset === 'MAX') start = new Date(Math.min(Date.parse(report.inceptionDate + 'T12:00:00Z'), end.getTime() - 86400000));
     else if (activePreset === 'MTD') start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 0, 12));
     else {
       start = new Date(end);
-      const months = activePreset === '1Y' ? 12 : Number(activePreset.slice(0, -1));
+      const months = Number(activePreset.slice(0, -1)) * (activePreset.endsWith('Y') ? 12 : 1);
       const day = start.getUTCDate();
       start.setUTCDate(1); start.setUTCMonth(start.getUTCMonth() - months);
       const lastDay = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).getUTCDate();
@@ -1242,9 +1268,8 @@ for (const button of document.querySelectorAll('[data-period]')) {
     load(iso(start), iso(end));
   });
 }
-byId('ranking-basis').addEventListener('change', event => { rankingBasis = event.target.value === 'gain' ? 'gain' : 'rate'; syncRouteUrl(); renderRankings(report?.rankings); });
+for (const button of document.querySelectorAll('[data-ranking-basis]')) button.addEventListener('click', () => { rankingBasis = button.dataset.rankingBasis; updateChoiceButtons(); syncRouteUrl(); renderRankings(report?.rankings); });
 for (const measure of ['return', 'value']) byId('mode-' + measure).addEventListener('click', () => { mode = measure; syncRouteUrl(); drawChart(); });
-byId('chart-position').addEventListener('input', event => { selected = Number(event.target.value); updateCursor(); saveEntryState(); });
 window.matchMedia('(max-width:760px)').addEventListener('change', () => { drawChart(); if (currentRoute === 'live-quotes') renderLiveQuotes(); if (currentRoute === 'allocation') renderAllocation(); });
 function checkForUpdates() {
   if (report && !document.hidden && currentRoute !== 'live-quotes') load(report.period.openingDate, report.period.closingDate, true);
@@ -1259,7 +1284,10 @@ if (!location.hash) history.replaceState({ appEntry: true, canAppBack: false, ro
 enterRoute();
 
 byId('ranking-limit').addEventListener('change', event => { rankingLimit = event.target.value; syncRouteUrl(); renderRankings(report?.rankings); });
-byId('waterfall-mode').addEventListener('change', event => { waterfallMode = event.target.value; syncRouteUrl(); load(byId('from').value, byId('to').value); });
+for (const button of document.querySelectorAll('[data-waterfall-mode]')) button.addEventListener('click', () => {
+  if (waterfallMode === button.dataset.waterfallMode) return;
+  waterfallMode = button.dataset.waterfallMode; updateChoiceButtons(); syncRouteUrl(); load(byId('from').value, byId('to').value);
+});
 
 byId('security-search').addEventListener('input', event => { securitySearch = event.target.value.slice(0, 120); syncRouteUrl(); if (report) render(); });
 byId('clear-security-search').addEventListener('click', () => { securitySearch = ''; byId('security-search').value = ''; syncRouteUrl(); if (report) render(); byId('security-search').focus(); });

@@ -3,12 +3,12 @@ package name.abuchen.portfolio.web;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import name.abuchen.portfolio.model.AccountTransaction;
 import name.abuchen.portfolio.model.ClientFactory;
@@ -33,7 +33,7 @@ final class DashboardService
     {
     }
 
-    record Point(String date, long value, Double rate)
+    record Point(String date, long value, Double rate, long investedCapital)
     {
     }
 
@@ -65,7 +65,7 @@ final class DashboardService
                     long totalValue, Period day, Period week, Period period, List<Point> series, List<Holding> holdings,
                     List<Dividend> dividends, List<String> warnings, List<BenchmarkService.Option> benchmarks,
                     BenchmarkService.Result benchmark, PriceCoverage priceCoverage, String fxVersion, Instrument instrument,
-                    SecurityRankingService.Rankings rankings, Waterfall waterfall, Drawdown drawdown)
+                    SecurityRankingService.Rankings rankings, Waterfall waterfall, Drawdown drawdown, String inceptionDate)
     {
     }
 
@@ -89,6 +89,7 @@ final class DashboardService
     private final PortfolioSource.LoadedPortfolio portfolio;
     private final CurrencyConverterImpl converter;
     private final Clock clock;
+    private final LocalDate inceptionDate;
     private final List<String> startupWarnings;
     private final FxRates.View rates;
 
@@ -102,6 +103,12 @@ final class DashboardService
     {
         this.portfolio = portfolio;
         this.clock = clock;
+        var accountDates = portfolio.client().getAccounts().stream().flatMap(a -> a.getTransactions().stream())
+                        .map(t -> t.getDateTime().toLocalDate());
+        var portfolioDates = portfolio.client().getPortfolios().stream().flatMap(p -> p.getTransactions().stream())
+                        .map(t -> t.getDateTime().toLocalDate());
+        this.inceptionDate = Stream.concat(accountDates, portfolioDates).filter(date -> !date.isAfter(LocalDate.now(clock)))
+                        .min(Comparator.naturalOrder()).orElse(LocalDate.now(clock)).minusDays(1);
         this.startupWarnings = List.copyOf(startupWarnings);
         this.rates = rates;
         this.converter = new CurrencyConverterImpl(rates == null ? new ExchangeRateProviderFactory(portfolio.client())
@@ -162,9 +169,11 @@ final class DashboardService
     {
         if (waterfallMode != null && !waterfallMode.equals("calculation") && !waterfallMode.equals("contributions"))
             throw new IllegalArgumentException("Invalid waterfall mode");
-        if (!openingDate.isBefore(closingDate) || closingDate.isAfter(LocalDate.now(clock))
-                        || ChronoUnit.DAYS.between(openingDate, closingDate) > 3660)
-            throw new IllegalArgumentException("Choose an opening date before the closing date, no future dates, and at most 10 years.");
+        var earliest = closingDate.minusDays(3660);
+        if (inceptionDate.isBefore(earliest))
+            earliest = inceptionDate;
+        if (!openingDate.isBefore(closingDate) || closingDate.isAfter(LocalDate.now(clock)) || openingDate.isBefore(earliest))
+            throw new IllegalArgumentException("Choose an opening date before the closing date, no future dates, and a range within 10 years or the portfolio's recorded history.");
 
         var warnings = new LinkedHashSet<>(startupWarnings);
         var index = index(openingDate, closingDate, warnings);
@@ -194,9 +203,10 @@ final class DashboardService
         }).sorted(Comparator.comparingLong(Holding::value).reversed()).toList();
 
         var series = new ArrayList<Point>();
+        var investedCapital = index.calculateInvestedCapital();
         for (int ii = 0; ii < index.getDates().length; ii++)
             series.add(new Point(index.getDates()[ii].toString(), index.getTotals()[ii],
-                            finite(index.getAccumulatedPercentage()[ii])));
+                            finite(index.getAccumulatedPercentage()[ii]), investedCapital[ii]));
 
         var dividends = new ArrayList<Dividend>();
         for (var account : portfolio.client().getAccounts())
@@ -258,7 +268,7 @@ final class DashboardService
                         holdings, List.copyOf(dividends), List.copyOf(warnings), BenchmarkService.options(portfolio.client()),
                         BenchmarkService.calculate(portfolio.client(), converter, openingDate, closingDate, benchmark),
                         coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate), rankings,
-                        waterfallMode == null ? null : waterfall(openingDate, closingDate, waterfallMode), drawdown(index));
+                        waterfallMode == null ? null : waterfall(openingDate, closingDate, waterfallMode), drawdown(index), inceptionDate.toString());
     }
 
     private Drawdown drawdown(PerformanceIndex index)

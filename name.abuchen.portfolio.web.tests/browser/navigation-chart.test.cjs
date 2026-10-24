@@ -130,7 +130,7 @@ async function main() {
     await page.locator('[data-route="performers"]').click();
     await waitForRoute(page, 'performers', fixture);
     assert.equal(await page.locator('#gainers-body tr:first-child a').innerText(), 'Rate leader', 'percentage basis sorts by return');
-    await page.locator('#ranking-basis').selectOption('gain');
+    await page.locator('[data-ranking-basis="gain"]').click();
     assert.equal(await page.locator('#gainers-body tr:first-child a').innerText(), 'Money leader', 'currency basis sorts by gain');
     assert(page.url().includes('basis=gain'), 'ranking basis is saved in the URL');
     await page.locator('#from').fill(await page.locator('#from').inputValue());
@@ -139,14 +139,14 @@ async function main() {
     const performerLink = page.locator('#gainers-body a').first();
     await performerLink.click(); await waitForRoute(page, 'instrument', fixture);
     await page.goBack(); await waitForRoute(page, 'performers', fixture);
-    assert.equal(await page.locator('#ranking-basis').inputValue(), 'gain', 'Back restores ranking basis');
+    assert.equal(await page.locator('[data-ranking-basis="gain"]').getAttribute('aria-pressed'), 'true', 'Back restores ranking basis');
     assert.equal(await page.locator('#from').inputValue(), performerFrom, 'Back restores ranking dates');
     assert.equal(await page.locator('#to').inputValue(), performerTo, 'Back restores closing date');
     await page.locator('[data-route="holdings"]').click(); await waitForRoute(page, 'holdings', fixture);
     await page.locator('[data-route="performers"]').click(); await waitForRoute(page, 'performers', fixture);
-    assert.equal(await page.locator('#ranking-basis').inputValue(), 'gain', 'sidebar navigation preserves ranking basis');
+    assert.equal(await page.locator('[data-ranking-basis="gain"]').getAttribute('aria-pressed'), 'true', 'sidebar navigation preserves ranking basis');
     await page.reload({ waitUntil: 'networkidle' }); await waitForRoute(page, 'performers', fixture);
-    assert.equal(await page.locator('#ranking-basis').inputValue(), 'gain', 'reload restores ranking basis');
+    assert.equal(await page.locator('[data-ranking-basis="gain"]').getAttribute('aria-pressed'), 'true', 'reload restores ranking basis');
     await page.locator('[data-period="1D"]').click(); await page.waitForTimeout(200);
     assert.equal(await page.locator('#from').inputValue(), fixture.priorTradingDate(), '1D preset uses the prior trading day');
     await page.locator('[data-period="MTD"]').click(); await page.waitForTimeout(200);
@@ -165,6 +165,9 @@ async function main() {
     await page.locator('[data-route="performance"]').click();
     await waitForRoute(page, 'performance', fixture);
     await page.locator('#mode-value').click();
+    assert.equal(await page.locator('#chart .capital-line').count(), 1, 'value mode overlays native invested capital');
+    assert(await page.locator('#value-legend').isVisible());
+    assert.match(await page.locator('#chart-detail').innerText(), /Opening value \+ net contributions.*Investment gain \/ loss/);
     const from = await page.locator('#from').inputValue();
     const to = await page.locator('#to').inputValue();
     await page.locator('#from').fill(from);
@@ -220,6 +223,20 @@ async function main() {
 
     fixture.setQuoteShape('normal');
     await page.locator('[data-route="performance"]').click(); await waitForRoute(page, 'performance', fixture);
+    assert.equal(await page.locator('input[type=range]').count(), 0, 'graphs use direct inspection rather than sliders');
+    const closingDate = await page.locator('#to').inputValue();
+    for (const years of [2, 5, 10]) {
+      await page.locator(`[data-period="${years}Y"]`).click();
+      await page.waitForFunction(expected => !document.querySelector('#from').disabled && document.querySelector('#from').value.slice(0, 4) === String(Number(expected.date.slice(0, 4)) - expected.years), { date: closingDate, years });
+      assert.equal(await page.locator(`[data-period="${years}Y"]`).getAttribute('aria-pressed'), 'true');
+    }
+    const historyResponse = await page.request.get(`${baseUrl}/api/dashboard`);
+    const historyStart = (await historyResponse.json()).inceptionDate;
+    await page.locator('[data-period="MAX"]').click();
+    await page.waitForFunction(expected => !document.querySelector('#from').disabled && document.querySelector('#from').value === expected, historyStart);
+    assert.equal(await page.locator('[data-period="MAX"]').getAttribute('aria-pressed'), 'true');
+    await page.reload({ waitUntil: 'networkidle' });
+    assert.equal(await page.locator('[data-period="MAX"]').getAttribute('aria-pressed'), 'true', 'reload preserves MAX');
     await page.evaluate(() => window.scrollTo(0, 180));
     await page.waitForTimeout(180);
     const beforeUrl = page.url(), beforeY = await page.evaluate(() => window.scrollY);
