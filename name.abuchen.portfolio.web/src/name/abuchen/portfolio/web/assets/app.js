@@ -647,6 +647,62 @@ function allocationTiles(items, x, y, width, height, result = []) {
   }
   return result;
 }
+// Logos share the same white backing in both SVG charts.
+function chartLogo(url, x, y, size) {
+  if (!url || !/^\/api\/icon\?id=[0-9a-f-]{36}(?:&v=[0-9a-f]{64})?$/i.test(url)) return null;
+  const group = svgElement('g', { class: 'chart-logo', 'aria-hidden': true });
+  const inset = Math.max(4, size * .12);
+  group.append(svgElement('rect', { x, y, width: size, height: size, rx: Math.min(7, size / 5), class: 'chart-logo-box' }));
+  const image = svgElement('image', { href: url, x: x + inset, y: y + inset, width: size - inset * 2, height: size - inset * 2, preserveAspectRatio: 'xMidYMid meet' });
+  image.addEventListener('error', () => group.remove());
+  group.append(image);
+  return group;
+}
+
+function allocationLabelLayout(width, height, hasLogo) {
+  const availableWidth = Math.max(0, width - 16), availableHeight = Math.max(0, height - 16);
+  if (!hasLogo) return { size: 0, name: availableWidth >= 80 && availableHeight >= 50,
+    percentage: availableWidth >= 50 && availableHeight >= 18, amount: availableWidth >= 160 && availableHeight >= 144 };
+  // Remove text before reducing the 40px logo box; 24px leaves a readable 16px image.
+  const size = Math.min(40, availableWidth, availableHeight);
+  if (size < 24) return { size: 0, name: false, percentage: false, amount: false };
+  const percentage = size === 40 && availableWidth >= 54 && availableHeight >= 64;
+  const name = percentage && availableWidth >= 100 && availableHeight >= 96;
+  return { size, name, percentage, amount: name && availableWidth >= 160 && availableHeight >= 144 };
+}
+
+function renderAllocationLabel(group, defs, tile, index, share) {
+  const item = tile.item, logo = item.icon || report.icons?.[item.uuid];
+  const layout = allocationLabelLayout(tile.width, tile.height, Boolean(logo));
+  const clip = svgElement('clipPath', { id: `allocation-clip-${index}` });
+  clip.append(svgElement('rect', { x: tile.x + 8, y: tile.y + 8, width: Math.max(0, tile.width - 16), height: Math.max(0, tile.height - 16) }));
+  defs.append(clip);
+  const labels = svgElement('g', { 'clip-path': `url(#allocation-clip-${index})`, 'aria-hidden': true });
+  const characters = Math.max(1, Math.floor((tile.width - 24) / 7.5));
+  const words = item.name.match(new RegExp(`.{1,${characters}}(?:\\s|$)|\\S{1,${characters}}`, 'g')) || [item.name];
+  const lineCount = layout.name ? Math.min(words.length, tile.height >= 144 ? 2 : 1) : 0;
+  const blocks = [layout.size, lineCount * 18, layout.percentage ? 16 : 0, layout.amount ? 16 : 0].filter(Boolean);
+  const totalHeight = blocks.reduce((sum, value) => sum + value, 0) + Math.max(0, blocks.length - 1) * 8;
+  let top = tile.y + (tile.height - totalHeight) / 2;
+  const center = tile.x + tile.width / 2;
+  if (layout.size) {
+    const image = chartLogo(logo, center - layout.size / 2, top, layout.size);
+    if (image) labels.append(image);
+    top += layout.size + 8;
+  }
+  words.slice(0, lineCount).forEach((word, line) => {
+    const label = line === lineCount - 1 && words.length > lineCount ? `${word.trim().slice(0, characters - 1)}…` : word.trim();
+    labels.append(svgElement('text', { x: center, y: top + 14 + line * 18, 'text-anchor': 'middle', class: 'allocation-name' }, label));
+  });
+  if (lineCount) top += lineCount * 18 + 8;
+  if (layout.percentage) {
+    labels.append(svgElement('text', { x: center, y: top + 13, 'text-anchor': 'middle', class: 'allocation-size allocation-percentage' }, weight(share)));
+    top += 24;
+  }
+  if (layout.amount) labels.append(svgElement('text', { x: center, y: top + 13, 'text-anchor': 'middle', class: 'allocation-size allocation-amount' }, money(item.value)));
+  group.append(labels);
+}
+
 function renderAllocation() {
   renderAllocationTimeline();
   const positions = (report.holdings || []).filter(item => Number.isFinite(item.value) && item.value !== 0)
@@ -686,29 +742,7 @@ function renderAllocation() {
     const group = svgElement('g', { tabindex: 0, role: item.uuid ? 'link' : 'img', class: 'allocation-tile', 'aria-label': `${description}${item.uuid ? '. Open security details' : ''}`, 'data-allocation-value': item.value });
     const fill = item.value < 0 ? 'url(#allocation-negative)' : item.type === 'cash' ? '#526479' : palette[index % palette.length];
     group.append(svgElement('title', {}, description), svgElement('rect', { x: tile.x + 2, y: tile.y + 2, width: Math.max(0, tile.width - 4), height: Math.max(0, tile.height - 4), rx: 7, fill }));
-    if (tile.width > 100 && tile.height > 60) {
-      const clip = svgElement('clipPath', { id: `allocation-clip-${index}` });
-      clip.append(svgElement('rect', { x: tile.x + 12, y: tile.y + 8, width: Math.max(0, tile.width - 24), height: Math.max(0, tile.height - 16) })); defs.append(clip);
-      const labels = svgElement('g', { 'clip-path': `url(#allocation-clip-${index})`, 'aria-hidden': true });
-      const logo = item.icon || report.icons?.[item.uuid];
-      const logoOffset = logo && tile.width > 140 ? 30 : 0;
-      if (logoOffset) {
-        const image = svgElement('image', { href: logo, x: tile.x + 13, y: tile.y + 11, width: 24, height: 24 });
-        image.addEventListener('error', () => image.remove());
-        labels.append(image);
-      }
-      const characters = Math.max(8, Math.floor((tile.width - 28 - logoOffset) / 7.5));
-      const words = item.name.match(new RegExp(`.{1,${characters}}(?:\\s|$)|\\S{1,${characters}}`, 'g')) || [item.name];
-      const lineCount = tile.height > 100 ? 2 : 1;
-      words.slice(0, lineCount).forEach((word, line) => {
-        const label = line === lineCount - 1 && words.length > lineCount ? `${word.trim().slice(0, characters - 1)}…` : word.trim();
-        labels.append(svgElement('text', { x: tile.x + 14 + logoOffset, y: tile.y + 25 + line * 18, class: 'allocation-name' }, label));
-      });
-      const narrow = tile.width < 190;
-      labels.append(svgElement('text', { x: tile.x + 14, y: tile.y + tile.height - (narrow && tile.height > 110 ? 35 : 17), class: 'allocation-size' }, narrow ? weight(share) : `${weight(share)} · ${money(item.value)}`));
-      if (narrow && tile.height > 110) labels.append(svgElement('text', { x: tile.x + 14, y: tile.y + tile.height - 17, class: 'allocation-size' }, new Intl.NumberFormat(undefined, { style: 'currency', currency: report.currency, notation: 'compact', maximumFractionDigits: 1 }).format(item.value / 100)));
-      group.append(labels);
-    }
+    renderAllocationLabel(group, defs, tile, index, share);
     const inspect = () => text('allocation-detail', description);
     group.addEventListener('pointerenter', inspect); group.addEventListener('focus', inspect);
     if (item.uuid) {
@@ -846,8 +880,10 @@ function renderWaterfall(data) {
     const total = bar.kind !== 'CHANGE';
     group.append(svgElement('rect', { x, y: Math.min(y(bar.start), y(bar.end)) - (bar.start === bar.end ? 1 : 0), width: barWidth,
       height: Math.max(2, Math.abs(y(bar.start) - y(bar.end))), class: total ? 'waterfall-total' : bar.amount >= 0 ? 'waterfall-positive' : 'waterfall-negative' }));
+    const logo = chartLogo(report.icons?.[bar.uuid], x + (barWidth - 32) / 2, 301, 32);
+    if (logo) group.append(logo);
     const words = bar.label.match(/.{1,17}(?:\s|$)|\S{1,17}/g) || [bar.label];
-    words.slice(0, 4).forEach((word, line) => group.append(svgElement('text', { x: x + barWidth / 2, y: 315 + line * 17, 'text-anchor': 'middle', class: 'waterfall-label' }, word.trim())));
+    words.slice(0, 4).forEach((word, line) => group.append(svgElement('text', { x: x + barWidth / 2, y: (logo ? 351 : 315) + line * 17, 'text-anchor': 'middle', class: 'waterfall-label' }, word.trim())));
     const description = `${bar.label}: ${money(bar.amount, !total)}${!total ? ` · Running total ${money(bar.end)}` : ''}`;
     const inspect = event => { text('waterfall-detail', description); showWaterfallTooltip(description, event, group); };
     group.addEventListener('pointerenter', inspect);

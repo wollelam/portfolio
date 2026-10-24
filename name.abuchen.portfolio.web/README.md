@@ -69,9 +69,12 @@ The chart includes every daily core data point, without financial formulas in Ja
 
 ## Embedded portfolio icons
 
-Holdings, performers, instrument headers and allocation tiles reuse the native **Logo** image
+Holdings, performers, instrument headers, waterfall bars and allocation tiles reuse the native **Logo** image
 attribute from securities and cash accounts. Missing or invalid images show initials in lists and
-headers; small allocation tiles retain their text labels. Logos follow the accepted portfolio
+headers. Chart logos share a white rounded box. Allocation tiles prioritize the logo as space
+shrinks: hide the name, then the percentage, then shrink the logo box from 40px to a minimum of
+24px (16px image), then omit it. Larger tiles also show the absolute value. Full figures and names
+remain available on hover or keyboard focus, even on the smallest tiles. Logos follow the accepted portfolio
 snapshot and update through the normal automatic reload. Content fingerprints in icon URLs prevent
 the browser from reusing an outdated logo after a change.
 
@@ -81,7 +84,8 @@ portfolio is never modified. Dashboard JSON contains same-origin icon URLs rathe
 `GET /api/icon?id=UUID` (with an optional `v=SHA256` cache version) returns a validated PNG or 404, with `Cache-Control: no-store`. Malformed
 queries return 400; other methods are rejected. Keep this exact route behind the same authentication
 as the dashboard and GET-only in any reverse-proxy allowlist. No CSP or CORS changes are required.
-The synthetic logo/browser regression is `name.abuchen.portfolio.web.tests/browser/icons.test.cjs`.
+Synthetic logo/browser regressions are `name.abuchen.portfolio.web.tests/browser/icons.test.cjs`
+and `chart-logos.test.cjs`.
 
 ## Security performers
 

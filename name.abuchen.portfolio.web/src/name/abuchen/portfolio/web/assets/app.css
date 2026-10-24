@@ -937,7 +937,7 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .waterfall-negative { fill:#cf4a55; }
 .waterfall-bar { outline:none; }
 .waterfall-bar[role="link"] { cursor:pointer; }
-.waterfall-bar:hover rect, .waterfall-bar:focus rect { stroke:#1d2939; stroke-width:3; }
+.waterfall-bar:hover > rect, .waterfall-bar:focus > rect { stroke:#1d2939; stroke-width:3; }
 
 .security-filter { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin:0 0 20px; }
 .security-filter input { min-width:180px; max-width:100%; padding:10px 12px; border:1px solid #d7dde6; border-radius:8px; font:inherit; }
@@ -1043,4 +1043,10 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .instrument-title .asset-icon img {
   width:32px;
   height:32px;
+}
+
+.chart-logo-box {
+  fill:#fff;
+  stroke:#dbe2e8;
+  stroke-width:1;
 }
