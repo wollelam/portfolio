@@ -223,7 +223,7 @@ async function main() {
 
     fixture.setQuoteShape('normal');
     await page.locator('[data-route="performance"]').click(); await waitForRoute(page, 'performance', fixture);
-    assert.equal(await page.locator('input[type=range]').count(), 0, 'graphs use direct inspection rather than sliders');
+    assert.equal(await page.locator('input[type=range]:visible').count(), 0, 'graphs use direct inspection rather than sliders');
     const closingDate = await page.locator('#to').inputValue();
     for (const years of [2, 5, 10]) {
       await page.locator(`[data-period="${years}Y"]`).click();

@@ -28,6 +28,17 @@ async function main() {
     assert.match(await page.locator('#allocation-largest-weight').innerText(), /50% of gross/);
     assert.match(await page.locator('#allocation-cash-weight').innerText(), /20% of net/);
     assert.equal(await page.locator('#allocation-top-five').innerText(), '100%');
+    assert(await page.locator('#date-controls').isHidden(), 'allocation has no date range');
+    const originalRange = await page.locator('#from').inputValue();
+    const latest = await page.locator('#allocation-date').inputValue();
+    const selectedDate = new Date(Date.parse(`${latest}T12:00:00Z`) - 30 * 86400000).toISOString().slice(0, 10);
+    await page.locator('#allocation-position').evaluate(slider => { slider.value = Number(slider.max) - 30; slider.dispatchEvent(new Event('input', { bubbles: true })); slider.dispatchEvent(new Event('change', { bubbles: true })); });
+    await page.waitForFunction(date => report.asOf === date && !document.querySelector('#allocation-date').disabled, selectedDate);
+    assert.equal(await page.locator('#from').inputValue(), originalRange, 'scrubbing preserves performance range');
+    assert(page.url().includes(`asof=${selectedDate}`));
+    await page.reload({ waitUntil: 'networkidle' });
+    assert.equal(await page.locator('#allocation-date').inputValue(), selectedDate, 'reload restores allocation date');
+
     const areas = await page.locator('#allocation-chart').evaluate(svg => {
       const [,,width,height] = svg.getAttribute('viewBox').split(' ').map(Number);
       return [...svg.querySelectorAll('.allocation-tile')].map(group => {
@@ -45,6 +56,7 @@ async function main() {
     await page.locator('#instrument-back').click();
     await page.locator('.allocation-tile').first().waitFor();
     assert(page.url().includes('#/allocation'));
+    assert.equal(await page.locator('#allocation-date').inputValue(), selectedDate, 'Back restores allocation date');
     shape = 'crowded'; await page.reload({ waitUntil: 'networkidle' });
     const tiles = await page.locator('.allocation-tile').evaluateAll(groups => groups.map(group => ({ value: Number(group.dataset.allocationValue), label: group.getAttribute('aria-label') })));
     assert.equal(tiles.length, 24, '20 largest plus four sign/type groups');
@@ -64,6 +76,20 @@ async function main() {
     shape = 'empty'; await page.reload({ waitUntil: 'networkidle' });
     assert.equal(await page.locator('.allocation-tile').count(), 0);
     assert.match(await page.locator('#allocation-detail').innerText(), /No non-zero holdings/);
+    // Use the actual synthetic demo engine to verify historical valuation changes, rather than mocked tiles.
+    const native = await browser.newPage();
+    await native.goto(`${base}/#/allocation`, { waitUntil: 'networkidle' });
+    const currentValue = await native.evaluate(() => report.totalValue);
+    await native.locator('#allocation-position').evaluate(slider => { slider.value = Number(slider.max) - 30; slider.dispatchEvent(new Event('input', { bubbles: true })); slider.dispatchEvent(new Event('change', { bubbles: true })); });
+    await native.waitForFunction(() => report.asOf === document.querySelector('#allocation-date').value && !document.querySelector('#allocation-date').disabled);
+    assert.notEqual(await native.evaluate(() => report.totalValue), currentValue, 'native holdings are revalued at the scrubbed date');
+    await native.locator('#allocation-position').focus(); await native.keyboard.press('Home');
+    await native.waitForFunction(() => report.asOf === report.inceptionDate && !document.querySelector('#allocation-date').disabled);
+    assert.equal(await native.locator('.allocation-tile').count(), 0, 'history begins before the first transaction');
+    await native.locator('#allocation-today').click();
+    await native.waitForFunction(() => report.asOf === report.today && !document.querySelector('#allocation-date').disabled);
+    assert.equal(await native.evaluate(() => report.totalValue), currentValue);
+    await native.close();
     assert.deepEqual(errors, []);
     console.log('Allocation checks passed: proportional area, signed positions, cash/net/gross metrics, keyboard drilldown and Back, top-20 grouping reconciliation, mobile, zero-net/single/empty states.');
   } finally { await browser.close(); }

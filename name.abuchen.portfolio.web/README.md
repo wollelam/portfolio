@@ -343,3 +343,11 @@ value and excludes internal trades, transfers and dividends from new contributio
 inspection displays the baseline and investment gain/loss; the closing gap matches the selected
 period's gain. Return mode keeps its existing benchmark comparison. Charts use direct pointer,
 touch and keyboard inspection without a date slider.
+
+Allocation uses a single As of date, selected by a daily timeline slider, date picker or Today button.
+The timeline spans the opening date before first booked activity through the server's current date.
+Dragging is debounced; each historical snapshot uses a one-day native calculation window with the
+requested closing date. Pending dates are labelled separately from the currently displayed chart.
+The asof hash parameter survives reload and Back. Scrubbing keeps the performance date range intact;
+security and holdings links open at the displayed snapshot date. Other graphs retain direct chart
+inspection without sliders.

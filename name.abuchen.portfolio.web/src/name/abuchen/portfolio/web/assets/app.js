@@ -29,6 +29,8 @@ let securityActivity;
 let activityKey = '';
 const activityPages = { dividends: 0, transactions: 0 };
 const activityPageSize = 25;
+let allocationDate = '';
+let allocationTimer;
 let currentRoute = 'overview';
 let currentRouteKey = '';
 let routeGeneration = 0;
@@ -155,6 +157,7 @@ function routeUrl() {
   if (activePreset) params.set('preset', activePreset);
   if (currentRoute === 'live-quotes' && selectedLiveQuote) params.set('quote', selectedLiveQuote);
   if (rankingBasis !== 'rate') params.set('basis', rankingBasis);
+  if (currentRoute === 'allocation' && allocationDate) params.set('asof', allocationDate);
   if (securitySearch) params.set('q', securitySearch);
   if (rankingLimit !== '10') params.set('entries', rankingLimit);
   if (waterfallMode !== 'calculation') params.set('waterfall', waterfallMode);
@@ -179,6 +182,7 @@ function syncRouteUrl() {
     scrollY: restoringScroll ? (history.state?.scrollY || 0) : window.scrollY, selected, instrumentSelected, drawdownSelected }, '', url);
   const filters = url.includes('?') ? url.slice(url.indexOf('?')) : '';
   for (const anchor of document.querySelectorAll('a[href^="#/"]')) anchor.setAttribute('href', anchor.hash.split('?')[0] + filters);
+  if (currentRoute === 'allocation' && report) byId('allocation-holdings').setAttribute('href', allocationTarget('holdings'));
 }
 
 function showRoute() {
@@ -194,7 +198,7 @@ function showRoute() {
     section.hidden = section.dataset.page !== currentRoute || section.id === 'warnings' && !report?.warnings?.length;
   }
   byId('security-filter').hidden = !['holdings', 'performers'].includes(currentRoute);
-  byId('date-controls').hidden = ['overview', 'live-quotes'].includes(currentRoute);
+  byId('date-controls').hidden = ['overview', 'live-quotes', 'allocation'].includes(currentRoute);
   for (const link of document.querySelectorAll('nav [data-route]')) {
     const active = link.dataset.route === currentRoute || currentRoute === 'instrument' && link.dataset.route === 'holdings';
     link.classList.toggle('nav-active', active);
@@ -219,9 +223,11 @@ async function enterRoute() {
   const saved = history.state || {};
   const restore = saved.routeKey === location.hash ? Number(saved.scrollY || 0) : 0;
   clearTimeout(scrollTimer);
+  clearTimeout(allocationTimer); allocationTimer = null;
   restoringScroll = true;
   const route = parseRoute();
   currentRoute = route.page; selectedInstrument = route.instrument;
+  if (currentRoute === 'allocation') allocationDate = route.params.get('asof') || allocationDate || route.params.get('to') || report?.today || '';
   selectedLiveQuote = route.params.get('quote') || selectedLiveQuote;
   selectedBenchmark = route.params.get('benchmark') || '';
   mode = route.params.get('mode') === 'value' ? 'value' : 'return';
@@ -339,8 +345,13 @@ function render() {
   text('value-change', money(report.period.valueChange, true));
   text('net-flows', money(report.period.netFlows, true));
   text('investment-gain', money(report.period.gain, true));
-  byId('from').value = report.period.openingDate;
-  byId('to').value = report.period.closingDate;
+  if (currentRoute !== 'allocation') {
+    byId('from').value = report.period.openingDate; byId('to').value = report.period.closingDate;
+  } else if (!byId('from').value || !byId('to').value) {
+    const [year, month, day] = report.today.split('-').map(Number);
+    byId('to').value = report.today;
+    byId('from').value = iso(new Date(Date.UTC(year - 1, month - 1, Math.min(day, new Date(Date.UTC(year - 1, month, 0)).getUTCDate()), 12)));
+  }
   const today = new Date();
   const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   text('day-label', report.asOf === localToday ? 'Today’s performance' : 'Daily performance');
@@ -528,6 +539,42 @@ async function checkLiveQuotes() {
 
 byId('live-follow').addEventListener('click', () => { liveFrozenHistory = null; liveHoveredTime = null; renderLiveQuotes(); });
 
+function allocationTarget(route) {
+  const params = new URLSearchParams(routeUrl().split('?')[1] || '');
+  const date = report.asOf || allocationDate;
+  params.set('to', date); params.delete('asof');
+  if (!params.get('from') || params.get('from') >= date) params.set('from', iso(new Date(Date.parse(date + 'T12:00:00Z') - 86400000)));
+  return `#/${route}?${params}`;
+}
+function renderAllocationTimeline() {
+  if (currentRoute !== 'allocation') return;
+  if (!allocationDate) allocationDate = report.asOf;
+  const date = byId('allocation-date'), slider = byId('allocation-position');
+  date.min = report.inceptionDate; date.max = report.today; date.value = allocationDate;
+  const first = Date.parse(report.inceptionDate + 'T12:00:00Z');
+  slider.max = String(Math.max(0, Math.round((Date.parse(report.today + 'T12:00:00Z') - first) / 86400000)));
+  slider.value = String(Math.max(0, Math.round((Date.parse(allocationDate + 'T12:00:00Z') - first) / 86400000)));
+  slider.setAttribute('aria-valuetext', dateLabel(allocationDate));
+  text('allocation-start', dateLabel(report.inceptionDate)); text('allocation-end', dateLabel(report.today));
+  text('allocation-date-status', `Showing allocation at ${dateLabel(report.asOf)}`);
+}
+function selectAllocationDate(date, immediate = false) {
+  if (!report || date < report.inceptionDate || date > report.today || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  allocationDate = date;
+  byId('allocation-date').value = date;
+  byId('allocation-position').value = String(Math.round((Date.parse(date + 'T12:00:00Z') - Date.parse(report.inceptionDate + 'T12:00:00Z')) / 86400000));
+  byId('allocation-position').setAttribute('aria-valuetext', dateLabel(date));
+  syncRouteUrl(); clearTimeout(allocationTimer); allocationTimer = null;
+  if (report.asOf === date && !busy) return;
+  text('allocation-date-status', `Loading ${dateLabel(date)}; chart still shows ${dateLabel(report.asOf)}`);
+  const refresh = () => { allocationTimer = null; if (currentRoute === 'allocation') load(); };
+  if (immediate) refresh(); else allocationTimer = setTimeout(refresh, 250);
+}
+byId('allocation-position').addEventListener('input', event => selectAllocationDate(iso(new Date(Date.parse(report.inceptionDate + 'T12:00:00Z') + Number(event.target.value) * 86400000))));
+byId('allocation-position').addEventListener('change', () => { if (allocationTimer) selectAllocationDate(allocationDate, true); });
+byId('allocation-date').addEventListener('change', event => { if (event.target.checkValidity()) selectAllocationDate(event.target.value, true); });
+byId('allocation-today').addEventListener('click', () => selectAllocationDate(report.today, true));
+
 // Binary treemap partitions absolute native valuations; it does not calculate investment returns.
 function allocationTiles(items, x, y, width, height, result = []) {
   if (!items.length) return result;
@@ -546,6 +593,7 @@ function allocationTiles(items, x, y, width, height, result = []) {
   return result;
 }
 function renderAllocation() {
+  renderAllocationTimeline();
   const positions = (report.holdings || []).filter(item => Number.isFinite(item.value) && item.value !== 0)
     .slice().sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name));
   const gross = positions.reduce((sum, item) => sum + Math.abs(item.value), 0);
@@ -602,7 +650,7 @@ function renderAllocation() {
     const inspect = () => text('allocation-detail', description);
     group.addEventListener('pointerenter', inspect); group.addEventListener('focus', inspect);
     if (item.uuid) {
-      const open = () => navigate(`#/instrument/${encodeURIComponent(item.uuid)}`);
+      const open = () => navigate(allocationTarget(`instrument/${encodeURIComponent(item.uuid)}`));
       group.addEventListener('click', open);
       group.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
     }
@@ -1152,6 +1200,9 @@ function updateCursor() {
 }
 
 async function load(from, to, silent = false) {
+  if (currentRoute === 'allocation' && allocationDate) {
+    to = allocationDate; from = iso(new Date(Date.parse(to + 'T12:00:00Z') - 86400000));
+  }
   if (busy && silent) return null;
   requestController?.abort();
   const controller = new AbortController();
