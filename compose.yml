@@ -12,10 +12,8 @@ services:
       - ./volume/config:/config
       - ./volume/data:/opt/portfolio/data
       - type: bind
-        source: /fast/docker/gdrive-sync/data
-        target: /opt/portfolio/workspace
-        bind:
-          propagation: rslave
+        source: /home/ole/portfolio
+        target: /opt/portfolio/workspace/pp
     environment:
       USER_ID: ${USER_ID:-1000}
       GROUP_ID: ${GROUP_ID:-1000}
