@@ -23,6 +23,9 @@ const weight = value => value === null ? '—' : new Intl.NumberFormat(undefined
 const dateLabel = value => new Date(value + 'T12:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const iso = date => date.toISOString().slice(0, 10);
 let report;
+const discreetPreferenceKey = 'portfolio.discreetMode';
+let discreetMode = false;
+try { discreetMode = localStorage.getItem(discreetPreferenceKey) === 'true'; } catch { /* Storage can be disabled. */ }
 let mode = 'return';
 let selected = 0;
 let instrumentSelected = 0;
@@ -357,7 +360,7 @@ function render() {
   text('portfolio-label', report.label);
   text('valuation-note', `Daily valuations in ${report.currency} · prices from the loaded file`);
   byId('demo-badge').hidden = !report.demo;
-  text('total-value', money(report.totalValue));
+  renderTotalValue(report.totalValue);
   text('total-date', `As of ${dateLabel(report.asOf)}`);
   for (const key of ['day', 'week']) {
     const period = report[key];
@@ -455,7 +458,43 @@ function render() {
 }
 
 const liveTime = value => new Date(value).toLocaleTimeString(undefined, { hour12: false });
-const livePriceFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 });
+// Round presentation only; valuations and returns retain the original quote precision.
+const livePriceFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+const livePriceNumber = new Intl.NumberFormat('en-US', { useGrouping: false, maximumFractionDigits: 2 });
+
+function renderTotalValue(value, animate = false) {
+  const cell = byId('total-value');
+  cell.classList.toggle('value-masked', discreetMode);
+  if (discreetMode) {
+    cell.textContent = '••••••';
+    cell.setAttribute('aria-label', 'Portfolio value hidden');
+    cell.dataset.value = ''; cell.dataset.direction = ''; cell.dataset.changedAt = '';
+    cell.classList.remove('quote-up', 'quote-down');
+  } else {
+    cell.removeAttribute('aria-label');
+    cell.textContent = money(value);
+    cell.classList.add('live-price');
+    if (animate) renderQuotePulse(cell, value, Number.isSafeInteger(value));
+  }
+}
+
+function updateDiscreetMode() {
+  const button = byId('discreet-mode');
+  button.setAttribute('aria-pressed', String(discreetMode));
+  button.title = discreetMode ? 'Show total portfolio value' : 'Hide total portfolio value';
+  if (report) renderOverviewLive();
+}
+
+byId('discreet-mode').addEventListener('click', () => {
+  discreetMode = !discreetMode;
+  try { localStorage.setItem(discreetPreferenceKey, String(discreetMode)); } catch { /* Keep the session preference. */ }
+  updateDiscreetMode();
+});
+window.addEventListener('storage', event => {
+  if (event.key !== discreetPreferenceKey && event.key !== null) return;
+  discreetMode = event.newValue === 'true'; updateDiscreetMode();
+});
+updateDiscreetMode();
 
 function renderQuotePulse(cell, value, valid) {
   const previous = cell.dataset.value ? Number(cell.dataset.value) : null;
@@ -480,7 +519,7 @@ function renderLivePrice(cell, value, currency, field) {
     arrow.className = 'quote-direction'; arrow.setAttribute('aria-hidden', 'true');
     cell.replaceChildren(arrow, document.createElement('span'));
   }
-  renderQuotePulse(cell, value, valid);
+  renderQuotePulse(cell, valid ? Number(livePriceNumber.format(value)) : null, valid);
   const direction = cell.dataset.direction;
   cell.firstElementChild.textContent = direction === 'up' ? '↑' : direction === 'down' ? '↓' : String.fromCharCode(160);
   const formatted = valid ? livePriceFormat.format(value) : '—';
@@ -599,8 +638,7 @@ function renderOverviewLive() {
     totalCell.dataset.changedAt = '';
     totalCell.classList.remove('quote-up', 'quote-down');
   }
-  totalCell.classList.add('live-price');
-  renderQuotePulse(totalCell, total, Number.isSafeInteger(total));
+
   const intraday = report.asOf === report.today && (covered > 0 || fxCovered > 0);
   const delta = intraday ? total - report.totalValue : 0;
   const gain = report.day.gain + delta;
@@ -611,7 +649,7 @@ function renderOverviewLive() {
   text('day-return', percent(Number.isFinite(rate) ? rate : null)); tone('day-return', rate);
   text('day-label', report.asOf === report.today ? (intraday ? 'Today’s performance · IBKR' : 'Today’s performance') : 'Daily performance');
   text('day-dates', `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)}${intraday ? ' · intraday estimate' : ''}`);
-  text('total-value', money(total));
+  renderTotalValue(total, true);
   text('total-value-label', covered || fxCovered ? 'Portfolio value with IBKR quotes' : 'Total portfolio value');
   text('total-date', covered || fxCovered
     ? `${covered} position${covered === 1 ? '' : 's'} repriced · ${delayed ? `${delayed} delayed / frozen · ` : ''}${fxCovered ? `${fxCovered} positions with IBKR FX midpoint${delayedFx ? ' (includes delayed)' : ''}; saved FX elsewhere` : 'saved FX'}; stored prices for remaining positions. Charts and longer-period performance use saved prices.`
@@ -775,7 +813,7 @@ function renderLiveQuotes() {
     const found = history.findIndex(point => point.time === liveHoveredTime);
     if (found >= 0) selectedIndex = found;
   }
-  const format = value => new Intl.NumberFormat(undefined, { style: 'currency', currency: selectedQuote?.currency || 'USD', maximumFractionDigits: 6 }).format(value);
+  const format = value => new Intl.NumberFormat(undefined, { style: 'currency', currency: selectedQuote?.currency || 'USD', maximumFractionDigits: 2 }).format(value);
   liveQuoteChart = new TimeSeriesChart(byId('live-chart'));
   liveQuoteChart.draw({ points: history.map(point => ({ date: point.time, value: point.value })), format,
     formatTime: time => liveTime(time), formatDate: liveTime, selected: selectedIndex,

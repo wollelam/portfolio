@@ -55,6 +55,18 @@ async function main() {
     assert.equal(await page.locator('#live-quotes-body tr').first().getAttribute('data-quote'), 'down');
     await heading.locator('button').click();
     assert.equal(await page.locator('#live-quotes-body tr').first().getAttribute('data-quote'), 'up');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    last = 3793.9999;
+    await page.waitForFunction(() => document.querySelector('tr[data-quote="up"]').cells[2].dataset.value === '3794');
+    assert.equal(await row.locator('td').nth(2).locator('span').last().innerText(), '3,794');
+    await page.waitForFunction(() => document.querySelector('tr[data-quote="up"]').cells[2].dataset.direction === '');
+    last = 3794.0001;
+    await page.waitForFunction(() => market.liveQuotes.quotes[0].quote.last === 3794.0001);
+    assert.equal(await row.locator('td').nth(2).getAttribute('data-direction'), '', 'invisible precision changes do not flash');
+    last = 3794.56789;
+    await page.waitForFunction(() => document.querySelector('tr[data-quote="up"]').cells[2].dataset.value === '3794.57');
+    assert.equal(await row.locator('td').nth(2).locator('span').last().innerText(), '3,794.57');
+    assert.equal(await page.evaluate(() => market.liveQuotes.quotes[0].quote.last), 3794.56789, 'calculation input retains precision');
     assert.deepEqual(errors, []);
     console.log('Daily quote change: up/down/flat, missing baseline, updates and table columns passed.');
   } finally { await browser.close(); }

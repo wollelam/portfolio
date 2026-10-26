@@ -455,3 +455,13 @@ native daily interval. Securities link to their details, and expanding/collapsin
 For a RAM-backed live quote cache, set `PP_WEB_LIVE_QUOTES_VOLUME` to an existing shared
 tmpfs Docker volume alongside `PP_WEB_LIVE_QUOTES=1`. The web process mounts that cache read-only;
 the collector mounts the same volume read/write. See the quote-stream README for setup.
+
+The eye button beside the Overview total enables Discreet mode, masking that amount with bullets
+and remembering the browser preference. Live updates continue underneath the mask; copied text
+and the amount's accessible label also stay masked. Other performance figures remain visible.
+If browser storage is disabled the toggle still works for the current page session.
+
+Displayed live quote prices (including bid/ask, session ranges and chart labels) use at most two
+decimal places. Tick pulses compare displayed prices to avoid flashes caused by invisible feed
+precision changes; calculations, FX conversion, daily percentage change and quote history retain
+the original data precision.

@@ -1063,3 +1063,12 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .daily-performers-toggle { display:block; margin-top:14px; padding:0; border:0; background:transparent; color:#2458a6; font:inherit; font-size:12px; cursor:pointer; text-align:left; }
 .daily-performers-toggle:focus-visible { outline:2px solid currentColor; outline-offset:4px; }
 #daily-performers-panel .ranking-grid td:last-child { white-space:nowrap; font-variant-numeric:tabular-nums; }
+
+.metric .metric-heading { justify-content:space-between; gap:8px; margin-bottom:12px; flex-wrap:nowrap; }
+.metric-heading>p { margin:0; font-size:11px; color:var(--muted); }
+.discreet-toggle { display:grid; place-items:center; flex-shrink:0; width:32px; height:32px; padding:6px; border:0; border-radius:6px; color:var(--muted); background:transparent; }
+.discreet-toggle:hover,.discreet-toggle[aria-pressed="true"] { background:#edf3f1; color:var(--green); }
+.discreet-toggle svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.discreet-toggle .eye-slash { display:none; }
+.discreet-toggle[aria-pressed="true"] .eye-slash { display:block; }
+#total-value.value-masked { letter-spacing:.12em; }
