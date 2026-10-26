@@ -57,7 +57,8 @@ async function main() {
     await logo.waitFor();
     const bar = page.locator('#waterfall-chart .waterfall-bar').filter({ has: page.locator('.chart-logo') }).first();
     await bar.focus();
-    assert.match(await page.locator('#waterfall-tooltip').innerText(), /Running total/);
+    assert.doesNotMatch(await page.locator('#waterfall-tooltip').innerText(), /Running total/);
+    assert.equal(await page.locator('#waterfall-chart title, #waterfall-chart [title]').count(), 0);
     assert.equal(await logo.locator('rect').evaluate(node => getComputedStyle(node).fill), 'rgb(255, 255, 255)');
     assert.equal(await logo.locator('rect').evaluate(node => getComputedStyle(node).strokeWidth), '1px', 'focus outlines the bar without thickening the logo frame');
     await logo.click();

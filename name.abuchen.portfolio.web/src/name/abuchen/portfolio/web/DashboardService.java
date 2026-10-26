@@ -33,7 +33,7 @@ import name.abuchen.portfolio.util.TradeCalendarManager;
 @SuppressWarnings("nls")
 final class DashboardService
 {
-    record Period(String openingDate, String closingDate, long valueChange, long netFlows, long gain, Double rate)
+    record Period(String openingDate, String closingDate, long valueChange, long netFlows, long gain, Double rate, Double closingValueReturnFactor)
     {
     }
 
@@ -436,8 +436,14 @@ final class DashboardService
         // Opening-date transactions are already included in the opening valuation.
         for (int ii = 1; ii < transfers.length; ii++)
             flows += transfers[ii];
+        int last = totals.length - 1;
+        // Native TTWROR puts closing-day inflows in the denominator and outflows in the numerator.
+        // Only the terminal valuation changes intraday; retain all prior daily factors and cash flows.
+        double denominator = last > 0 ? (double) totals[last - 1] + index.getInboundTransferals()[last] : 0;
+        Double closingValueReturnFactor = denominator == 0 ? null
+                        : finite((1 + index.getAccumulatedPercentage()[last - 1]) / denominator);
         return new Period(index.getActualInterval().getStart().toString(), index.getActualInterval().getEnd().toString(),
-                        valueChange, flows, valueChange - flows, finite(index.getFinalAccumulatedPercentage()));
+                        valueChange, flows, valueChange - flows, finite(index.getFinalAccumulatedPercentage()), closingValueReturnFactor);
     }
 
     private Double finite(double value)

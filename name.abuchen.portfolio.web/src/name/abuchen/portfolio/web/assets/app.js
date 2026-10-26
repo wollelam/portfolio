@@ -596,10 +596,20 @@ function renderOverviewLive() {
   }
   totalCell.classList.add('live-price');
   renderQuotePulse(totalCell, total, Number.isSafeInteger(total));
+  const intraday = report.asOf === report.today && (covered > 0 || fxCovered > 0);
+  const delta = intraday ? total - report.totalValue : 0;
+  const gain = report.day.gain + delta;
+  const factor = report.day.closingValueReturnFactor;
+  const rate = delta === 0 ? report.day.rate : Number.isFinite(report.day.rate) && Number.isFinite(factor)
+    ? report.day.rate + delta * factor : null;
+  text('day-gain', money(gain, true)); tone('day-gain', gain);
+  text('day-return', percent(Number.isFinite(rate) ? rate : null)); tone('day-return', rate);
+  text('day-label', report.asOf === report.today ? (intraday ? 'Today’s performance · IBKR' : 'Today’s performance') : 'Daily performance');
+  text('day-dates', `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)}${intraday ? ' · intraday estimate' : ''}`);
   text('total-value', money(total));
   text('total-value-label', covered || fxCovered ? 'Portfolio value with IBKR quotes' : 'Total portfolio value');
   text('total-date', covered || fxCovered
-    ? `${covered} position${covered === 1 ? '' : 's'} repriced · ${delayed ? `${delayed} delayed / frozen · ` : ''}${fxCovered ? `${fxCovered} positions with IBKR FX midpoint${delayedFx ? ' (includes delayed)' : ''}; saved FX elsewhere` : 'saved FX'}; stored prices for remaining positions. Performance uses saved prices.`
+    ? `${covered} position${covered === 1 ? '' : 's'} repriced · ${delayed ? `${delayed} delayed / frozen · ` : ''}${fxCovered ? `${fxCovered} positions with IBKR FX midpoint${delayedFx ? ' (includes delayed)' : ''}; saved FX elsewhere` : 'saved FX'}; stored prices for remaining positions. Charts and longer-period performance use saved prices.`
     : `As of ${dateLabel(report.asOf)} · stored prices`);
 }
 
@@ -1122,7 +1132,7 @@ function renderWaterfall(data) {
   const step = (right - left) / bars.length;
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.style.width = '100%'; svg.style.minWidth = `${width}px`; svg.style.maxWidth = 'none';
-  svg.append(svgElement('title', {}, 'Performance waterfall in portfolio reporting currency'));
+  svg.setAttribute('aria-label', 'Performance waterfall in portfolio reporting currency');
   for (let i = 0; i <= 4; i++) {
     const value = low + span * i / 4, py = y(value);
     svg.append(svgElement('line', { x1: left, x2: right, y1: py, y2: py, class: 'waterfall-grid' }));
@@ -1140,7 +1150,7 @@ function renderWaterfall(data) {
     if (logo) group.append(logo);
     const words = bar.label.match(/.{1,17}(?:\s|$)|\S{1,17}/g) || [bar.label];
     words.slice(0, 4).forEach((word, line) => group.append(svgElement('text', { x: x + barWidth / 2, y: (logo ? 351 : 315) + line * 17, 'text-anchor': 'middle', class: 'waterfall-label' }, word.trim())));
-    const description = `${bar.label}: ${money(bar.amount, !total)}${!total ? ` · Running total ${money(bar.end)}` : ''}`;
+    const description = `${bar.label}: ${money(bar.amount, !total)}`;
     const inspect = event => { text('waterfall-detail', description); showWaterfallTooltip(description, event, group); };
     group.addEventListener('pointerenter', inspect);
     group.addEventListener('pointermove', inspect);

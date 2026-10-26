@@ -42,11 +42,12 @@ async function main() {
         market = { liveQuotes: { available: true, connected: true, mode: mode === 'demo' ? 'demo' : 'ibkr', generatedAt: mode === 'heartbeat' ? new Date(Date.now() - 9000).toISOString() : now, quotes } };
         renderOverviewLive();
         return { value: document.querySelector('#total-value').textContent, note: document.querySelector('#total-date').textContent,
-          saved: report.totalValue, gbp: liveFxRate('GBX')?.rate, dkk: liveFxRate('DKK')?.rate };
+          saved: report.totalValue, gain: document.querySelector('#day-gain').textContent, gbp: liveFxRate('GBX')?.rate, dkk: liveFxRate('DKK')?.rate };
       }, mode);
       const formatted = await page.evaluate(value => money(value), expected);
       assert.equal(actual.value, formatted, mode);
       assert.equal(actual.saved, 34000);
+      assert.equal(actual.gain, await page.evaluate(delta => money(report.day.gain + delta, true), expected - 34000));
       return actual;
     };
     const valid = await check('valid', 36550);

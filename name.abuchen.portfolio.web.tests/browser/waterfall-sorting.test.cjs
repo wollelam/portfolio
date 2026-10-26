@@ -33,8 +33,12 @@ async function main() {
     await page.waitForTimeout(300);
     const securityBar = page.locator('#waterfall-chart [role="link"]').first();
     await securityBar.focus();
-    assert.match(await page.locator('#waterfall-detail').innerText(), /Running total/);
-    assert.match(await tooltip.innerText(), /Running total/);
+    assert.doesNotMatch(await page.locator('#waterfall-detail').innerText(), /Running total/);
+    assert.doesNotMatch(await tooltip.innerText(), /Running total/);
+    const expectedTooltip = await securityBar.getAttribute('aria-label');
+    assert.equal(await tooltip.innerText(), expectedTooltip.replace('. Open security details', ''));
+    assert.equal(await page.locator('#waterfall-chart title, #waterfall-chart [title]').count(), 0, 'custom tooltip has no native SVG/title tooltip');
+    assert.match(await page.locator('#waterfall-chart').getAttribute('aria-label'), /Performance waterfall/);
     await securityBar.press('Enter');
     await page.locator('#instrument-name').waitFor({ state: 'visible' });
     await page.locator('#instrument-back').click();

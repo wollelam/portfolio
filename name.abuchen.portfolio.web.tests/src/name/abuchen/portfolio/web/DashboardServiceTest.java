@@ -53,6 +53,41 @@ public class DashboardServiceTest
     }
 
     @Test
+    public void liveClosingValueReturnFactorPreservesDepositsAndWithdrawals()
+    {
+        var client = new Client(); client.setBaseCurrency("EUR");
+        var account = new Account("Cash"); account.setCurrencyCode("EUR"); client.addAccount(account);
+        account.addTransaction(new AccountTransaction(end.minusDays(2).atStartOfDay(), "EUR", 100_000, null, AccountTransaction.Type.DEPOSIT));
+        account.addTransaction(new AccountTransaction(end.atTime(9, 0), "EUR", 20_000, null, AccountTransaction.Type.DEPOSIT));
+        account.addTransaction(new AccountTransaction(end.atTime(10, 0), "EUR", 5_000, null, AccountTransaction.Type.REMOVAL));
+        account.addTransaction(new AccountTransaction(end.atTime(11, 0), "EUR", 850, null, AccountTransaction.Type.INTEREST));
+        var before = service(client).dashboard(end.minusDays(2), end).day();
+        assertEquals(850, before.gain());
+        assertEquals(15_000, before.netFlows());
+        assertEquals(1d / 120_000, before.closingValueReturnFactor(), 1e-15);
+        account.addTransaction(new AccountTransaction(end.atTime(12, 0), "EUR", 1200, null, AccountTransaction.Type.INTEREST));
+        var after = service(client).dashboard(end.minusDays(2), end).day();
+        assertEquals(before.gain() + 1200, after.gain());
+        assertEquals(before.rate() + 1200 * before.closingValueReturnFactor(), after.rate(), 1e-12);
+    }
+
+    @Test
+    public void liveClosingValueReturnFactorHandlesZeroCapitalAndTotalLoss()
+    {
+        var client = new Client(); client.setBaseCurrency("EUR");
+        assertEquals(null, service(client).dashboard(end.minusDays(1), end).day().closingValueReturnFactor());
+        var account = new Account("Cash"); account.setCurrencyCode("EUR"); client.addAccount(account);
+        account.addTransaction(new AccountTransaction(end.minusDays(2).atStartOfDay(), "EUR", 100_000, null, AccountTransaction.Type.DEPOSIT));
+        account.addTransaction(new AccountTransaction(end.atTime(9, 0), "EUR", 100_000, null, AccountTransaction.Type.FEES));
+        var before = service(client).dashboard(end.minusDays(2), end).day();
+        assertEquals(-1d, before.rate(), 1e-12);
+        assertEquals(1d / 100_000, before.closingValueReturnFactor(), 1e-15);
+        account.addTransaction(new AccountTransaction(end.atTime(12, 0), "EUR", 1000, null, AccountTransaction.Type.INTEREST));
+        var after = service(client).dashboard(end.minusDays(2), end).day();
+        assertEquals(before.rate() + 1000 * before.closingValueReturnFactor(), after.rate(), 1e-12);
+    }
+
+    @Test
     public void maximumRangeIncludesFirstActivityAndHistoryOlderThanTenYears()
     {
         var client = new Client(); client.setBaseCurrency("EUR");

@@ -411,7 +411,7 @@ The Overview total reprices today's explicitly mapped holdings once per second u
 last prices and fresh IBKR FX midpoints, falling back to the valuation date's saved rates.
 Positions without a usable stock quote retain stored native prices; foreign holdings and cash
 can still receive FX-only adjustments. Unconvertible positions retain stored values. The card labels
-quote coverage and delayed/frozen data. Historical dates, performance metrics and charts continue
+quote coverage and delayed/frozen data. Historical dates, longer-period performance metrics and charts continue
 to use saved portfolio prices. This indicative overlay never writes prices to the portfolio.
 
 The Live quotes table includes Day %, calculated as `(last / previousClose - 1) × 100`
@@ -433,3 +433,14 @@ performance are unchanged. FX pairs also appear in the Live quotes watchlist.
 The Live quotes table shows sortable Day high and Day low from IBKR's daily high/low
 fields. These use broker session data, rather than the collector's short observed history;
 missing values remain unavailable. GBX highs/lows use the same verified price units as last prices.
+
+Today's performance follows the same intraday total: the change from the saved closing valuation
+is added to the core daily gain. Its time-weighted return uses the native index's prior-day
+accumulated factor and closing-day opening capital plus inflows; deposits and withdrawals keep
+their native timing treatment. The card is labelled as an intraday estimate. Missing quotes fall
+back with the total; historical views, charts and longer-period performance retain saved values.
+When the native return denominator is zero, an adjusted return is unavailable rather than guessed.
+
+Waterfall hover/focus uses one custom tooltip with the bar's amount. The cumulative connector
+value is not included in the tooltip. Accessible labels are preserved without SVG title elements
+that would trigger a second browser-native tooltip.
