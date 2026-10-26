@@ -97,6 +97,18 @@ fi
 if [[ "${PP_WEB_LIVE_QUOTES:-0}" == 1 ]]; then
     arguments+=(--live-quotes-file /web-state/live-quotes/latest.json)
 fi
+quote_volume=${PP_WEB_LIVE_QUOTES_VOLUME:-}
+if [[ -n "$quote_volume" ]]; then
+    if [[ "${PP_WEB_LIVE_QUOTES:-0}" != 1 || ! "$quote_volume" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+        printf 'PP_WEB_LIVE_QUOTES_VOLUME requires live quotes and a valid Docker volume name.\n' >&2
+        exit 2
+    fi
+    if [[ "$(docker volume inspect --format '{{ index .Options "type" }}' "$quote_volume" 2>/dev/null)" != tmpfs ]]; then
+        printf 'PP_WEB_LIVE_QUOTES_VOLUME must name an existing tmpfs-backed Docker volume.\n' >&2
+        exit 2
+    fi
+    mounts+=(--mount "type=volume,src=$quote_volume,dst=/web-state/live-quotes,readonly,volume-nocopy")
+fi
 run_options=(--rm)
 if [[ "$detached" == true ]]; then
     run_options=(--detach --restart unless-stopped --name "${PP_WEB_CONTAINER_NAME:-portfolio-web}")

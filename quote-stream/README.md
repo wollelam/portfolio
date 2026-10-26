@@ -137,3 +137,25 @@ rates fall back to saved valuation rates. FX subscriptions share the same 100-en
 
 The collector publishes IBKR's previous close and session high/low for the Live quotes table.
 It does not infer daily ranges from its 90-second observed history. Missing fields stay unavailable.
+
+## Shared RAM cache
+
+To keep the transient quote snapshot and collector lock off persistent storage, create a shared
+tmpfs-backed Docker volume (adjust UID/GID for the processes running both containers):
+
+```sh
+docker volume create --driver local --opt type=tmpfs --opt device=tmpfs \
+  --opt o=size=16m,uid=1000,gid=1000,mode=0700,nosuid,nodev,noexec portfolio-web-live-quotes
+```
+
+Mount that volume at `/state` in the collector and read-only at `/web-state/live-quotes` in
+the web container. Both processes must use the same volume; separate per-container tmpfs mounts
+do not share files. For the web launcher, set `PP_WEB_LIVE_QUOTES=1` and
+`PP_WEB_LIVE_QUOTES_VOLUME=portfolio-web-live-quotes`. The launcher verifies that the existing
+volume is tmpfs-backed and disables copying persistent directory contents into the RAM volume.
+
+For Compose, declare an external volume with `name: portfolio-web-live-quotes` and mount it
+using `type: volume`, `target: /state`, and `volume: {nocopy: true}` for the collector.
+The volume is limited to 16 MiB and owned by the application user. Its contents are transient
+and rebuilt by the collector after restart; the Docker volume declaration persists. Broker
+credentials, contract configuration and portfolio data stay in their existing persistent locations.

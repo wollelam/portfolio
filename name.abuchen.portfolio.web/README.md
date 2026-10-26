@@ -451,3 +451,7 @@ only while expanded (`rankings=day`); live stock/FX valuation deltas are applied
 calculation as the overview total. Closed positions retain native realised results, and missing
 base metrics remain unavailable. Scope filters and historical dates use their corresponding
 native daily interval. Securities link to their details, and expanding/collapsing is keyboard accessible.
+
+For a RAM-backed live quote cache, set `PP_WEB_LIVE_QUOTES_VOLUME` to an existing shared
+tmpfs Docker volume alongside `PP_WEB_LIVE_QUOTES=1`. The web process mounts that cache read-only;
+the collector mounts the same volume read/write. See the quote-stream README for setup.
