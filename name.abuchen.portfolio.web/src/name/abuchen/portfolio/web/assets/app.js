@@ -114,7 +114,7 @@ const sortColumns = {
   'decliners-body': ['name', 'rate', 'gain'],
   'security-dividends-body': ['date', originalAmount('gross'), originalAmount('taxes'), originalAmount('fees'), originalAmount('net'), 'reportingNet'],
   'security-transactions-body': ['date', row => `${row.type} ${row.owner}`, 'shares', originalAmount('amount'), originalAmount('taxes'), originalAmount('fees'), 'reportingAmount'],
-  'live-quotes-body': [row => row.quote.name, row => row.quote.currency, row => [row.quote.currency, row.quote.last], row => [row.quote.currency, row.quote.bid], row => [row.quote.currency, row.quote.ask], row => row.quote.receivedAt, row => row.quote.marketDataType],
+  'live-quotes-body': [row => row.quote.name, row => row.quote.currency, row => [row.quote.currency, row.quote.last], row => liveDailyChange(row.quote), row => [row.quote.currency, row.quote.bid], row => [row.quote.currency, row.quote.ask], row => [row.quote.currency, row.quote.dayHigh], row => [row.quote.currency, row.quote.dayLow], row => row.quote.receivedAt, row => row.quote.marketDataType],
   'waterfall-body': ['label', 'amount']
 };
 function compareValues(a, b) {
@@ -424,6 +424,7 @@ function render() {
   }
   if (!visibleHoldings.length) emptyRow(holdings, 6, securitySearch ? 'No positions match your search.' : 'No holdings or cash accounts at this valuation date.');
   renderHoldingsLive();
+  renderOverviewLive();
   renderInstrument(report.instrument);
   renderRankings(report.rankings);
   renderWaterfall(report.waterfall);
@@ -453,15 +454,9 @@ function render() {
 const liveTime = value => new Date(value).toLocaleTimeString(undefined, { hour12: false });
 const livePriceFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 });
 
-function renderLivePrice(cell, value, currency, field) {
+function renderQuotePulse(cell, value, valid) {
   const previous = cell.dataset.value ? Number(cell.dataset.value) : null;
-  const valid = Number.isFinite(value) && value > 0;
   const changed = valid && previous !== null && value !== previous;
-  if (!cell.firstElementChild) {
-    const arrow = document.createElement('span');
-    arrow.className = 'quote-direction'; arrow.setAttribute('aria-hidden', 'true');
-    cell.replaceChildren(arrow, document.createElement('span'));
-  }
   if (changed) {
     cell.dataset.direction = value > previous ? 'up' : 'down';
     cell.dataset.changedAt = String(performance.now());
@@ -473,6 +468,16 @@ function renderLivePrice(cell, value, currency, field) {
     cell.classList.remove('quote-up', 'quote-down');
   }
   cell.dataset.value = valid ? String(value) : '';
+}
+
+function renderLivePrice(cell, value, currency, field) {
+  const valid = Number.isFinite(value) && value > 0;
+  if (!cell.firstElementChild) {
+    const arrow = document.createElement('span');
+    arrow.className = 'quote-direction'; arrow.setAttribute('aria-hidden', 'true');
+    cell.replaceChildren(arrow, document.createElement('span'));
+  }
+  renderQuotePulse(cell, value, valid);
   const direction = cell.dataset.direction;
   cell.firstElementChild.textContent = direction === 'up' ? '↑' : direction === 'down' ? '↓' : String.fromCharCode(160);
   const formatted = valid ? livePriceFormat.format(value) : '—';
@@ -517,12 +522,85 @@ function holdingBrokerQuote(holding) {
   if (matches.length !== 1) return { message: 'Not mapped' };
   const entry = matches[0], quote = entry.quote;
   if (quote.currency !== holding.quoteCurrency || !Number.isSafeInteger(quote.conId) || quote.conId <= 0) return { message: 'Identity mismatch' };
+  if (quote.status === 'not_subscribed') return { message: 'Market-data permission needed' };
+  if (quote.status === 'unresolved') return { message: 'Contract unresolved' };
+  if (quote.status === 'waiting') return { message: 'Waiting for quote' };
   const received = Date.parse(quote.receivedAt), heartbeat = Date.parse(feed.generatedAt);
   if (entry.stale || quote.status !== 'active' || !Number.isFinite(received) || !Number.isFinite(heartbeat)
       || Date.now() - received > 60000 || Date.now() - heartbeat > 8000) return { message: 'Stale / unavailable' };
   if (!['real_time', 'delayed', 'frozen', 'delayed_frozen'].includes(quote.marketDataType)
       || !Number.isFinite(quote.last) || quote.last <= 0 || !Number.isSafeInteger(holding.shares)) return { message: 'Price unavailable' };
   return { quote, message: `${quote.marketDataType.replaceAll('_', ' ')} · ${quote.currency} · ${liveTime(quote.receivedAt)}` };
+}
+
+function liveFxPair(from, to) {
+  if (from === to) return { rate: 1, delayed: false };
+  const feed = market?.liveQuotes;
+  if (report.asOf !== report.today || liveConnectionError || !feed?.available || !feed.connected || feed.mode !== 'ibkr') return null;
+  const matches = (feed.quotes || []).filter(({ quote: q }) => q.key === `fx:${from}:${to}` || q.key === `fx:${to}:${from}`);
+  if (matches.length !== 1) return null;
+  const entry = matches[0], q = entry.quote;
+  if (q.secType !== 'CASH' || !Number.isSafeInteger(q.conId) || q.conId <= 0
+      || q.key !== `fx:${q.symbol}:${q.currency}` || !['real_time', 'delayed'].includes(q.marketDataType)
+      || entry.stale || q.status !== 'active' || !Number.isFinite(Date.parse(q.receivedAt))
+      || !Number.isFinite(Date.parse(feed.generatedAt)) || Date.now() - Date.parse(q.receivedAt) > 60000
+      || Date.now() - Date.parse(feed.generatedAt) > 8000 || !Number.isFinite(q.bid) || q.bid <= 0
+      || !Number.isFinite(q.ask) || q.ask < q.bid) return null;
+  const midpoint = q.bid / 2 + q.ask / 2;
+  const rate = q.symbol === from ? midpoint : 1 / midpoint;
+  return Number.isFinite(rate) && rate > 0 ? { rate, delayed: q.marketDataType === 'delayed' } : null;
+}
+
+function liveFxRate(currency) {
+  const from = currency === 'GBX' ? 'GBP' : currency;
+  const to = report.currency === 'GBX' ? 'GBP' : report.currency;
+  if (!from || !to || from === to) return null;
+  let result = liveFxPair(from, to);
+  if (!result) {
+    const source = liveFxPair(from, 'USD'), target = liveFxPair(to, 'USD');
+    if (source && target) result = { rate: source.rate / target.rate, delayed: source.delayed || target.delayed };
+  }
+  if (!result) return null;
+  const rate = result.rate * (report.currency === 'GBX' ? 100 : 1) / (currency === 'GBX' ? 100 : 1);
+  return Number.isFinite(rate) && rate > 0 ? { ...result, rate } : null;
+}
+
+function renderOverviewLive() {
+  if (!report) return;
+  let total = report.totalValue, covered = 0, delayed = 0, fxCovered = 0, delayedFx = 0;
+  for (const holding of report.holdings) {
+    const broker = holding.type === 'security' ? holdingBrokerQuote(holding) : {};
+    const savedRate = holding.valuationFxRate;
+    const fx = report.asOf === report.today && holding.quoteCurrency !== report.currency ? liveFxRate(holding.quoteCurrency) : null;
+    const rate = fx?.rate ?? savedRate;
+    if (!Number.isFinite(rate) || rate <= 0) continue;
+    let value;
+    if (broker.quote) value = Math.round(broker.quote.last * holding.shares / 1e8 * rate * 100);
+    else if (fx && Number.isFinite(savedRate) && savedRate > 0) value = Math.round(holding.value / savedRate * rate);
+    else continue;
+    if (!Number.isSafeInteger(value) || !Number.isSafeInteger(total + value - holding.value)) continue;
+    total += value - holding.value;
+    if (broker.quote) {
+      covered++;
+      if (broker.quote.marketDataType !== 'real_time') delayed++;
+    }
+    if (fx) { fxCovered++; if (fx.delayed) delayedFx++; }
+  }
+  const totalCell = byId('total-value');
+  const basis = JSON.stringify([report.asOf, report.currency, report.scope?.excluded || []]);
+  if (totalCell.dataset.basis !== basis) {
+    totalCell.dataset.basis = basis;
+    totalCell.dataset.value = '';
+    totalCell.dataset.changedAt = '';
+    totalCell.classList.remove('quote-up', 'quote-down');
+  }
+  totalCell.classList.add('live-price');
+  renderQuotePulse(totalCell, total, Number.isSafeInteger(total));
+  text('total-value', money(total));
+  text('total-value-label', covered || fxCovered ? 'Portfolio value with IBKR quotes' : 'Total portfolio value');
+  text('total-date', covered || fxCovered
+    ? `${covered} position${covered === 1 ? '' : 's'} repriced · ${delayed ? `${delayed} delayed / frozen · ` : ''}${fxCovered ? `${fxCovered} positions with IBKR FX midpoint${delayedFx ? ' (includes delayed)' : ''}; saved FX elsewhere` : 'saved FX'}; stored prices for remaining positions. Performance uses saved prices.`
+    : `As of ${dateLabel(report.asOf)} · stored prices`);
 }
 
 function renderHoldingsLive() {
@@ -547,6 +625,12 @@ function renderHoldingsLive() {
     value.textContent = Number.isFinite(amount) ? new Intl.NumberFormat(undefined, { style: 'currency', currency: broker.quote.currency }).format(amount) : 'Unavailable';
   }
   text('holdings-live-status', `${covered} of ${holdings.size} securities have a fresh, explicitly mapped IBKR quote. Broker position values use stored quantities and instrument currencies. Saved portfolio performance is unchanged.`);
+}
+
+function liveDailyChange(quote) {
+  if (!Number.isFinite(quote.last) || quote.last <= 0 || !Number.isFinite(quote.previousClose) || quote.previousClose <= 0) return null;
+  const change = quote.last / quote.previousClose - 1;
+  return Number.isFinite(change) ? change : null;
 }
 
 function renderLiveQuotes() {
@@ -585,10 +669,10 @@ function renderLiveQuotes() {
         syncRouteUrl(); renderLiveQuotes();
       });
       name.append(button); row.append(name);
-      for (let i = 0; i < 6; i++) cell(row, '');
+      for (let i = 0; i < 9; i++) cell(row, '');
       body.append(row);
     }
-    if (!entries.length) emptyRow(body, 7, 'No quotes received yet.');
+    if (!entries.length) emptyRow(body, 10, 'No quotes received yet.');
   }
   const typeNames = { real_time: 'Real-time', delayed: 'Delayed', frozen: 'Frozen', delayed_frozen: 'Delayed frozen', unknown: 'Awaiting data type' };
   const states = { waiting: 'Waiting for quotes', unavailable: 'Unavailable', unresolved: 'Contract not resolved', not_subscribed: 'Not subscribed' };
@@ -597,10 +681,19 @@ function renderLiveQuotes() {
     cells[0].firstChild.textContent = quote.name;
     cells[0].firstChild.setAttribute('aria-pressed', String(quote.key === selectedLiveQuote));
     cells[1].textContent = quote.currency;
-    ['last', 'bid', 'ask'].forEach((field, i) => renderLivePrice(cells[i + 2], quote[field], quote.currency, field));
-    cells[5].textContent = quote.receivedAt ? liveTime(quote.receivedAt) : '—';
-    cells[5].title = quote.receivedAt || '';
-    cells[6].textContent = `${simulated ? 'Simulated ' : ''}${typeNames[quote.marketDataType] || 'Unknown'}${quote.status !== 'active' ? ` · ${states[quote.status] || 'Unavailable'}` : stale ? ' · stale' : ''}`;
+    ['last', 'bid', 'ask'].forEach((field, i) => renderLivePrice(cells[i === 0 ? 2 : i + 3], quote[field], quote.currency, field));
+    const change = liveDailyChange(quote), changeCell = cells[3];
+    changeCell.classList.add('numeric', 'live-daily-change', 'live-price');
+    renderQuotePulse(changeCell, change, change !== null);
+    changeCell.textContent = change === null ? '—' : new Intl.NumberFormat(undefined, { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' }).format(change);
+    changeCell.classList.toggle('positive', change > 0);
+    changeCell.classList.toggle('negative', change < 0);
+    changeCell.title = change === null ? 'Previous close or last trade unavailable' : `Compared with IBKR previous close: ${livePriceFormat.format(quote.previousClose)} ${quote.currency}${stale || liveConnectionError ? ' · stale quote' : ''}`;
+    renderLivePrice(cells[6], quote.dayHigh, quote.currency, 'Daily high');
+    renderLivePrice(cells[7], quote.dayLow, quote.currency, 'Daily low');
+    cells[8].textContent = quote.receivedAt ? liveTime(quote.receivedAt) : '—';
+    cells[8].title = quote.receivedAt || '';
+    cells[9].textContent = `${simulated ? 'Simulated ' : ''}${typeNames[quote.marketDataType] || 'Unknown'}${quote.status !== 'active' ? ` · ${states[quote.status] || 'Unavailable'}` : stale ? ' · stale' : ''}`;
   });
   const selectedQuote = entries.find(entry => entry.quote.key === selectedLiveQuote)?.quote;
   text('live-selected-name', selectedQuote ? `${selectedQuote.name} · ${selectedQuote.currency}` : 'Observed last price');
@@ -627,7 +720,7 @@ function renderLiveQuotes() {
 }
 
 async function checkLiveQuotes() {
-  if (document.hidden || !['live-quotes', 'holdings'].includes(currentRoute) || livePollBusy) return;
+  if (document.hidden || !['live-quotes', 'holdings', 'overview'].includes(currentRoute) || livePollBusy) return;
   livePollBusy = true;
   try {
     const response = await fetch('/api/price-updates', { cache: 'no-store' });
@@ -638,6 +731,7 @@ async function checkLiveQuotes() {
     liveConnectionError = true;
     if (currentRoute === 'live-quotes') renderLiveQuotes();
     renderHoldingsLive();
+    renderOverviewLive();
   } finally { livePollBusy = false; }
 }
 
@@ -1193,6 +1287,7 @@ function setMarket(data) {
   renderMarket();
   if (currentRoute === 'live-quotes') renderLiveQuotes();
   renderHoldingsLive();
+  renderOverviewLive();
 }
 
 function renderMarket() {

@@ -17,6 +17,14 @@ class WatchlistDraftTest(unittest.TestCase):
         self.assertNotIn('username', result)
         self.assertNotIn('password', result)
 
+    def test_full_portfolio_selection_and_upper_bound(self):
+        import uuid
+        keys = [str(uuid.UUID(int=i + 1)) for i in range(101)]
+        self.report['holdings'] = [dict(self.report['holdings'][0], uuid=key) for key in keys]
+        self.assertEqual(100, len(draft(self.report, keys[:100])['instruments']))
+        with self.assertRaises(ValueError):
+            draft(self.report, keys)
+
     def test_unheld_duplicate_unknown_currency_and_oversized_selection_fail_closed(self):
         for selected in [[], [self.key, self.key], ['00000000-0000-0000-0000-000000000002'], [self.key] * 11]:
             with self.assertRaises(ValueError):

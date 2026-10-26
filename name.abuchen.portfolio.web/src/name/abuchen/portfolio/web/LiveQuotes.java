@@ -21,7 +21,7 @@ final class LiveQuotes
     }
 
     record Quote(String key, String name, String symbol, String currency, Long conId, String marketDataType,
-                    String status, String receivedAt, Double last, Double bid, Double ask, List<Sample> history)
+                    String status, String receivedAt, Double last, Double bid, Double ask, Double previousClose, Double dayHigh, Double dayLow, String secType, List<Sample> history)
     {
     }
 
@@ -64,7 +64,7 @@ final class LiveQuotes
         {
             var size = Files.size(file);
             var modified = Files.getLastModifiedTime(file);
-            if (size > 262144)
+            if (size > 2097152)
                 throw new IOException("Oversized quote snapshot");
             if (!modified.equals(acceptedTime) || size != acceptedSize)
             {
@@ -98,7 +98,7 @@ final class LiveQuotes
     private void validate(Frame frame)
     {
         if (frame == null || frame.schemaVersion() != 1 || !("demo".equals(frame.mode()) || "ibkr".equals(frame.mode()))
-                        || !STATES.contains(frame.state()) || frame.quotes() == null || frame.quotes().size() > 10)
+                        || !STATES.contains(frame.state()) || frame.quotes() == null || frame.quotes().size() > 100)
             throw new IllegalArgumentException("Invalid quote snapshot");
         requireText(frame.session(), 80);
         var generated = Instant.parse(frame.generatedAt());
@@ -118,9 +118,14 @@ final class LiveQuotes
                 throw new IllegalArgumentException("Invalid quote identity");
             if (quote.receivedAt() != null && Instant.parse(quote.receivedAt()).isAfter(generated.plusSeconds(1)))
                 throw new IllegalArgumentException("Future quote receipt");
+            if (quote.secType() != null && !Set.of("STK", "CASH").contains(quote.secType()))
+                throw new IllegalArgumentException("Invalid quote security type");
             positive(quote.last());
             positive(quote.bid());
             positive(quote.ask());
+            positive(quote.previousClose());
+            positive(quote.dayHigh());
+            positive(quote.dayLow());
             Instant previous = null;
             for (var sample : quote.history())
             {

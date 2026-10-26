@@ -15,7 +15,7 @@ import uuid
 
 UTC = dt.timezone.utc
 HISTORY_LIMIT = 90
-MAX_INSTRUMENTS = 10
+MAX_INSTRUMENTS = 100
 DATA_TYPES = {1: 'real_time', 2: 'frozen', 3: 'delayed', 4: 'delayed_frozen'}
 DEMO = (
     ('demo-aapl', 'Apple', 'AAPL', 'USD', 210.0),
@@ -54,12 +54,13 @@ def demo_frame(now, session):
             {'time': timestamp(now - dt.timedelta(seconds=offset)), 'value': price(now - dt.timedelta(seconds=offset))}
             for offset in range(HISTORY_LIMIT - 1, -1, -1)]
         last = history[-1]['value'] if history else None
-        quotes.append({'key': key, 'name': name, 'symbol': symbol, 'currency': currency, 'conId': None,
+        quotes.append({'key': key, 'name': name, 'symbol': symbol, 'currency': currency, 'secType': 'CASH' if index == 3 else 'STK', 'conId': None,
                        'marketDataType': 'delayed' if index == 3 else 'real_time',
                        'status': 'unavailable' if base is None else 'active',
                        'receivedAt': None if last is None else timestamp(now), 'last': last,
                        'bid': None if last is None else round(last * .9999, 6),
-                       'ask': None if last is None else round(last * 1.0001, 6), 'history': history})
+                       'ask': None if last is None else round(last * 1.0001, 6), 'previousClose': base, 'dayHigh': None if base is None else round(base * 1.01, 6),
+                       'dayLow': None if base is None else round(base * .99, 6), 'history': history})
     return {'schemaVersion': 1, 'mode': 'demo', 'session': session, 'generatedAt': timestamp(now),
             'connected': False, 'state': 'running', 'error': None, 'quotes': quotes}
 
@@ -80,7 +81,7 @@ def read_config(path):
         config[field] = value
     instruments = config.get('instruments')
     if not isinstance(instruments, list) or not 1 <= len(instruments) <= MAX_INSTRUMENTS:
-        raise ValueError('Configure between one and ten instruments')
+        raise ValueError(f'Configure between one and {MAX_INSTRUMENTS} instruments')
     keys = set()
     for row in instruments:
         if not isinstance(row, dict) or set(row) - {'key', 'name', 'symbol', 'currency', 'exchange', 'primary_exchange', 'sec_type', 'con_id'}:
@@ -111,8 +112,9 @@ class GatewayFeed:
         for item in config['instruments']:
             key = item['key']
             self.rows[key] = {'key': key, 'name': item['name'], 'symbol': item['symbol'], 'currency': item['currency'],
+                              'secType': item.get('sec_type', 'STK'),
                               'conId': item.get('con_id'), 'marketDataType': 'unknown', 'status': 'waiting',
-                              'receivedAt': None, 'last': None, 'bid': None, 'ask': None, 'history': []}
+                              'receivedAt': None, 'last': None, 'bid': None, 'ask': None, 'previousClose': None, 'dayHigh': None, 'dayLow': None, 'history': []}
             self.histories[key] = deque(maxlen=HISTORY_LIMIT)
             self.venues[key] = item['exchange']
 
@@ -122,7 +124,13 @@ class GatewayFeed:
 
     def update(self, key, ticker, now):
         row = self.rows[key]
-        row.update(last=positive(ticker.last), bid=positive(ticker.bid), ask=positive(ticker.ask),
+        factor = 100 if row['currency'] == 'GBX' else 1
+        def price(value):
+            valid = positive(value)
+            return positive(valid * factor) if valid is not None else None
+        row.update(last=price(ticker.last), bid=price(ticker.bid), ask=price(ticker.ask),
+                   previousClose=price(getattr(ticker, 'close', None)),
+                   dayHigh=price(getattr(ticker, 'high', None)), dayLow=price(getattr(ticker, 'low', None)),
                    marketDataType=DATA_TYPES.get(ticker.marketDataType, 'unknown'))
         if any(row[field] is not None for field in ('last', 'bid', 'ask')):
             row['receivedAt'] = timestamp(now)
@@ -149,8 +157,9 @@ class GatewayFeed:
         for item in self.config['instruments']:
             key = item['key']
             self.rows[key]['status'] = 'waiting'
+            broker_currency = 'GBP' if item['currency'] == 'GBX' else item['currency']
             contract = contract_class(secType=item.get('sec_type', 'STK'), symbol=item['symbol'],
-                                      currency=item['currency'], exchange=item['exchange'],
+                                      currency=broker_currency, exchange=item['exchange'],
                                       primaryExchange=item.get('primary_exchange', ''), conId=item.get('con_id', 0))
             try:
                 qualified = await asyncio.wait_for(ib.qualifyContractsAsync(contract), timeout=12)
@@ -161,7 +170,7 @@ class GatewayFeed:
                 self.rows[key]['status'] = 'unresolved'
                 continue
             actual = qualified[0]
-            if (actual.currency != item['currency'] or actual.secType != item.get('sec_type', 'STK')
+            if (actual.currency != broker_currency or actual.secType != item.get('sec_type', 'STK')
                     or actual.exchange != item['exchange']
                     or actual.symbol != item['symbol'] or actual.conId <= 0
                     or item.get('con_id', actual.conId) != actual.conId

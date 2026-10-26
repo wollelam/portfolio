@@ -406,3 +406,30 @@ Allocation playback uses an explicit Play/Pause toggle and daily/monthly/yearly 
 the end restarts from inception; reaching today stops. Each frame waits for its native snapshot
 before scheduling the next, and Pause stays available during loading. Manual date changes, leaving
 the page, hidden tabs and failed frames stop playback. Back never starts playback automatically.
+
+The Overview total reprices today's explicitly mapped holdings once per second using fresh IBKR
+last prices and fresh IBKR FX midpoints, falling back to the valuation date's saved rates.
+Positions without a usable stock quote retain stored native prices; foreign holdings and cash
+can still receive FX-only adjustments. Unconvertible positions retain stored values. The card labels
+quote coverage and delayed/frozen data. Historical dates, performance metrics and charts continue
+to use saved portfolio prices. This indicative overlay never writes prices to the portfolio.
+
+The Live quotes table includes Day %, calculated as `(last / previousClose - 1) × 100`
+using IBKR's previous close. It updates with quotes and shows unavailable when either price is
+missing. Feed labels still indicate delayed/frozen/stale quotes. GBX close prices use the same
+pence conversion as last prices.
+
+Day % and the Overview total pulse green/red for 1.3 seconds when their values rise/fall.
+A change in portfolio date, currency or selected groups resets the total's comparison baseline.
+Reduced-motion preferences disable pulse animations.
+
+Today's Overview total uses fresh IBKR CASH bid/ask midpoints to convert foreign positions and
+cash. Direct/inverse pairs and two-leg USD crosses are supported; GBX uses GBP rates divided by
+100. Stored stock values also receive FX-only adjustments using their saved conversion rate.
+Missing, stale, frozen, crossed, duplicate or mismatched FX quotes fall back to saved conversion
+rates. The card reports FX coverage and delayed data; saved portfolio prices and historical
+performance are unchanged. FX pairs also appear in the Live quotes watchlist.
+
+The Live quotes table shows sortable Day high and Day low from IBKR's daily high/low
+fields. These use broker session data, rather than the collector's short observed history;
+missing values remain unavailable. GBX highs/lows use the same pence conversion as prices.

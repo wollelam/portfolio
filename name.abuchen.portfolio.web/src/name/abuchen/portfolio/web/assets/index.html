@@ -46,7 +46,7 @@
       <div id="security-filter" class="security-filter" hidden><label for="security-search">Find a security</label><input id="security-search" type="search" autocomplete="off" maxlength="120" placeholder="Filter by name…"><button id="clear-security-search" class="button secondary" type="button">Clear</button></div>
       <section data-page="overview" class="panel market-panel" aria-label="Market data freshness"><div class="panel-heading"><div><p class="eyebrow">PRICE &amp; EXCHANGE-RATE FRESHNESS</p><h2>Market data</h2></div><button id="refresh-prices" class="button secondary" type="button" disabled>Refresh prices</button></div><div class="market-grid"><div><h3>Security quotes</h3><p id="quote-status">Checking updater…</p><p id="quote-schedule" class="subtle"></p><p id="quote-coverage" class="subtle"></p></div><div><h3>Exchange rates</h3><p id="fx-status">Using saved rates</p><p id="fx-coverage" class="subtle"></p></div></div><p id="price-action" class="panel-note" role="status"></p><div id="price-warning" class="notice market-warning" hidden></div></section>
       <section data-page="overview" id="summary-view" class="cards" aria-label="Portfolio summary">
-        <article class="metric"><p>Total portfolio value</p><h2 id="total-value">—</h2><span id="total-date" class="metric-note"></span></article>
+        <article class="metric"><p id="total-value-label">Total portfolio value</p><h2 id="total-value">—</h2><span id="total-date" class="metric-note"></span></article>
         <article class="metric"><p id="day-label">Today’s performance</p><h2 id="day-gain">—</h2><div><strong id="day-return"></strong><span id="day-dates" class="metric-note"></span></div></article>
         <article class="metric"><p>Trailing 7 days</p><h2 id="week-gain">—</h2><div><strong id="week-return"></strong><span id="week-dates" class="metric-note"></span></div></article>
         <article class="metric"><p>Net dividends · selected period</p><h2 id="dividend-total">—</h2><span id="dividend-count" class="metric-note"></span></article>
@@ -119,7 +119,7 @@
         <p id="live-heartbeat" class="panel-note"></p>
         <div id="live-error" class="notice market-warning" role="status" hidden></div>
         <div class="table-scroll"><table>
-          <thead><tr><th scope="col">Instrument</th><th scope="col">Currency</th><th scope="col" class="numeric">Last</th><th scope="col" class="numeric">Bid</th><th scope="col" class="numeric">Ask</th><th scope="col">Received</th><th scope="col">Feed</th></tr></thead>
+          <thead><tr><th scope="col">Instrument</th><th scope="col">Currency</th><th scope="col" class="numeric">Last</th><th scope="col" class="numeric" title="Last trade versus IBKR previous close">Day %</th><th scope="col" class="numeric">Bid</th><th scope="col" class="numeric">Ask</th><th scope="col" class="numeric" title="Daily high reported by IBKR">Day high</th><th scope="col" class="numeric" title="Daily low reported by IBKR">Day low</th><th scope="col">Received</th><th scope="col">Feed</th></tr></thead>
           <tbody id="live-quotes-body"></tbody>
         </table></div>
         <div class="panel-heading"><h3 id="live-selected-name">Observed last price</h3><button type="button" id="live-follow" class="button secondary" disabled>Follow latest</button></div>

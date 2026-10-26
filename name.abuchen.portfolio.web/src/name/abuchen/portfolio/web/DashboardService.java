@@ -41,7 +41,7 @@ final class DashboardService
     {
     }
 
-    record Holding(String name, String uuid, long value, Double weight, String quoteDate, String type, String icon, String id, long shares, String quoteCurrency, String symbol)
+    record Holding(String name, String uuid, long value, Double weight, String quoteDate, String type, String icon, String id, long shares, String quoteCurrency, String symbol, Double valuationFxRate)
     {
     }
 
@@ -342,7 +342,9 @@ final class DashboardService
                             position.getInvestmentVehicle() instanceof Security ? "security" : "cash", icons.url(vehicleId),
                             vehicleId, position.getPosition().getShares(),
                             position.getInvestmentVehicle().getCurrencyCode(),
-                            position.getInvestmentVehicle() instanceof Security security ? security.getTickerSymbol() : null);
+                            position.getInvestmentVehicle() instanceof Security security ? security.getTickerSymbol() : null,
+                            vehicle.getCurrencyCode() == null ? null : converter.getRateIfAvailable(closingDate, vehicle.getCurrencyCode())
+                                            .map(rate -> rate.getValue().doubleValue()).orElse(null));
         }).sorted(Comparator.comparingLong(Holding::value).reversed()).toList();
     }
 

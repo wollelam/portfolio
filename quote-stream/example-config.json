@@ -14,7 +14,7 @@
       "primary_exchange": "NASDAQ"
     },
     {
-      "key": "eur-usd",
+      "key": "fx:EUR:USD",
       "name": "EUR / USD",
       "sec_type": "CASH",
       "symbol": "EUR",

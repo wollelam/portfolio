@@ -40,6 +40,9 @@ public class LiveQuotesTest
         assertFalse(status.connected());
         assertFalse(status.quotes().getFirst().stale());
         assertEquals(100d, status.quotes().getFirst().quote().last(), 0);
+        assertEquals(98d, status.quotes().getFirst().quote().previousClose(), 0);
+        assertEquals(105d, status.quotes().getFirst().quote().dayHigh(), 0);
+        assertEquals(95d, status.quotes().getFirst().quote().dayLow(), 0);
     }
 
     @Test
@@ -91,6 +94,26 @@ public class LiveQuotesTest
     }
 
     @Test
+    public void fullWatchlistWithHistoriesIsAcceptedButExcessIsRejected() throws Exception
+    {
+        var file = temporary.newFolder().toPath().resolve("latest.json");
+        var normal = frame("ibkr", clock.instant(), clock.instant());
+        var samples = java.util.stream.IntStream.range(0, 90)
+                        .mapToObj(i -> new LiveQuotes.Sample(clock.instant().minusSeconds(89 - i).toString(), 100d)).toList();
+        var quotes = java.util.stream.IntStream.range(0, 100).mapToObj(i -> new LiveQuotes.Quote("stock-" + i,
+                        "Stock " + i, "TEST", "USD", 123L + i, "delayed", "active", clock.instant().toString(),
+                        100d, 99d, 101d, 98d, 105d, 95d, "STK", samples)).toList();
+        write(file, new LiveQuotes.Frame(1, "ibkr", "full", normal.generatedAt(), true, "connected", null, quotes));
+        assertTrue(Files.size(file) > 262144);
+        assertEquals(100, new LiveQuotes(file, clock).status().quotes().size());
+        var oversized = new java.util.ArrayList<>(quotes);
+        oversized.add(new LiveQuotes.Quote("excess", "Excess", "TEST", "USD", 999L, "delayed", "waiting", null,
+                        null, null, null, null, null, null, "STK", List.of()));
+        write(file, new LiveQuotes.Frame(1, "ibkr", "full", normal.generatedAt(), true, "connected", null, oversized));
+        assertFalse(new LiveQuotes(file, clock).status().available());
+    }
+
+    @Test
     public void disabledFeedDoesNotAccessFilesOrReportAConnection()
     {
         var status = new LiveQuotes(null, clock).status();
@@ -102,7 +125,7 @@ public class LiveQuotesTest
     private LiveQuotes.Frame frame(String mode, Instant generated, Instant received)
     {
         var quote = new LiveQuotes.Quote("test", "Example", "TEST", "USD", mode.equals("demo") ? null : 123L,
-                        "real_time", "active", received.toString(), 100d, 99d, 101d,
+                        "real_time", "active", received.toString(), 100d, 99d, 101d, 98d, 105d, 95d, "STK",
                         List.of(new LiveQuotes.Sample(received.toString(), 100d)));
         return new LiveQuotes.Frame(1, mode, "test-session", generated.toString(), true,
                         mode.equals("demo") ? "running" : "connected", null, List.of(quote));

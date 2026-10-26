@@ -3,7 +3,7 @@
 The **Live quotes** page is a watchlist experiment, independent of saved portfolio valuations.
 It uses the same chart component as portfolio and instrument charts. Simulation is clearly
 labelled and makes no broker connection. A configured Gateway collector supports read-only
-contract qualification and streaming prices for up to ten stock/ETF or FX entries.
+contract qualification and streaming prices for up to 100 stock/ETF or FX entries.
 
 The web process reads a private `latest.json` snapshot; it has no broker connection or credentials.
 One collector owns subscriptions, shared across every browser tab. It publishes once a second,
@@ -93,7 +93,7 @@ The tool reads the loopback dashboard, writes a new mode-0600 file, refuses over
 connect to IBKR. `--exclude` accepts exclusion IDs from a filtered dashboard URL. It deliberately
 sets `primary_exchange` to `REVIEW`: verify every symbol, currency and listing, replace that marker,
 add verified contract IDs, and set the actual Gateway host/port before using the config. The web
-quote currency must match; no automatic GBX/GBP or other price-unit conversions are performed.
+quote currency must match; GBX holdings qualify GBP contracts and normalize prices to pence (×100); no other price-unit conversions are performed.
 
 ## Gateway container option
 
@@ -123,3 +123,14 @@ private while in use; it is separate from the cache and never mounted into the w
 References: [ib_async](https://github.com/ib-api-reloaded/ib_async),
 [IBKR streaming data](https://www.interactivebrokers.com/docs/tws-api/doc/md/streaming-data),
 [IBKR read-only API setup](https://interactivebrokers.github.io/tws-api/initial_setup.html).
+
+GBX-denominated stock holdings use IBKR GBP contracts and multiply last/bid/ask, previous close,
+and daily high/low prices by 100 before publication, retaining the portfolio price unit.
+
+For overview FX conversion, configure qualified `CASH` contracts on `IDEALPRO` with keys in the
+form `fx:EUR:USD`, matching `symbol: EUR` and `currency: USD`. The overview uses fresh bid/ask
+midpoints from verified CASH quotes, directly, inverted, or through a USD cross. Missing or stale
+rates fall back to saved valuation rates. FX subscriptions share the same 100-entry bound.
+
+The collector publishes IBKR's previous close and session high/low for the Live quotes table.
+It does not infer daily ranges from its 90-second observed history. Missing fields stay unavailable.

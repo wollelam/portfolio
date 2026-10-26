@@ -9,8 +9,8 @@ import urllib.request
 
 
 def draft(report, securities):
-    if not 1 <= len(securities) <= 10 or len(set(securities)) != len(securities):
-        raise ValueError('Choose between one and ten distinct portfolio security UUIDs')
+    if not 1 <= len(securities) <= 100 or len(set(securities)) != len(securities):
+        raise ValueError('Choose between one and 100 distinct portfolio security UUIDs')
     holdings = {item['uuid']: item for item in report['holdings'] if item.get('uuid') and item.get('type') == 'security'}
     instruments = []
     for key in securities:
@@ -28,7 +28,7 @@ def draft(report, securities):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--security', action='append', required=True, help='Portfolio security UUID; repeat up to ten times')
+    parser.add_argument('--security', action='append', required=True, help='Portfolio security UUID; repeat up to 100 times')
     parser.add_argument('--port', type=int, default=8088, help='Local web dashboard port')
     parser.add_argument('--exclude', default='', help='Optional native group exclusion IDs from the dashboard URL')
     parser.add_argument('--output', type=Path, required=True, help='New private config path outside the checkout')

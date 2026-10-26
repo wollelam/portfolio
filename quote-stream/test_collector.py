@@ -58,6 +58,16 @@ class CollectorTest(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(ValueError):
                     collector.read_config(path)
 
+    def test_full_watchlist_is_accepted_but_excess_subscriptions_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'config.json'
+            instruments = [dict(self.config['instruments'][0], key=f'stock-{i}') for i in range(100)]
+            path.write_text(json.dumps(dict(self.config, instruments=instruments)))
+            self.assertEqual(100, len(collector.read_config(path)['instruments']))
+            path.write_text(json.dumps(dict(self.config, instruments=instruments + [dict(instruments[0], key='excess')])))
+            with self.assertRaises(ValueError):
+                collector.read_config(path)
+
     async def test_connect_only_qualifies_contracts_and_requests_shared_non_snapshot_quotes(self):
         self.config['instruments'].append(dict(self.config['instruments'][0], key='same-contract'))
         calls = []
@@ -79,6 +89,46 @@ class CollectorTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(feed.connected)
         # Fake has no order, position or account request methods: using any would fail this test.
 
+    async def test_fx_contract_identity_and_bid_ask_are_published_without_a_last_trade(self):
+        self.config['instruments'] = [dict(key='fx:USD:CHF', name='USD / CHF', symbol='USD', currency='CHF',
+                                           exchange='IDEALPRO', sec_type='CASH', con_id=123)]
+        async def qualify(contract):
+            self.assertEqual('CASH', contract.secType)
+            self.assertEqual('IDEALPRO', contract.exchange)
+            return [contract]
+        fake = SimpleNamespace(client=SimpleNamespace(connectAsync=AsyncMock()), reqMarketDataType=lambda _: None,
+                               qualifyContractsAsync=qualify, reqMktData=lambda *args: SimpleNamespace(updateEvent=Event()))
+        feed = collector.GatewayFeed(self.config, 'test')
+        await feed.connect(fake, lambda **fields: SimpleNamespace(**fields))
+        feed.update('fx:USD:CHF', SimpleNamespace(last=float('nan'), bid=.89, ask=.91, marketDataType=1), self.now)
+        row = feed.frame(self.now)['quotes'][0]
+        self.assertEqual('CASH', row['secType'])
+        self.assertEqual('active', row['status'])
+        self.assertIsNone(row['last'])
+        self.assertEqual(.89, row['bid'])
+        self.assertEqual(.91, row['ask'])
+
+    async def test_pence_holdings_qualify_in_pounds_and_publish_pence_prices(self):
+        self.config['instruments'][0].update(currency='GBX', symbol='PSH', primary_exchange='LSE')
+        async def qualify(contract):
+            self.assertEqual('GBP', contract.currency)
+            contract.conId = 123
+            return [contract]
+        fake = SimpleNamespace(client=SimpleNamespace(connectAsync=AsyncMock()), reqMarketDataType=lambda _: None,
+                               qualifyContractsAsync=qualify, reqMktData=lambda *args: SimpleNamespace(updateEvent=Event()))
+        feed = collector.GatewayFeed(self.config, 'test')
+        await feed.connect(fake, lambda **fields: SimpleNamespace(**fields))
+        feed.update('apple', SimpleNamespace(last=45.12, bid=45.10, ask=45.14, close=44, high=46, low=43, marketDataType=3), self.now)
+        row = feed.rows['apple']
+        self.assertEqual('GBX', row['currency'])
+        self.assertAlmostEqual(4512, row['last'])
+        self.assertEqual(4400, row['previousClose'])
+        self.assertEqual(4600, row['dayHigh'])
+        self.assertEqual(4300, row['dayLow'])
+        self.assertAlmostEqual(4510, row['bid'])
+        self.assertAlmostEqual(4514, row['ask'])
+        self.assertAlmostEqual(4512, row['history'][-1]['value'])
+
     async def test_ambiguous_or_wrong_currency_contract_never_subscribes(self):
         for result in ([], [SimpleNamespace(currency='EUR', secType='STK', symbol='AAPL', conId=123)],
                        [SimpleNamespace(currency='USD', secType='STK', symbol='AAPL', conId=123, exchange='NYSE')]):
@@ -90,9 +140,12 @@ class CollectorTest(unittest.IsolatedAsyncioTestCase):
 
     def test_invalid_prices_are_removed_and_history_is_bounded(self):
         feed = collector.GatewayFeed(self.config, 'test')
-        bad = SimpleNamespace(last=float('nan'), bid=-1, ask=float('inf'), marketDataType=3)
+        bad = SimpleNamespace(last=float('nan'), bid=-1, ask=float('inf'), high=float('nan'), low=0, marketDataType=3)
         feed.update('apple', bad, self.now)
         self.assertIsNone(feed.rows['apple']['last'])
+        self.assertIsNone(feed.rows['apple']['previousClose'])
+        self.assertIsNone(feed.rows['apple']['dayHigh'])
+        self.assertIsNone(feed.rows['apple']['dayLow'])
         self.assertIsNone(feed.rows['apple']['receivedAt'])
         for index in range(100):
             ticker = SimpleNamespace(last=100 + index, bid=99, ask=101, marketDataType=3)

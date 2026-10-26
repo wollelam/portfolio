@@ -243,6 +243,9 @@ public class DashboardServiceTest
             assertEquals(index.getAccumulatedPercentage()[ii], report.series().get(ii).rate(), 0.0000001);
         }
         assertFalse(report.holdings().isEmpty());
+        for (var holding : report.holdings())
+            assertEquals(converter.getRateIfAvailable(end, holding.quoteCurrency())
+                            .map(rate -> rate.getValue().doubleValue()).orElse(null), holding.valuationFxRate());
         assertEquals(4, report.dividends().size());
     }
 
