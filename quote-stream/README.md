@@ -159,3 +159,8 @@ using `type: volume`, `target: /state`, and `volume: {nocopy: true}` for the col
 The volume is limited to 16 MiB and owned by the application user. Its contents are transient
 and rebuilt by the collector after restart; the Docker volume declaration persists. Broker
 credentials, contract configuration and portfolio data stay in their existing persistent locations.
+
+Market-data farm interruption warnings track each affected connection privately. A matching IBKR
+2104 recovery clears that connection's warning; another farm's recovery cannot clear a remaining
+outage or a broker-level disconnect. A new API session starts a fresh set of farm statuses. Raw
+broker messages and farm identifiers are never included in the web snapshot.

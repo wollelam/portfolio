@@ -1679,6 +1679,9 @@ function updateCursor() {
 }
 
 async function load(from, to, silent = false) {
+  const requestedClosingDate = to;
+  // The overview is a current valuation. Let the server choose today, including after midnight.
+  if (currentRoute === 'overview') to = undefined;
   if (currentRoute === 'allocation' && allocationDate) {
     to = allocationDate; from = iso(new Date(Date.parse(to + 'T12:00:00Z') - 86400000));
   }
@@ -1714,9 +1717,11 @@ async function load(from, to, silent = false) {
       && JSON.stringify(report.scope?.excluded) === JSON.stringify(data.scope?.excluded);
 
     refreshConnectionError = null;
+    if (currentRoute === 'overview' && requestedClosingDate && requestedClosingDate !== data.today) activePreset = null;
     report = data;
     if (unchanged) { renderFreshness(); setMarket(data.market); }
     else render();
+    if (currentRoute === 'overview') syncRouteUrl();
     if (!silent) text('status', '');
     return data;
   } catch (error) {

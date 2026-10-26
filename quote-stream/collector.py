@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import os
+import re
 from pathlib import Path
 import signal
 import tempfile
@@ -106,6 +107,7 @@ class GatewayFeed:
         self.connected = False
         self.state = 'connecting'
         self.error = None
+        self.disconnected_farms = set()
         self.rows = {}
         self.histories = {}
         self.venues = {}
@@ -122,7 +124,9 @@ class GatewayFeed:
 
     def frame(self, now):
         return {'schemaVersion': 1, 'mode': 'ibkr', 'session': self.session, 'generatedAt': timestamp(now),
-                'connected': self.connected, 'state': self.state, 'error': self.error, 'quotes': list(self.rows.values())}
+                'connected': self.connected, 'state': self.state,
+                'error': self.error or ('A market-data connection is interrupted; received quote times remain visible.'
+                                         if self.disconnected_farms else None), 'quotes': list(self.rows.values())}
 
     def update(self, key, ticker, now):
         row = self.rows[key]
@@ -151,6 +155,7 @@ class GatewayFeed:
 
     async def connect(self, ib, contract_class):
         # Use the quote protocol directly: no high-level position, order, execution or account synchronization.
+        self.disconnected_farms.clear()
         await ib.client.connectAsync(self.config.get('host', '127.0.0.1'), self.config['port'],
                                      self.config['client_id'], timeout=8)
         ib.reqMarketDataType(self.config['market_data_type'])
@@ -211,8 +216,16 @@ class GatewayFeed:
                     row['status'] = 'not_subscribed'
         elif code in (1100, 1101, 1300):
             self.error = 'Broker connection interrupted; reconnecting.'
-        elif code == 2103:
-            self.error = 'A market-data connection is interrupted; received quote times remain visible.'
+        elif code in (2103, 2104):
+            # Farm identifiers stay private; the web snapshot receives only a generic warning.
+            # Do not let recovery of one farm clear another farm's interruption or a broker error.
+            farm = message.rsplit(':', 1)[-1].strip() if isinstance(message, str) and ':' in message else None
+            if farm is not None and not re.fullmatch(r'[A-Za-z0-9_.-]{1,80}', farm):
+                farm = None
+            if code == 2103:
+                self.disconnected_farms.add(farm)
+            elif farm is not None:
+                self.disconnected_farms.discard(farm)
 
 
 async def wait_or_stop(stop, seconds):

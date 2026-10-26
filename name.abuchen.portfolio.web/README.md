@@ -470,3 +470,9 @@ The daily performance card shows the latest processed quote-snapshot time and fl
 or stored-price fallback. Its gain and percentage pulse on displayed changes, making intraday
 updates visible even when Discreet mode hides the total. Percentages still use two decimal places,
 so small valuation moves may change the monetary gain while the displayed percentage stays flat.
+
+The Overview always requests the server's current valuation date. Historical closing dates from
+other pages, saved links or browser history cannot disable live repricing there. Opening dates
+and portfolio-group filters are preserved, and the URL is updated to the actual current date.
+Historical analysis remains available on the other pages and survives Back/Forward navigation.
+Overview background refresh also follows the server date across midnight.

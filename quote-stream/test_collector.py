@@ -80,7 +80,9 @@ class CollectorTest(unittest.IsolatedAsyncioTestCase):
                                qualifyContractsAsync=qualify,
                                reqMktData=lambda *args: (calls.append(('subscribe', args)) or ticker))
         feed = collector.GatewayFeed(self.config, 'test')
+        feed.disconnected_farms.add('old-connection-farm')
         await feed.connect(fake, lambda **fields: SimpleNamespace(**fields))
+        self.assertFalse(feed.disconnected_farms)
         fake.client.connectAsync.assert_awaited_once_with('127.0.0.1', 4002, 43, timeout=8)
         subscriptions = [entry for entry in calls if entry[0] == 'subscribe']
         self.assertEqual(1, len(subscriptions))
@@ -172,6 +174,28 @@ class CollectorTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual('delayed', feed.rows['apple']['marketDataType'])
         feed.update('apple', ticker, self.now + dt.timedelta(seconds=99, microseconds=100))
         self.assertEqual(90, len(feed.rows['apple']['history']))
+
+    def test_farm_recovery_clears_only_the_matching_interruption(self):
+        feed = collector.GatewayFeed(self.config, 'test')
+        feed.handle_error(-1, 2103, 'Market data farm connection is broken:private-usfarm')
+        feed.handle_error(-1, 2103, 'Market data farm connection is broken:eufarm')
+        feed.handle_error(-1, 2104, 'Market data farm connection is OK:cashfarm')
+        self.assertIn('interrupted', feed.frame(self.now)['error'])
+        feed.handle_error(-1, 2104, 'Market data farm connection is OK:private-usfarm')
+        self.assertIn('interrupted', feed.frame(self.now)['error'])
+        self.assertNotIn('private-usfarm', json.dumps(feed.frame(self.now)))
+        feed.handle_error(-1, 2104, 'Market data farm connection is OK:eufarm')
+        self.assertIsNone(feed.frame(self.now)['error'])
+        feed.handle_error(-1, 1100, 'private account identifier')
+        feed.handle_error(-1, 2104, 'Market data farm connection is OK:eufarm')
+        self.assertIn('Broker connection interrupted', feed.frame(self.now)['error'])
+
+    def test_unknown_farm_warning_is_not_cleared_by_an_unrelated_recovery(self):
+        feed = collector.GatewayFeed(self.config, 'test')
+        feed.handle_error(-1, 2103, 'private unstructured broker message')
+        feed.handle_error(-1, 2104, 'Market data farm connection is OK:usfarm')
+        self.assertIn('interrupted', feed.frame(self.now)['error'])
+        self.assertNotIn('private', json.dumps(feed.frame(self.now)))
 
     def test_raw_broker_errors_are_never_forwarded_to_the_web(self):
         feed = collector.GatewayFeed(self.config, 'test')
