@@ -108,26 +108,44 @@ class CollectorTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(.89, row['bid'])
         self.assertEqual(.91, row['ask'])
 
-    async def test_pence_holdings_qualify_in_pounds_and_publish_pence_prices(self):
+    async def test_pence_prices_follow_verified_contract_units_without_double_scaling(self):
         self.config['instruments'][0].update(currency='GBX', symbol='PSH', primary_exchange='LSE')
         async def qualify(contract):
             self.assertEqual('GBP', contract.currency)
             contract.conId = 123
             return [contract]
-        fake = SimpleNamespace(client=SimpleNamespace(connectAsync=AsyncMock()), reqMarketDataType=lambda _: None,
-                               qualifyContractsAsync=qualify, reqMktData=lambda *args: SimpleNamespace(updateEvent=Event()))
-        feed = collector.GatewayFeed(self.config, 'test')
-        await feed.connect(fake, lambda **fields: SimpleNamespace(**fields))
-        feed.update('apple', SimpleNamespace(last=45.12, bid=45.10, ask=45.14, close=44, high=46, low=43, marketDataType=3), self.now)
-        row = feed.rows['apple']
-        self.assertEqual('GBX', row['currency'])
-        self.assertAlmostEqual(4512, row['last'])
-        self.assertEqual(4400, row['previousClose'])
-        self.assertEqual(4600, row['dayHigh'])
-        self.assertEqual(4300, row['dayLow'])
-        self.assertAlmostEqual(4510, row['bid'])
-        self.assertAlmostEqual(4514, row['ask'])
-        self.assertAlmostEqual(4512, row['history'][-1]['value'])
+        for magnifier, raw_price in [(100, 3778), (1, 37.78)]:
+            async def details(contract):
+                return [SimpleNamespace(contract=contract, priceMagnifier=magnifier)]
+            fake = SimpleNamespace(client=SimpleNamespace(connectAsync=AsyncMock()), reqMarketDataType=lambda _: None,
+                                   qualifyContractsAsync=qualify, reqContractDetailsAsync=details,
+                                   reqMktData=lambda *args: SimpleNamespace(updateEvent=Event()))
+            feed = collector.GatewayFeed(self.config, 'test')
+            await feed.connect(fake, lambda **fields: SimpleNamespace(**fields))
+            feed.update('apple', SimpleNamespace(last=raw_price, bid=raw_price, ask=raw_price,
+                                                close=raw_price, high=raw_price, low=raw_price, marketDataType=3), self.now)
+            row = feed.rows['apple']
+            self.assertEqual('GBX', row['currency'])
+            for field in ('last', 'bid', 'ask', 'previousClose', 'dayHigh', 'dayLow'):
+                self.assertAlmostEqual(3778, row[field])
+            self.assertAlmostEqual(3778, row['history'][-1]['value'])
+            # 510 PSH shares at 3,778 pence and 1.10 CHF/GBP are CHF 21,194.58, not CHF 2.1m.
+            self.assertAlmostEqual(21194.58, row['last'] * 510 * .011)
+
+    async def test_unknown_or_mismatched_pence_units_never_subscribe(self):
+        self.config['instruments'][0].update(currency='GBX', symbol='PSH', primary_exchange='LSE')
+        async def qualify(contract):
+            contract.conId = 123
+            return [contract]
+        for result in ([], [SimpleNamespace(contract=SimpleNamespace(conId=123, currency='GBP'), priceMagnifier=0)],
+                       [SimpleNamespace(contract=SimpleNamespace(conId=999, currency='GBP'), priceMagnifier=100)]):
+            fake = SimpleNamespace(client=SimpleNamespace(connectAsync=AsyncMock()), reqMarketDataType=lambda _: None,
+                                   qualifyContractsAsync=qualify, reqContractDetailsAsync=AsyncMock(return_value=result))
+            feed = collector.GatewayFeed(self.config, 'test')
+            await feed.connect(fake, lambda **fields: SimpleNamespace(**fields))
+            self.assertEqual('unresolved', feed.rows['apple']['status'])
+            feed.update('apple', SimpleNamespace(last=3778), self.now)
+            self.assertIsNone(feed.rows['apple']['last'])
 
     async def test_ambiguous_or_wrong_currency_contract_never_subscribes(self):
         for result in ([], [SimpleNamespace(currency='EUR', secType='STK', symbol='AAPL', conId=123)],

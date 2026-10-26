@@ -109,6 +109,7 @@ class GatewayFeed:
         self.rows = {}
         self.histories = {}
         self.venues = {}
+        self.price_factors = {}
         for item in config['instruments']:
             key = item['key']
             self.rows[key] = {'key': key, 'name': item['name'], 'symbol': item['symbol'], 'currency': item['currency'],
@@ -117,6 +118,7 @@ class GatewayFeed:
                               'receivedAt': None, 'last': None, 'bid': None, 'ask': None, 'previousClose': None, 'dayHigh': None, 'dayLow': None, 'history': []}
             self.histories[key] = deque(maxlen=HISTORY_LIMIT)
             self.venues[key] = item['exchange']
+            self.price_factors[key] = None if item['currency'] == 'GBX' else 1
 
     def frame(self, now):
         return {'schemaVersion': 1, 'mode': 'ibkr', 'session': self.session, 'generatedAt': timestamp(now),
@@ -124,7 +126,9 @@ class GatewayFeed:
 
     def update(self, key, ticker, now):
         row = self.rows[key]
-        factor = 100 if row['currency'] == 'GBX' else 1
+        factor = self.price_factors[key]
+        if factor is None:
+            return
         def price(value):
             valid = positive(value)
             return positive(valid * factor) if valid is not None else None
@@ -177,6 +181,20 @@ class GatewayFeed:
                     or item.get('primary_exchange') and actual.primaryExchange != item['primary_exchange']):
                 self.rows[key]['status'] = 'unresolved'
                 continue
+            if item['currency'] == 'GBX':
+                # GBP contract currency does not identify its market-data price unit.
+                # LSE pence quotes have priceMagnifier=100 and already arrive in GBX.
+                self.price_factors[key] = None
+                try:
+                    details = await asyncio.wait_for(ib.reqContractDetailsAsync(actual), timeout=12)
+                except Exception:
+                    details = []
+                if (len(details) != 1 or details[0].contract.conId != actual.conId
+                        or details[0].contract.currency != 'GBP'
+                        or type(getattr(details[0], 'priceMagnifier', None)) is not int or details[0].priceMagnifier not in (1, 100)):
+                    self.rows[key]['status'] = 'unresolved'
+                    continue
+                self.price_factors[key] = 100 / details[0].priceMagnifier
             self.rows[key]['conId'] = actual.conId
             subscription = (actual.conId, actual.exchange)
             if subscription not in subscribed:

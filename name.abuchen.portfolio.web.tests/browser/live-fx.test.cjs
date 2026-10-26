@@ -58,6 +58,21 @@ async function main() {
     await check('missing-gbp', 35700);
     await check('historical', 34000); await check('failure', 34000); await check('heartbeat', 34000); await check('demo', 34000);
     assert.match((await check('delayed', 36550)).note, /includes delayed/);
+    const penceTotal = await page.evaluate(() => {
+      const now = new Date().toISOString();
+      report.asOf = report.today; report.currency = 'CHF'; report.totalValue = 335584616;
+      report.holdings = [{ type: 'security', uuid: 'psh', quoteCurrency: 'GBX', shares: 510e8,
+        value: 2098030, valuationFxRate: .011023 }];
+      const entry = quote => ({ stale: false, quote: { conId: 123, status: 'active', marketDataType: 'real_time', receivedAt: now, ...quote } });
+      market = { liveQuotes: { available: true, connected: true, mode: 'ibkr', generatedAt: now, quotes: [
+        entry({ key: 'psh', symbol: 'PSH', currency: 'GBX', secType: 'STK', last: 3778 }),
+        entry({ key: 'fx:GBP:USD', symbol: 'GBP', currency: 'USD', secType: 'CASH', bid: 1.25, ask: 1.25 }),
+        entry({ key: 'fx:USD:CHF', symbol: 'USD', currency: 'CHF', secType: 'CASH', bid: .88, ask: .88 })
+      ] } };
+      renderOverviewLive();
+      return { actual: document.querySelector('#total-value').textContent, expected: money(335606044) };
+    });
+    assert.equal(penceTotal.actual, penceTotal.expected, 'PSH adds a CHF 21k position, not a CHF 2.1m position');
     assert.deepEqual(errors, []);
     console.log('Live FX: midpoint, inverses, USD cross, GBX, cash, FX-only moves, safe fallbacks and historical isolation passed.');
   } finally { await browser.close(); }

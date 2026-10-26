@@ -417,7 +417,7 @@ to use saved portfolio prices. This indicative overlay never writes prices to th
 The Live quotes table includes Day %, calculated as `(last / previousClose - 1) × 100`
 using IBKR's previous close. It updates with quotes and shows unavailable when either price is
 missing. Feed labels still indicate delayed/frozen/stale quotes. GBX close prices use the same
-pence conversion as last prices.
+verified price units as last prices.
 
 Day % and the Overview total pulse green/red for 1.3 seconds when their values rise/fall.
 A change in portfolio date, currency or selected groups resets the total's comparison baseline.
@@ -432,4 +432,4 @@ performance are unchanged. FX pairs also appear in the Live quotes watchlist.
 
 The Live quotes table shows sortable Day high and Day low from IBKR's daily high/low
 fields. These use broker session data, rather than the collector's short observed history;
-missing values remain unavailable. GBX highs/lows use the same pence conversion as prices.
+missing values remain unavailable. GBX highs/lows use the same verified price units as last prices.

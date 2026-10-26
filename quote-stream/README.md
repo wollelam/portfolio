@@ -93,7 +93,7 @@ The tool reads the loopback dashboard, writes a new mode-0600 file, refuses over
 connect to IBKR. `--exclude` accepts exclusion IDs from a filtered dashboard URL. It deliberately
 sets `primary_exchange` to `REVIEW`: verify every symbol, currency and listing, replace that marker,
 add verified contract IDs, and set the actual Gateway host/port before using the config. The web
-quote currency must match; GBX holdings qualify GBP contracts and normalize prices to pence (×100); no other price-unit conversions are performed.
+quote currency must match; GBX holdings qualify GBP contracts and verify their market-data price units before conversion; no other price-unit conversions are performed.
 
 ## Gateway container option
 
@@ -124,8 +124,11 @@ References: [ib_async](https://github.com/ib-api-reloaded/ib_async),
 [IBKR streaming data](https://www.interactivebrokers.com/docs/tws-api/doc/md/streaming-data),
 [IBKR read-only API setup](https://interactivebrokers.github.io/tws-api/initial_setup.html).
 
-GBX-denominated stock holdings use IBKR GBP contracts and multiply last/bid/ask, previous close,
-and daily high/low prices by 100 before publication, retaining the portfolio price unit.
+GBX-denominated stock holdings use IBKR GBP contracts, but GBP contract currency does not imply
+that quotes arrive in pounds. The collector verifies contract priceMagnifier: 100 means quotes
+already arrive in pence and remain unchanged; 1 means pounds and is converted to pence. Missing
+or unsupported metadata leaves the contract unresolved. This applies consistently to last,
+bid/ask, previous close, daily high/low and history.
 
 For overview FX conversion, configure qualified `CASH` contracts on `IDEALPRO` with keys in the
 form `fx:EUR:USD`, matching `symbol: EUR` and `currency: USD`. The overview uses fresh bid/ask
