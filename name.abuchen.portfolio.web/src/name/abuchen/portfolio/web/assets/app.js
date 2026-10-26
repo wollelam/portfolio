@@ -647,6 +647,18 @@ function renderOverviewLive() {
     ? report.day.rate + delta * factor : null;
   text('day-gain', money(gain, true)); tone('day-gain', gain);
   text('day-return', percent(Number.isFinite(rate) ? rate : null)); tone('day-return', rate);
+  for (const [id, value] of [['day-gain', gain], ['day-return', Number.isFinite(rate) ? Number(livePriceNumber.format(rate * 100)) : null]]) {
+    const cell = byId(id);
+    if (cell.dataset.basis !== basis) {
+      cell.dataset.basis = basis; cell.dataset.value = ''; cell.dataset.changedAt = '';
+      cell.classList.remove('quote-up', 'quote-down');
+    }
+    cell.classList.add('live-price');
+    renderQuotePulse(cell, value, Number.isFinite(value));
+  }
+  text('day-live-status', intraday
+    ? `Quotes updated ${liveTime(market.liveQuotes.generatedAt)}${delayed || delayedFx ? ' · includes delayed data' : ''}`
+    : report.asOf !== report.today ? 'Historical view · saved prices' : 'Live quotes unavailable · using saved prices');
   text('day-label', report.asOf === report.today ? (intraday ? 'Today’s performance · IBKR' : 'Today’s performance') : 'Daily performance');
   text('day-dates', `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)}${intraday ? ' · intraday estimate' : ''}`);
   renderTotalValue(total, true);

@@ -465,3 +465,8 @@ Displayed live quote prices (including bid/ask, session ranges and chart labels)
 decimal places. Tick pulses compare displayed prices to avoid flashes caused by invisible feed
 precision changes; calculations, FX conversion, daily percentage change and quote history retain
 the original data precision.
+
+The daily performance card shows the latest processed quote-snapshot time and flags delayed data
+or stored-price fallback. Its gain and percentage pulse on displayed changes, making intraday
+updates visible even when Discreet mode hides the total. Percentages still use two decimal places,
+so small valuation moves may change the monetary gain while the displayed percentage stays flat.

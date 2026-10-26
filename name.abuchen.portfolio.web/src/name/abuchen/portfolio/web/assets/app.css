@@ -1072,3 +1072,5 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .discreet-toggle .eye-slash { display:none; }
 .discreet-toggle[aria-pressed="true"] .eye-slash { display:block; }
 #total-value.value-masked { letter-spacing:.12em; }
+
+.day-live-status { display:block; margin-top:6px; }
