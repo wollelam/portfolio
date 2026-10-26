@@ -67,6 +67,8 @@ let liveMode;
 let liveFrozenHistory;
 let liveHoveredTime;
 let livePollBusy = false;
+let dailyPerformersOpen = false;
+let dailyPerformersError = '';
 let liveConnectionError = false;
 let market;
 let priceRequestPending = false;
@@ -222,7 +224,8 @@ function showRoute() {
   const meta = routeMeta[currentRoute] || routeMeta.overview;
   text('page-eyebrow', meta[0]); text('page-title', currentRoute === 'instrument' && report?.instrument?.name ? report.instrument.name : meta[1]);
   for (const section of document.querySelectorAll('[data-page]')) {
-    section.hidden = section.dataset.page !== currentRoute || section.id === 'warnings' && !report?.warnings?.length;
+    section.hidden = section.dataset.page !== currentRoute || section.id === 'warnings' && !report?.warnings?.length
+      || section.id === 'daily-performers-panel' && !dailyPerformersOpen;
   }
   byId('security-filter').hidden = !['holdings', 'performers'].includes(currentRoute);
   byId('date-controls').hidden = ['overview', 'live-quotes', 'allocation'].includes(currentRoute);
@@ -568,6 +571,7 @@ function liveFxRate(currency) {
 function renderOverviewLive() {
   if (!report) return;
   let total = report.totalValue, covered = 0, delayed = 0, fxCovered = 0, delayedFx = 0;
+  const dailyAdjustments = new Map();
   for (const holding of report.holdings) {
     const broker = holding.type === 'security' ? holdingBrokerQuote(holding) : {};
     const savedRate = holding.valuationFxRate;
@@ -580,6 +584,7 @@ function renderOverviewLive() {
     else continue;
     if (!Number.isSafeInteger(value) || !Number.isSafeInteger(total + value - holding.value)) continue;
     total += value - holding.value;
+    if (holding.type === 'security' && holding.uuid) dailyAdjustments.set(holding.uuid, (dailyAdjustments.get(holding.uuid) || 0) + value - holding.value);
     if (broker.quote) {
       covered++;
       if (broker.quote.marketDataType !== 'real_time') delayed++;
@@ -611,7 +616,64 @@ function renderOverviewLive() {
   text('total-date', covered || fxCovered
     ? `${covered} position${covered === 1 ? '' : 's'} repriced · ${delayed ? `${delayed} delayed / frozen · ` : ''}${fxCovered ? `${fxCovered} positions with IBKR FX midpoint${delayedFx ? ' (includes delayed)' : ''}; saved FX elsewhere` : 'saved FX'}; stored prices for remaining positions. Charts and longer-period performance use saved prices.`
     : `As of ${dateLabel(report.asOf)} · stored prices`);
+  renderDailyPerformers(dailyAdjustments);
 }
+
+function renderDailyPerformers(adjustments) {
+  if (!dailyPerformersOpen || currentRoute !== 'overview' || !report) return;
+  const data = report.dailyRankings;
+  if (!data) {
+    text('daily-performers-status', dailyPerformersError || 'Loading daily performers…');
+    for (const id of ['daily-gainers-body', 'daily-losers-body']) byId(id).replaceChildren();
+    byId('daily-performers-panel').dataset.renderKey = '';
+    return;
+  }
+  dailyPerformersError = '';
+  const valid = data.securities.filter(row => Number.isSafeInteger(row.gain)).map(row => ({ ...row,
+    gain: row.gain + (report.asOf === report.today ? adjustments.get(row.uuid) || 0 : 0) })).filter(row => Number.isSafeInteger(row.gain));
+  const unavailable = data.securities.length - valid.length;
+  const compare = direction => (a, b) => direction * (a.gain - b.gain) || a.name.localeCompare(b.name) || a.uuid.localeCompare(b.uuid);
+  const gainers = valid.filter(row => row.gain > 0).sort(compare(-1)).slice(0, 5);
+  const losers = valid.filter(row => row.gain < 0).sort(compare(1)).slice(0, 5);
+  const filters = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '';
+  const key = JSON.stringify([report.asOf, report.currency, report.scope?.excluded, gainers, losers, unavailable, filters]);
+  const panel = byId('daily-performers-panel');
+  const message = `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)} · Five largest gains and losses in ${report.currency}, including currency moves. ${report.asOf === report.today ? 'Uses the same live quotes and FX as today’s performance; stored prices where unavailable.' : 'Uses saved historical prices.'}${unavailable ? ` ${unavailable} securities unavailable.` : ''}`;
+  if (byId('daily-performers-status').textContent !== message) text('daily-performers-status', message);
+  if (panel.dataset.renderKey === key) return;
+  panel.dataset.renderKey = key;
+  const focused = panel.contains(document.activeElement) ? document.activeElement.dataset.security : null;
+  for (const [id, rows, empty] of [['daily-gainers-body', gainers, 'No gains in this period.'], ['daily-losers-body', losers, 'No losses in this period.']]) {
+    const body = byId(id); body.replaceChildren();
+    for (const item of rows) {
+      const row = document.createElement('tr'), name = document.createElement('td'), link = document.createElement('a');
+      link.className = 'instrument-link'; link.dataset.security = item.uuid;
+      link.href = `#/instrument/${encodeURIComponent(item.uuid)}${filters}`; link.textContent = item.name;
+      name.append(assetIcon(item.name, report.icons?.[item.uuid]), link); row.append(name);
+      cell(row, money(item.gain, true), true);
+      row.lastElementChild.classList.add(item.gain > 0 ? 'positive' : 'negative');
+      body.append(row);
+    }
+    if (!rows.length) emptyRow(body, 2, empty);
+  }
+  if (focused) [...panel.querySelectorAll('a[data-security]')].find(link => link.dataset.security === focused)?.focus({ preventScroll: true });
+}
+
+byId('daily-performers-toggle').addEventListener('click', async () => {
+  dailyPerformersOpen = !dailyPerformersOpen;
+  byId('daily-performers-toggle').setAttribute('aria-expanded', String(dailyPerformersOpen));
+  byId('daily-performers-toggle').textContent = `Top & bottom performers ${dailyPerformersOpen ? '▴' : '▾'}`;
+  showRoute();
+  if (dailyPerformersOpen) {
+    dailyPerformersError = '';
+    renderOverviewLive();
+    const result = await load(byId('from').value, byId('to').value);
+    if (!result && dailyPerformersOpen) {
+      dailyPerformersError = 'Daily performers could not be loaded. Close and reopen the panel to retry.';
+      text('daily-performers-status', dailyPerformersError);
+    }
+  }
+});
 
 function renderHoldingsLive() {
   if (!report || currentRoute !== 'holdings') return;
@@ -1589,6 +1651,7 @@ async function load(from, to, silent = false) {
     if (excludedGroups.size) params.set('exclude', [...excludedGroups].sort().join(','));
     if (selectedInstrument) params.set('instrument', selectedInstrument);
     if (currentRoute === 'performers') params.set('rankings', 'true');
+    if (currentRoute === 'overview' && dailyPerformersOpen) params.set('rankings', 'day');
     if (currentRoute === 'waterfall') params.set('waterfall', waterfallMode);
     const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal: controller.signal });
     const data = await response.json();

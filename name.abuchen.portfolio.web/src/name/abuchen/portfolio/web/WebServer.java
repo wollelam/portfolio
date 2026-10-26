@@ -148,7 +148,7 @@ final class WebServer implements AutoCloseable
                         return;
                     }
                     var dashboard = gson.toJsonTree(service.dashboard(from, to, params.get("benchmark"), params.get("instrument"),
-                                    Boolean.parseBoolean(params.getOrDefault("rankings", "false")), params.get("waterfall"))).getAsJsonObject();
+                                    Boolean.parseBoolean(params.getOrDefault("rankings", "false")), params.get("waterfall"), "day".equals(params.get("rankings")))).getAsJsonObject();
                     dashboard.add("refresh", gson.toJsonTree(snapshot.status()));
                     dashboard.add("market", gson.toJsonTree(market.status()));
                     json(exchange, 200, dashboard);
@@ -194,7 +194,7 @@ final class WebServer implements AutoCloseable
         }
         if (params.containsKey("frames") && !params.get("frames").equals("true"))
             throw new IllegalArgumentException("Invalid allocation frame flag");
-        if (params.containsKey("rankings") && !(params.get("rankings").equals("true") || params.get("rankings").equals("false")))
+        if (params.containsKey("rankings") && !(params.get("rankings").equals("true") || params.get("rankings").equals("false") || params.get("rankings").equals("day")))
             throw new IllegalArgumentException("Invalid rankings flag");
         if (params.containsKey("instrument") && !params.get("instrument")
                         .matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))

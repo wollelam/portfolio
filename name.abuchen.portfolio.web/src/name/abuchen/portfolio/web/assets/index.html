@@ -47,9 +47,17 @@
       <section data-page="overview" class="panel market-panel" aria-label="Market data freshness"><div class="panel-heading"><div><p class="eyebrow">PRICE &amp; EXCHANGE-RATE FRESHNESS</p><h2>Market data</h2></div><button id="refresh-prices" class="button secondary" type="button" disabled>Refresh prices</button></div><div class="market-grid"><div><h3>Security quotes</h3><p id="quote-status">Checking updater…</p><p id="quote-schedule" class="subtle"></p><p id="quote-coverage" class="subtle"></p></div><div><h3>Exchange rates</h3><p id="fx-status">Using saved rates</p><p id="fx-coverage" class="subtle"></p></div></div><p id="price-action" class="panel-note" role="status"></p><div id="price-warning" class="notice market-warning" hidden></div></section>
       <section data-page="overview" id="summary-view" class="cards" aria-label="Portfolio summary">
         <article class="metric"><p id="total-value-label">Total portfolio value</p><h2 id="total-value">—</h2><span id="total-date" class="metric-note"></span></article>
-        <article class="metric"><p id="day-label">Today’s performance</p><h2 id="day-gain">—</h2><div><strong id="day-return"></strong><span id="day-dates" class="metric-note"></span></div></article>
+        <article class="metric"><p id="day-label">Today’s performance</p><h2 id="day-gain">—</h2><div><strong id="day-return"></strong><span id="day-dates" class="metric-note"></span></div><button id="daily-performers-toggle" class="daily-performers-toggle" type="button" aria-expanded="false" aria-controls="daily-performers-panel">Top &amp; bottom performers ▾</button></article>
         <article class="metric"><p>Trailing 7 days</p><h2 id="week-gain">—</h2><div><strong id="week-return"></strong><span id="week-dates" class="metric-note"></span></div></article>
         <article class="metric"><p>Net dividends · selected period</p><h2 id="dividend-total">—</h2><span id="dividend-count" class="metric-note"></span></article>
+      </section>
+      <section data-page="overview" id="daily-performers-panel" class="panel" aria-labelledby="daily-performers-heading" hidden>
+        <div class="panel-heading"><div><p class="eyebrow">WHAT MOVED TODAY</p><h2 id="daily-performers-heading">Daily security performers</h2></div></div>
+        <p id="daily-performers-status" class="panel-note" role="status"></p>
+        <div class="ranking-grid">
+          <div><h3>Largest gains</h3><div class="table-scroll"><table><thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Daily gain / loss</th></tr></thead><tbody id="daily-gainers-body"></tbody></table></div></div>
+          <div><h3>Largest losses</h3><div class="table-scroll"><table><thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Daily gain / loss</th></tr></thead><tbody id="daily-losers-body"></tbody></table></div></div>
+        </div>
       </section>
       <details id="warnings" class="notice" hidden><summary id="warning-summary"></summary><ul id="warning-list"></ul></details>
       <section data-page="performance" id="performance" class="panel chart-panel">

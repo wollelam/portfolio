@@ -308,6 +308,23 @@ public class DashboardServiceTest
     }
 
     @Test
+    public void dailyRankingsAreOptInAndUseTheDailyIntervalAndPortfolioScope()
+    {
+        var loaded = DemoPortfolio.create(end);
+        var service = new DashboardService(loaded, clock, List.of());
+        assertEquals(null, service.dashboard(end.minusMonths(6), end).dailyRankings());
+        var report = service.dashboard(end.minusMonths(6), end, null, null, false, null, true);
+        assertEquals(null, report.rankings());
+        var converter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(loaded.client()), "EUR");
+        assertEquals(SecurityRankingService.calculate(loaded.client(), converter, LocalDate.parse(report.day().openingDate()), end),
+                        report.dailyRankings());
+        assertFalse(report.dailyRankings().securities().isEmpty());
+        var exclusions = String.join(",", report.scope().options().stream().map(PortfolioScope.Option::id).toList());
+        var empty = service.excluding(exclusions).dashboard(end.minusMonths(6), end, null, null, false, null, true);
+        assertTrue(empty.dailyRankings().securities().isEmpty());
+    }
+
+    @Test
     public void rankingsMatchNativeSnapshotAndAreOptIn()
     {
         var loaded = DemoPortfolio.create(end);

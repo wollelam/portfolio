@@ -444,3 +444,10 @@ When the native return denominator is zero, an adjusted return is unavailable ra
 Waterfall hover/focus uses one custom tooltip with the bar's amount. The cumulative connector
 value is not included in the tooltip. Accessible labels are preserved without SVG title elements
 that would trigger a second browser-native tooltip.
+
+The daily performance card expands a panel with the five largest security gains and five largest
+losses, ranked by monetary gain in the reporting currency. The native daily breakdown is fetched
+only while expanded (`rankings=day`); live stock/FX valuation deltas are applied from the same
+calculation as the overview total. Closed positions retain native realised results, and missing
+base metrics remain unavailable. Scope filters and historical dates use their corresponding
+native daily interval. Securities link to their details, and expanding/collapsing is keyboard accessible.

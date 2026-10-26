@@ -69,7 +69,7 @@ final class DashboardService
                     long totalValue, Period day, Period week, Period period, List<Point> series, List<Holding> holdings,
                     List<Dividend> dividends, List<String> warnings, List<BenchmarkService.Option> benchmarks,
                     BenchmarkService.Result benchmark, PriceCoverage priceCoverage, String fxVersion, Instrument instrument,
-                    SecurityRankingService.Rankings rankings, Waterfall waterfall, Drawdown drawdown, String inceptionDate, String today, Map<String, String> icons, PortfolioScope.Selection scope)
+                    SecurityRankingService.Rankings rankings, SecurityRankingService.Rankings dailyRankings, Waterfall waterfall, Drawdown drawdown, String inceptionDate, String today, Map<String, String> icons, PortfolioScope.Selection scope)
     {
     }
 
@@ -230,6 +230,12 @@ final class DashboardService
     synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate, String benchmark, String instrumentId,
                     boolean includeRankings, String waterfallMode)
     {
+        return dashboard(openingDate, closingDate, benchmark, instrumentId, includeRankings, waterfallMode, false);
+    }
+
+    synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate, String benchmark, String instrumentId,
+                    boolean includeRankings, String waterfallMode, boolean includeDailyRankings)
+    {
         if (waterfallMode != null && !waterfallMode.equals("calculation") && !waterfallMode.equals("contributions"))
             throw new IllegalArgumentException("Invalid waterfall mode");
         var earliest = closingDate.minusDays(3660);
@@ -308,11 +314,13 @@ final class DashboardService
                         quoteDates.isEmpty() ? null : quoteDates.getFirst(), quoteDates.isEmpty() ? null : quoteDates.getLast());
         var rankings = includeRankings
                         ? SecurityRankingService.calculate(portfolio.client(), converter, openingDate, closingDate) : null;
+        var dailyRankings = includeDailyRankings
+                        ? SecurityRankingService.calculate(portfolio.client(), converter, LocalDate.parse(day.openingDate()), closingDate) : null;
         return new Dashboard(portfolio.label(), portfolio.revision(), portfolio.loadedAt().toString(), portfolio.demo(),
                         converter.getTermCurrency(), closingDate.toString(), total, day, week, period(index), series,
                         holdings, List.copyOf(dividends), List.copyOf(warnings), BenchmarkService.options(scope.client),
                         BenchmarkService.calculate(scope.client, converter, openingDate, closingDate, benchmark),
-                        coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate), rankings,
+                        coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate), rankings, dailyRankings,
                         waterfallMode == null ? null : waterfall(openingDate, closingDate, waterfallMode), drawdown(index), inceptionDate.toString(), defaultClosingDate().toString(), icons.urls(), scope.selection(exclusions));
     }
 

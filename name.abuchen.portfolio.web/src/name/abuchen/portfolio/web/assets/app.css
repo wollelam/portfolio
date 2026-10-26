@@ -1059,3 +1059,7 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 #scope-options input { flex-shrink:0; }
 .holding-live-price { font-size:12px; }
 .holding-live-price small { display:block; margin-top:4px; color:var(--muted); font-size:10px; white-space:nowrap; }
+
+.daily-performers-toggle { display:block; margin-top:14px; padding:0; border:0; background:transparent; color:#2458a6; font:inherit; font-size:12px; cursor:pointer; text-align:left; }
+.daily-performers-toggle:focus-visible { outline:2px solid currentColor; outline-offset:4px; }
+#daily-performers-panel .ranking-grid td:last-child { white-space:nowrap; font-variant-numeric:tabular-nums; }

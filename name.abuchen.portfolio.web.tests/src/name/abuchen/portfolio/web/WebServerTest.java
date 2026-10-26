@@ -54,6 +54,11 @@ public class WebServerTest
             assertEquals(before.get("revision"), after.get("revision"));
             assertEquals(400, get(client, base + "/api/dashboard?waterfall=unknown").statusCode());
             assertEquals(400, get(client, base + "/api/dashboard?waterfall=calculation&waterfall=contributions").statusCode());
+            assertEquals(400, get(client, base + "/api/dashboard?rankings=unknown").statusCode());
+            var dailyResponse = get(client, base + "/api/dashboard?rankings=day");
+            assertEquals(200, dailyResponse.statusCode());
+            assertTrue(JsonParser.parseString(dailyResponse.body()).getAsJsonObject()
+                            .getAsJsonObject("dailyRankings").getAsJsonArray("securities").size() > 0);
             var breakdownResponse = get(client, base + "/api/dashboard?waterfall=calculation");
             assertEquals(200, breakdownResponse.statusCode());
             var breakdown = JsonParser.parseString(breakdownResponse.body()).getAsJsonObject().getAsJsonObject("waterfall");
