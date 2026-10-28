@@ -559,7 +559,7 @@ byId('scope-reset').addEventListener('click', () => {
 function holdingBrokerQuote(holding) {
   const feed = market?.liveQuotes;
   if (report.asOf !== report.today) return { message: 'Historical date' };
-  if (liveConnectionError || !feed?.available || !feed.connected || feed.mode !== 'ibkr') return { message: feed?.mode === 'demo' ? 'Simulation only' : 'Not connected' };
+  if (feed?.mode !== 'ibkr') return { message: feed?.mode === 'demo' ? 'Simulation only' : 'Not connected' };
   const matches = (feed.quotes || []).filter(entry => entry.quote.key === holding.uuid);
   if (matches.length !== 1) return { message: 'Not mapped' };
   const entry = matches[0], quote = entry.quote;
@@ -568,29 +568,31 @@ function holdingBrokerQuote(holding) {
   if (quote.status === 'unresolved') return { message: 'Contract unresolved' };
   if (quote.status === 'waiting') return { message: 'Waiting for quote' };
   const received = Date.parse(quote.receivedAt), heartbeat = Date.parse(feed.generatedAt);
-  if (entry.stale || quote.status !== 'active' || !Number.isFinite(received) || !Number.isFinite(heartbeat)
-      || Date.now() - received > 60000 || Date.now() - heartbeat > 8000) return { message: 'Stale / unavailable' };
+  if (quote.status !== 'active' || !Number.isFinite(received) || received > Date.now() + 60000) return { message: 'Quote unavailable' };
+  if (holding.quoteDate && quote.receivedAt.slice(0, 10) < holding.quoteDate) return { message: 'Saved price is newer' };
   if (!['real_time', 'delayed', 'frozen', 'delayed_frozen'].includes(quote.marketDataType)
       || !Number.isFinite(quote.last) || quote.last <= 0 || !Number.isSafeInteger(holding.shares)) return { message: 'Price unavailable' };
-  return { quote, message: `${quote.marketDataType.replaceAll('_', ' ')} · ${quote.currency} · ${liveTime(quote.receivedAt)}` };
+  const stale = entry.stale || liveConnectionError || !feed.connected || !feed.available || !Number.isFinite(heartbeat)
+    || Date.now() - received > 60000 || Date.now() - heartbeat > 8000;
+  return { quote, stale, message: `${quote.marketDataType.replaceAll('_', ' ')} · ${quote.currency} · received ${new Date(received).toLocaleString()}${stale ? ' · stale' : ''}` };
 }
 
 function liveFxPair(from, to) {
   if (from === to) return { rate: 1, delayed: false };
   const feed = market?.liveQuotes;
-  if (report.asOf !== report.today || liveConnectionError || !feed?.available || !feed.connected || feed.mode !== 'ibkr') return null;
+  if (report.asOf !== report.today || feed?.mode !== 'ibkr') return null;
   const matches = (feed.quotes || []).filter(({ quote: q }) => q.key === `fx:${from}:${to}` || q.key === `fx:${to}:${from}`);
   if (matches.length !== 1) return null;
   const entry = matches[0], q = entry.quote;
   if (q.secType !== 'CASH' || !Number.isSafeInteger(q.conId) || q.conId <= 0
       || q.key !== `fx:${q.symbol}:${q.currency}` || !['real_time', 'delayed'].includes(q.marketDataType)
-      || entry.stale || q.status !== 'active' || !Number.isFinite(Date.parse(q.receivedAt))
-      || !Number.isFinite(Date.parse(feed.generatedAt)) || Date.now() - Date.parse(q.receivedAt) > 60000
-      || Date.now() - Date.parse(feed.generatedAt) > 8000 || !Number.isFinite(q.bid) || q.bid <= 0
+      || q.status !== 'active' || !Number.isFinite(Date.parse(q.receivedAt)) || Date.parse(q.receivedAt) > Date.now() + 60000
+      || (market?.fx?.rateDate && q.receivedAt.slice(0, 10) < market.fx.rateDate) || !Number.isFinite(q.bid) || q.bid <= 0
       || !Number.isFinite(q.ask) || q.ask < q.bid) return null;
   const midpoint = q.bid / 2 + q.ask / 2;
   const rate = q.symbol === from ? midpoint : 1 / midpoint;
-  return Number.isFinite(rate) && rate > 0 ? { rate, delayed: q.marketDataType === 'delayed' } : null;
+  const stale = entry.stale || liveConnectionError || !feed.connected || !feed.available || Date.now() - Date.parse(q.receivedAt) > 60000 || Date.now() - Date.parse(feed.generatedAt) > 8000;
+  return Number.isFinite(rate) && rate > 0 ? { rate, delayed: q.marketDataType === 'delayed', stale, receivedAt: q.receivedAt } : null;
 }
 
 function liveFxRate(currency) {
@@ -600,7 +602,7 @@ function liveFxRate(currency) {
   let result = liveFxPair(from, to);
   if (!result) {
     const source = liveFxPair(from, 'USD'), target = liveFxPair(to, 'USD');
-    if (source && target) result = { rate: source.rate / target.rate, delayed: source.delayed || target.delayed };
+    if (source && target) result = { rate: source.rate / target.rate, delayed: source.delayed || target.delayed, stale: source.stale || target.stale, receivedAt: source.receivedAt < target.receivedAt ? source.receivedAt : target.receivedAt };
   }
   if (!result) return null;
   const rate = result.rate * (report.currency === 'GBX' ? 100 : 1) / (currency === 'GBX' ? 100 : 1);
@@ -609,7 +611,7 @@ function liveFxRate(currency) {
 
 function renderOverviewLive() {
   if (!report) return;
-  let total = report.totalValue, covered = 0, delayed = 0, fxCovered = 0, delayedFx = 0;
+  let total = report.totalValue, covered = 0, delayed = 0, fxCovered = 0, delayedFx = 0, staleCount = 0, oldest = null;
   const dailyAdjustments = new Map();
   for (const holding of report.holdings) {
     const broker = holding.type === 'security' ? holdingBrokerQuote(holding) : {};
@@ -626,9 +628,11 @@ function renderOverviewLive() {
     if (holding.type === 'security' && holding.uuid) dailyAdjustments.set(holding.uuid, (dailyAdjustments.get(holding.uuid) || 0) + value - holding.value);
     if (broker.quote) {
       covered++;
+      if (broker.stale) staleCount++;
+      if (!oldest || broker.quote.receivedAt < oldest) oldest = broker.quote.receivedAt;
       if (broker.quote.marketDataType !== 'real_time') delayed++;
     }
-    if (fx) { fxCovered++; if (fx.delayed) delayedFx++; }
+    if (fx) { fxCovered++; if (fx.delayed) delayedFx++; if (fx.stale) staleCount++; if (!oldest || fx.receivedAt < oldest) oldest = fx.receivedAt; }
   }
   const totalCell = byId('total-value');
   const basis = JSON.stringify([report.asOf, report.currency, report.scope?.excluded || []]);
@@ -657,7 +661,7 @@ function renderOverviewLive() {
     renderQuotePulse(cell, value, Number.isFinite(value));
   }
   text('day-live-status', intraday
-    ? `Quotes updated ${liveTime(market.liveQuotes.generatedAt)}${delayed || delayedFx ? ' · includes delayed data' : ''}`
+    ? `Oldest quote received ${new Date(oldest).toLocaleString()}${delayed || delayedFx ? ' · includes delayed data' : ''}${staleCount ? ' · includes stale data' : ''}`
     : report.asOf !== report.today ? 'Historical view · saved prices' : 'Live quotes unavailable · using saved prices');
   text('day-label', report.asOf === report.today ? (intraday ? 'Today’s performance · IBKR' : 'Today’s performance') : 'Daily performance');
   text('day-dates', `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)}${intraday ? ' · intraday estimate' : ''}`);
@@ -688,7 +692,7 @@ function renderDailyPerformers(adjustments) {
   const filters = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '';
   const key = JSON.stringify([report.asOf, report.currency, report.scope?.excluded, gainers, losers, unavailable, filters]);
   const panel = byId('daily-performers-panel');
-  const message = `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)} · Five largest gains and losses in ${report.currency}, including currency moves. ${report.asOf === report.today ? 'Uses the same live quotes and FX as today’s performance; stored prices where unavailable.' : 'Uses saved historical prices.'}${unavailable ? ` ${unavailable} securities unavailable.` : ''}`;
+  const message = `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)} · Five largest gains and losses in ${report.currency}, including currency moves. ${report.asOf === report.today ? 'Uses the same IBKR quotes and FX as today’s performance, including stale quotes; saved prices where newer or unavailable. See today’s performance for quote age.' : 'Uses saved historical prices.'}${unavailable ? ` ${unavailable} securities unavailable.` : ''}`;
   if (byId('daily-performers-status').textContent !== message) text('daily-performers-status', message);
   if (panel.dataset.renderKey === key) return;
   panel.dataset.renderKey = key;
@@ -746,7 +750,7 @@ function renderHoldingsLive() {
     const amount = broker.quote.last * holding.shares / 1e8;
     value.textContent = Number.isFinite(amount) ? new Intl.NumberFormat(undefined, { style: 'currency', currency: broker.quote.currency }).format(amount) : 'Unavailable';
   }
-  text('holdings-live-status', `${covered} of ${holdings.size} securities have a fresh, explicitly mapped IBKR quote. Broker position values use stored quantities and instrument currencies. Saved portfolio performance is unchanged.`);
+  text('holdings-live-status', `${covered} of ${holdings.size} securities have a valid, explicitly mapped IBKR quote. Receipt times and stale quotes are shown below. Broker position values use stored quantities and instrument currencies. Saved portfolio performance is unchanged.`);
 }
 
 function liveDailyChange(quote) {

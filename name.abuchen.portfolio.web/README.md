@@ -111,6 +111,12 @@ currencies. See [quote-stream/README.md](../quote-stream/README.md) for private 
 and the remaining authenticated-Gateway setup. Synthetic integration checks are in
 `name.abuchen.portfolio.web.tests/browser/live-scope-playback.test.cjs`.
 
+Today's valuation continues to use valid IBKR prices and FX midpoints when their feed is stale or
+temporarily disconnected, and shows the oldest receipt time and a stale-data indication. A saved
+price or FX rate dated later than the IBKR receipt date takes precedence. Saved data has only a
+calendar date, so a same-day IBKR receipt is treated as newer; the receipt time does not establish
+the actual trade time, particularly for delayed data.
+
 ## Security performers
 
 The Performers page calculates per-security results only when opened. It uses the core's security

@@ -45,7 +45,7 @@ async function main() {
     assert.equal(await page.locator('#total-value').innerText(), await expected(100));
     await assertDaily(100);
     assert.match(await page.locator('#day-dates').innerText(), /intraday estimate/);
-    assert.match(await page.locator('#day-live-status').innerText(), /Quotes updated.*includes delayed data/);
+    assert.match(await page.locator('#day-live-status').innerText(), /Oldest quote received.*includes delayed data/);
     assert.match(await page.locator('#total-date').innerText(), /1 delayed/);
     price = 103;
     await page.waitForFunction(value => document.querySelector('#total-value').textContent === value, await expected(103));
@@ -71,7 +71,13 @@ async function main() {
     price = 101;
     await page.emulateMedia({ reducedMotion: 'reduce' });
     assert.equal(await page.locator('#total-value').evaluate(el => getComputedStyle(el).animationName), 'none');
-    for (const value of ['stale', 'currency', 'duplicate', 'demo', 'permission', 'failure']) {
+    mode = 'stale';
+    await page.waitForFunction(() => document.querySelector('#day-live-status').textContent.includes('stale data'));
+    assert.equal(await page.locator('#total-value').innerText(), await expected(101));
+    mode = 'failure';
+    await page.waitForFunction(() => liveConnectionError);
+    assert.equal(await page.locator('#total-value').innerText(), await expected(101));
+    for (const value of ['currency', 'duplicate', 'demo', 'permission']) {
       mode = value;
       await page.waitForFunction(() => document.querySelector('#total-value').textContent === money(report.totalValue));
       assert.equal(await page.locator('#total-value-label').innerText(), 'Total portfolio value');
@@ -81,6 +87,15 @@ async function main() {
       mode = 'valid';
       await page.waitForFunction(() => document.querySelector('#total-value-label').textContent.includes('IBKR'));
     }
+    const older = await page.evaluate(key => {
+      const holding = report.holdings.find(h => h.uuid === key);
+      const original = holding.quoteDate;
+      holding.quoteDate = '9999-01-01';
+      const result = holdingBrokerQuote(holding).message;
+      holding.quoteDate = original;
+      return result;
+    }, security.uuid);
+    assert.equal(older, 'Saved price is newer');
     await page.evaluate(() => { report.holdings.forEach(h => h.valuationFxRate = null); renderOverviewLive(); });
     assert.equal(await page.locator('#total-value').innerText(), await page.evaluate(() => money(report.totalValue)));
     await page.evaluate(() => { report.holdings.forEach(h => h.valuationFxRate = 2); report.asOf = '2000-01-01'; renderOverviewLive(); });

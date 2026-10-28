@@ -39,7 +39,7 @@ async function main() {
         if (mode === 'missing-gbp') quotes.splice(2, 1);
         if (mode === 'delayed') usd.quote.marketDataType = 'delayed';
         liveConnectionError = mode === 'failure';
-        market = { liveQuotes: { available: true, connected: true, mode: mode === 'demo' ? 'demo' : 'ibkr', generatedAt: mode === 'heartbeat' ? new Date(Date.now() - 9000).toISOString() : now, quotes } };
+        market = { fx: mode === 'saved-newer' ? { rateDate: '9999-01-01' } : null, liveQuotes: { available: true, connected: true, mode: mode === 'demo' ? 'demo' : 'ibkr', generatedAt: mode === 'heartbeat' ? new Date(Date.now() - 9000).toISOString() : now, quotes } };
         renderOverviewLive();
         return { value: document.querySelector('#total-value').textContent, note: document.querySelector('#total-date').textContent,
           saved: report.totalValue, gain: document.querySelector('#day-gain').textContent, gbp: liveFxRate('GBX')?.rate, dkk: liveFxRate('DKK')?.rate };
@@ -55,9 +55,11 @@ async function main() {
     assert(Math.abs(valid.dkk - .9 / 7) < 1e-10);
     assert.match(valid.note, /3 positions with IBKR FX midpoint/);
     await check('tick', 39500);
-    for (const mode of ['stale', 'old', 'crossed', 'permission', 'missing-bid', 'identity', 'forged', 'frozen', 'duplicate']) await check(mode, 35800);
+    for (const mode of ['stale', 'old', 'failure', 'heartbeat']) await check(mode, 36550);
+    for (const mode of ['crossed', 'permission', 'missing-bid', 'identity', 'forged', 'frozen', 'duplicate']) await check(mode, 35800);
+    await check('saved-newer', 35800);
     await check('missing-gbp', 35700);
-    await check('historical', 34000); await check('failure', 34000); await check('heartbeat', 34000); await check('demo', 34000);
+    await check('historical', 34000); await check('demo', 34000);
     assert.match((await check('delayed', 36550)).note, /includes delayed/);
     const penceTotal = await page.evaluate(() => {
       const now = new Date().toISOString();

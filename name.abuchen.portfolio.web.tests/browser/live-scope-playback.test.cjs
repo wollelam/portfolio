@@ -32,7 +32,10 @@ async function main() {
     price = 101;
     await page.waitForFunction(() => document.querySelector('.holding-live-tick')?.dataset.direction === 'up');
     assert.equal(await page.evaluate(() => report.totalValue), savedValue, 'broker quotes cannot change saved valuations');
-    for (const [mode, message] of [['demo', 'Simulation only'], ['stale', 'Stale / unavailable'], ['currency', 'Identity mismatch'], ['duplicate', 'Not mapped'], ['failure', 'Not connected']]) {
+    feedCase = 'stale';
+    await row.locator('.holding-live-price small').getByText(/stale/).waitFor();
+    assert.notEqual(await row.locator('.holding-live-value').innerText(), '—');
+    for (const [mode, message] of [['demo', 'Simulation only'], ['currency', 'Identity mismatch'], ['duplicate', 'Not mapped']]) {
       feedCase = mode;
       await row.locator('.holding-live-price').getByText(message, { exact: true }).waitFor();
       assert.equal(await row.locator('.holding-live-value').innerText(), '—');
