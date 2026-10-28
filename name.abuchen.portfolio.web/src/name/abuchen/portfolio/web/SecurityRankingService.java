@@ -13,13 +13,14 @@ import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
+import name.abuchen.portfolio.snapshot.PerformanceIndex;
 import name.abuchen.portfolio.snapshot.security.LazySecurityPerformanceSnapshot;
 import name.abuchen.portfolio.util.Interval;
 
 /** Per-security period results from the same native calculation engine as instrument details. */
 final class SecurityRankingService
 {
-    record Entry(String uuid, String name, Double rate, Long gain)
+    record Entry(String uuid, String name, Double rate, Long gain, Double closingValueReturnFactor)
     {
     }
 
@@ -48,16 +49,30 @@ final class SecurityRankingService
 
             Double rate = null;
             Long gain = null;
+            Double closingValueReturnFactor = null;
             // A missing quote can make the native valuation zero. Check ownership independently of value.
             if (pricesAvailable(security, from, to, heldAtOpening.contains(security), heldAtClosing.contains(security)))
             {
-                rate = safely(record::getTrueTimeWeightedRateOfReturn);
+                var index = safely(() -> PerformanceIndex.forInvestment(client, converter, security, Interval.of(from, to),
+                                new ArrayList<>()));
+                rate = index == null ? null : safely(index::getFinalAccumulatedPercentage);
+                if (index != null)
+                {
+                    int last = index.getTotals().length - 1;
+                    double denominator = last > 0 ? (double) index.getTotals()[last - 1] + index.getInboundTransferals()[last] : 0;
+                    if (denominator != 0)
+                    {
+                        double factor = (1 + index.getAccumulatedPercentage()[last - 1]) / denominator;
+                        if (Double.isFinite(factor))
+                            closingValueReturnFactor = factor;
+                    }
+                }
                 if (rate != null && !Double.isFinite(rate))
                     rate = null;
                 var delta = safely(record::getDelta);
                 gain = delta == null ? null : delta.getAmount();
             }
-            rows.add(new Entry(security.getUUID(), security.getName(), rate, gain));
+            rows.add(new Entry(security.getUUID(), security.getName(), rate, gain, closingValueReturnFactor));
         }
 
         int unavailable = (int) rows.stream().filter(row -> row.rate() == null || row.gain() == null).count();

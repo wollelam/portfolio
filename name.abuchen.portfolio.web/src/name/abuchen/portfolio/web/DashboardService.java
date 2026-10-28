@@ -16,9 +16,12 @@ import name.abuchen.portfolio.model.Account;
 import name.abuchen.portfolio.model.AccountTransaction;
 import name.abuchen.portfolio.model.ClientFactory;
 import name.abuchen.portfolio.model.Security;
+import name.abuchen.portfolio.model.SecurityPrice;
 import name.abuchen.portfolio.model.Transaction.Unit.Type;
+import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
+import name.abuchen.portfolio.money.Quote;
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
@@ -45,7 +48,7 @@ final class DashboardService
     {
     }
 
-    record InstrumentPoint(String date, long price)
+    record InstrumentPoint(String date, long price, Long reportingPrice)
     {
     }
 
@@ -399,7 +402,7 @@ final class DashboardService
         var position = atEnd.getAssetPositions().filter(p -> security.equals(p.getInvestmentVehicle())).findFirst().orElse(null);
         var points = security.getPricesIncludingLatest().stream().filter(p -> !p.getDate().isAfter(closingDate))
                         .filter(p -> !p.getDate().isBefore(openingDate)).sorted(Comparator.comparing(p -> p.getDate()))
-                        .map(p -> new InstrumentPoint(p.getDate().toString(), p.getValue())).toList();
+                        .map(p -> instrumentPoint(p, security.getCurrencyCode(), converter)).toList();
         var atStart = ClientSnapshot.create(portfolio.client(), converter, openingDate);
         var record = LazySecurityPerformanceSnapshot.create(portfolio.client(), converter, Interval.of(openingDate, closingDate),
                         atStart, atEnd).getRecord(security).orElse(null);
@@ -425,6 +428,14 @@ final class DashboardService
                                         : "No stored quote on or before the selected closing date is usable; valuation and period performance are unavailable.") :
                                         points.isEmpty() ? "No stored quotes in the selected period." : null,
                         SecurityActivityService.calculate(portfolio.client(), security, converter, openingDate, closingDate));
+    }
+
+    static InstrumentPoint instrumentPoint(SecurityPrice price, String currency, CurrencyConverter converter)
+    {
+        Long converted = currency == null ? null
+                        : converter.convertIfAvailable(price.getDate(), Quote.of(currency, price.getValue()))
+                                        .map(Quote::getAmount).orElse(null);
+        return new InstrumentPoint(price.getDate().toString(), price.getValue(), converted);
     }
 
     private PerformanceIndex index(LocalDate from, LocalDate to, Set<String> warnings)

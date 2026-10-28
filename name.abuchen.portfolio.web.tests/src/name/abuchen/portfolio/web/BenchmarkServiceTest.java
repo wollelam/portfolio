@@ -148,6 +148,18 @@ public class BenchmarkServiceTest
         assertFalse(BenchmarkService.options(client).isEmpty());
     }
 
+    @Test
+    public void instrumentPricesUseTheRateOnEachQuoteDateAndPreserveMissingRates()
+    {
+        var first = new SecurityPrice(from, Values.Quote.factorize(100));
+        var last = new SecurityPrice(to, Values.Quote.factorize(100));
+        assertEquals(Values.Quote.factorize(50), DashboardService.instrumentPoint(first, "USD", converter(false)).reportingPrice().longValue());
+        assertEquals(Values.Quote.factorize(75), DashboardService.instrumentPoint(last, "USD", converter(false)).reportingPrice().longValue());
+        assertNull(DashboardService.instrumentPoint(last, "USD", converter(true)).reportingPrice());
+        assertNull(DashboardService.instrumentPoint(first, null, converter(false)).reportingPrice());
+        assertEquals(first.getValue(), DashboardService.instrumentPoint(first, "EUR", converter(true)).reportingPrice().longValue());
+    }
+
     private Security security(String currency)
     {
         var security = new Security("Test series", currency);

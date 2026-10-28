@@ -54,6 +54,8 @@ public class SecurityRankingServiceTest
         assertResult(results, large, 0.10, 100_000);
         assertResult(results, small, 0.30, 3_000);
         assertResult(results, loss, -0.20, -20_000);
+        var largeRow = results.securities().stream().filter(item -> item.uuid().equals(large.getUUID())).findFirst().orElseThrow();
+        assertEquals(0.20, largeRow.rate() + 100_000 * largeRow.closingValueReturnFactor(), 0.00000001);
     }
 
     @Test

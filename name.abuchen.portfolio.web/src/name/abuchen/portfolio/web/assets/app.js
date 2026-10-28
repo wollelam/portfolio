@@ -29,6 +29,7 @@ try { discreetMode = localStorage.getItem(discreetPreferenceKey) === 'true'; } c
 let mode = 'return';
 let selected = 0;
 let instrumentSelected = 0;
+let instrumentCurrency = 'native';
 let drawdownSelected = 0;
 let drawdownChart;
 let hasChartSelection = false;
@@ -186,6 +187,7 @@ function routeUrl() {
   if (mode !== 'return') params.set('mode', mode);
   if (activePreset) params.set('preset', activePreset);
   if (currentRoute === 'live-quotes' && selectedLiveQuote) params.set('quote', selectedLiveQuote);
+  if (currentRoute === 'instrument' && instrumentCurrency === 'portfolio') params.set('priceCurrency', 'portfolio');
   if (rankingBasis !== 'rate') params.set('basis', rankingBasis);
   if (currentRoute === 'allocation' && allocationDate) params.set('asof', allocationDate);
   if (securitySearch) params.set('q', securitySearch);
@@ -220,6 +222,8 @@ function showRoute() {
   hideWaterfallTooltip();
   const quotePage = currentRoute === 'live-quotes';
   byId('portfolio-scope').hidden = quotePage;
+  byId('warnings').hidden = quotePage;
+  byId('instrument-icon').hidden = currentRoute !== 'instrument';
   document.body.classList.toggle('quote-page', quotePage);
   text('portfolio-label', quotePage ? 'Independent, read-only quote watchlist' : report?.label || 'Loading portfolio…');
   text('refresh', quotePage ? '↻ Refresh quotes' : '↻ Refresh dashboard');
@@ -261,6 +265,7 @@ async function enterRoute() {
   restoringScroll = true;
   const route = parseRoute();
   currentRoute = route.page; selectedInstrument = route.instrument;
+  instrumentCurrency = route.params.get('priceCurrency') === 'portfolio' ? 'portfolio' : 'native';
   if (currentRoute === 'allocation') allocationDate = route.params.get('asof') || allocationDate || route.params.get('to') || report?.today || '';
   selectedLiveQuote = route.params.get('quote') || selectedLiveQuote;
   selectedBenchmark = route.params.get('benchmark') || '';
@@ -393,15 +398,7 @@ function render() {
   byId('from').max = report.period.closingDate;
   byId('to').max = localToday;
   for (const button of document.querySelectorAll('[data-period]')) button.setAttribute('aria-pressed', String(button.dataset.period === activePreset));
-  byId('warnings').hidden = report.warnings.length === 0;
-  text('warning-summary', `${report.warnings.length} data quality notice${report.warnings.length === 1 ? '' : 's'} · review before relying on these figures`);
-  const warnings = byId('warning-list');
-  warnings.replaceChildren();
-  for (const warning of report.warnings) {
-    const li = document.createElement('li');
-    li.textContent = warning;
-    warnings.append(li);
-  }
+  renderNotifications();
   renderPortfolioScope();
   const holdings = byId('holdings-body');
   holdings.replaceChildren();
@@ -531,7 +528,10 @@ function renderLivePrice(cell, value, currency, field) {
 
 function renderPortfolioScope() {
   const options = report.scope?.options || [];
-  text('scope-summary', excludedGroups.size ? `Portfolio filters · ${excludedGroups.size} excluded` : 'Portfolio filters · all groups included');
+  const description = excludedGroups.size ? `Portfolio filters · ${excludedGroups.size} excluded` : 'Portfolio filters · all groups included';
+  byId('scope-summary').setAttribute('aria-label', description);
+  byId('scope-summary').title = description;
+  byId('scope-indicator').hidden = !excludedGroups.size;
   const holder = byId('scope-options');
   const key = JSON.stringify([options, [...excludedGroups].sort()]);
   if (holder.dataset.key === key) return;
@@ -552,6 +552,40 @@ function renderPortfolioScope() {
     holder.append(fieldset);
   }
 }
+
+let readWarnings = new Set(), warningPortfolio = null;
+function renderNotifications() {
+  if (!report) return;
+  const key = `portfolio-web-read-warnings:${report.label}`;
+  if (warningPortfolio !== key) {
+    warningPortfolio = key; readWarnings = new Set();
+    try { const saved = JSON.parse(localStorage.getItem(key) || '[]'); if (Array.isArray(saved)) readWarnings = new Set(saved.filter(item => typeof item === 'string')); } catch { /* Storage can be disabled. */ }
+  }
+  const notices = report.warnings || [];
+  const unread = notices.filter(warning => !readWarnings.has(warning));
+  text('warning-summary', unread.length ? `${unread.length} unread data quality notice${unread.length === 1 ? '' : 's'}` : 'No unread notifications.');
+  byId('warning-indicator').hidden = unread.length === 0;
+  const summary = byId('warnings').querySelector('summary');
+  summary.setAttribute('aria-label', unread.length ? `Notifications · ${unread.length} unread` : 'Notifications · none unread');
+  const list = byId('warning-list'); list.replaceChildren();
+  for (const warning of unread) { const li = document.createElement('li'); li.textContent = warning; list.append(li); }
+  byId('mark-warnings-read').disabled = unread.length === 0;
+}
+byId('mark-warnings-read').addEventListener('click', () => {
+  for (const warning of report?.warnings || []) readWarnings.add(warning);
+  try { localStorage.setItem(warningPortfolio, JSON.stringify([...readWarnings])); } catch { /* Keep the session state. */ }
+  renderNotifications();
+});
+for (const menu of document.querySelectorAll('.topbar-menu')) menu.addEventListener('toggle', () => {
+  if (menu.open) for (const other of document.querySelectorAll('.topbar-menu')) if (other !== menu) other.open = false;
+});
+document.addEventListener('click', event => {
+  for (const menu of document.querySelectorAll('.topbar-menu[open]')) if (!menu.contains(event.target)) menu.open = false;
+});
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  for (const menu of document.querySelectorAll('.topbar-menu[open]')) { menu.open = false; menu.querySelector('summary').focus(); }
+});
 byId('scope-reset').addEventListener('click', () => {
   stopAllocationPlayback(); excludedGroups.clear(); syncRouteUrl(); load(byId('from').value, byId('to').value);
 });
@@ -683,8 +717,12 @@ function renderDailyPerformers(adjustments) {
     return;
   }
   dailyPerformersError = '';
-  const valid = data.securities.filter(row => Number.isSafeInteger(row.gain)).map(row => ({ ...row,
-    gain: row.gain + (report.asOf === report.today ? adjustments.get(row.uuid) || 0 : 0) })).filter(row => Number.isSafeInteger(row.gain));
+  const valid = data.securities.filter(row => Number.isSafeInteger(row.gain)).map(row => {
+    const adjustment = report.asOf === report.today ? adjustments.get(row.uuid) || 0 : 0;
+    const rate = adjustment === 0 ? row.rate : Number.isFinite(row.rate) && Number.isFinite(row.closingValueReturnFactor)
+      ? row.rate + adjustment * row.closingValueReturnFactor : null;
+    return { ...row, gain: row.gain + adjustment, rate: Number.isFinite(rate) ? rate : null };
+  }).filter(row => Number.isSafeInteger(row.gain));
   const unavailable = data.securities.length - valid.length;
   const compare = direction => (a, b) => direction * (a.gain - b.gain) || a.name.localeCompare(b.name) || a.uuid.localeCompare(b.uuid);
   const gainers = valid.filter(row => row.gain > 0).sort(compare(-1)).slice(0, 5);
@@ -692,7 +730,7 @@ function renderDailyPerformers(adjustments) {
   const filters = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '';
   const key = JSON.stringify([report.asOf, report.currency, report.scope?.excluded, gainers, losers, unavailable, filters]);
   const panel = byId('daily-performers-panel');
-  const message = `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)} · Five largest gains and losses in ${report.currency}, including currency moves. ${report.asOf === report.today ? 'Uses the same IBKR quotes and FX as today’s performance, including stale quotes; saved prices where newer or unavailable. See today’s performance for quote age.' : 'Uses saved historical prices.'}${unavailable ? ` ${unavailable} securities unavailable.` : ''}`;
+  const message = `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)} · Five largest gains and losses in ${report.currency}, including currency moves. Daily change is time-weighted return. ${report.asOf === report.today ? 'Uses the same IBKR quotes and FX as today’s performance, including stale quotes; saved prices where newer or unavailable. See today’s performance for quote age.' : 'Uses saved historical prices.'}${unavailable ? ` ${unavailable} securities unavailable.` : ''}`;
   if (byId('daily-performers-status').textContent !== message) text('daily-performers-status', message);
   if (panel.dataset.renderKey === key) return;
   panel.dataset.renderKey = key;
@@ -704,11 +742,13 @@ function renderDailyPerformers(adjustments) {
       link.className = 'instrument-link'; link.dataset.security = item.uuid;
       link.href = `#/instrument/${encodeURIComponent(item.uuid)}${filters}`; link.textContent = item.name;
       name.append(assetIcon(item.name, report.icons?.[item.uuid]), link); row.append(name);
+      cell(row, Number.isFinite(item.rate) ? percent(item.rate) : 'Unavailable', true);
+      if (Number.isFinite(item.rate) && item.rate !== 0) row.lastElementChild.classList.add(item.rate > 0 ? 'positive' : 'negative');
       cell(row, money(item.gain, true), true);
       row.lastElementChild.classList.add(item.gain > 0 ? 'positive' : 'negative');
       body.append(row);
     }
-    if (!rows.length) emptyRow(body, 2, empty);
+    if (!rows.length) emptyRow(body, 3, empty);
   }
   if (focused) [...panel.querySelectorAll('a[data-security]')].find(link => link.dataset.security === focused)?.focus({ preventScroll: true });
 }
@@ -1379,6 +1419,7 @@ function renderInstrument(instrument) {
   renderSecurityActivity(instrument?.activity);
   if (!instrument) {
     text('instrument-name', 'Instrument unavailable'); text('instrument-message', 'The selected instrument detail is unavailable.');
+    byId('instrument-currency-choice').hidden = true; byId('instrument-fx-note').hidden = true;
     for (const id of ['instrument-period', 'instrument-shares', 'instrument-value', 'instrument-ttwror', 'instrument-irr', 'instrument-gain', 'instrument-dividends', 'instrument-currency']) text(id, 'Unavailable');
     byId('instrument-chart').replaceChildren(); return;
   }
@@ -1396,14 +1437,38 @@ function renderInstrument(instrument) {
   text('instrument-irr', percent(instrument.irr));
   text('instrument-gain', instrument.gain === null ? 'Unavailable' : money(instrument.gain, true));
   text('instrument-dividends', money(instrument.dividends));
-  text('instrument-currency', instrument.currency || 'currency unavailable');
+  const canConvert = Boolean(instrument.currency && report.currency && instrument.currency !== report.currency);
+  const converted = canConvert && instrumentCurrency === 'portfolio';
+  const currency = converted ? report.currency : instrument.currency;
+  text('instrument-currency', currency || 'currency unavailable');
+  byId('instrument-currency-choice').hidden = !canConvert;
+  for (const button of document.querySelectorAll('[data-instrument-currency]')) {
+    button.textContent = button.dataset.instrumentCurrency === 'native' ? `Instrument · ${instrument.currency}` : `Portfolio · ${report.currency}`;
+    button.setAttribute('aria-pressed', String(button.dataset.instrumentCurrency === (converted ? 'portfolio' : 'native')));
+  }
+  const missingFx = converted ? (instrument.prices || []).filter(p => !Number.isFinite(p.reportingPrice)).length : 0;
+  const fxNote = byId('instrument-fx-note'); fxNote.hidden = !converted;
+  fxNote.textContent = `Converted using the stored exchange rate on each quote date.${missingFx ? ` ${missingFx} quote${missingFx === 1 ? '' : 's'} unavailable because exchange rates are missing; gaps are shown.` : ''}`;
   instrumentChart = new TimeSeriesChart(byId('instrument-chart'));
-  const format = value => new Intl.NumberFormat(undefined, { ...(instrument.currency ? { style: 'currency', currency: instrument.currency } : {}), maximumFractionDigits: 6 }).format(value);
-  instrumentChart.draw({ points: (instrument.prices || []).map(p => ({ date: p.date, value: p.price / instrument.quoteScale })),
-    format, output: byId('instrument-chart-detail'), selected: instrumentSelected, empty: 'No stored quotes in the selected period.',
-    title: `Stored price history in ${instrument.currency || 'instrument units'}`,
+  const format = value => new Intl.NumberFormat(undefined, { ...(currency ? { style: 'currency', currency } : {}), maximumFractionDigits: 6 }).format(value);
+  const formatAxis = (value, step) => {
+    let digits = 0;
+    while (digits < 8 && Math.abs(step * 10 ** digits - Math.round(step * 10 ** digits)) > 1e-7) digits++;
+    return new Intl.NumberFormat(undefined, { ...(currency ? { style: 'currency', currency } : {}),
+      minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
+  };
+  instrumentChart.draw({ points: (instrument.prices || []).map(p => ({ date: p.date, value: converted ? (Number.isFinite(p.reportingPrice) ? p.reportingPrice / instrument.quoteScale : null) : p.price / instrument.quoteScale })),
+    format, formatAxis, niceAxis: true, output: byId('instrument-chart-detail'), selected: instrumentSelected,
+    empty: converted && missingFx ? 'No converted prices available; exchange rates are missing.' : 'No stored quotes in the selected period.',
+    title: `Stored price history in ${currency || 'instrument units'}`,
     onSelect: index => { instrumentSelected = index; saveEntryState(); } });
 }
+
+for (const button of document.querySelectorAll('[data-instrument-currency]')) button.addEventListener('click', () => {
+  instrumentCurrency = button.dataset.instrumentCurrency;
+  syncRouteUrl();
+  renderInstrument(report.instrument);
+});
 
 function setMarket(data) {
   if (data && (!market || data.observedAt >= market.observedAt)) {
@@ -1585,12 +1650,23 @@ class TimeSeriesChart {
     }
     let low = Math.min(...values), high = Math.max(...values);
     if (config.includeZero) { low = Math.min(low, 0); high = Math.max(high, 0); }
-    const pad = (high - low || Math.abs(high) || 1) * 0.12; low -= pad; high += pad;
+    let yTicks;
+    if (config.niceAxis) {
+      const span = high - low || Math.abs(high) * 0.1 || 1;
+      low -= span * 0.03; high += span * 0.03;
+      const rawStep = (high - low) / 6, magnitude = 10 ** Math.floor(Math.log10(rawStep));
+      const step = ([1, 2, 2.5, 5, 10].find(n => n * magnitude >= rawStep) || 10) * magnitude;
+      const first = Math.floor(low / step), last = Math.ceil(high / step);
+      low = first * step; high = last * step;
+      yTicks = Array.from({ length: last - first + 1 }, (_, i) => ({ value: (first + i) * step, step }));
+    } else {
+      const pad = (high - low || Math.abs(high) || 1) * 0.12; low -= pad; high += pad;
+      yTicks = Array.from({ length: 5 }, (_, i) => ({ value: low + (high - low) * i / 4 }));
+    }
     this.y = value => this.bottom - (value - low) / (high - low) * (this.bottom - this.top);
-    for (let i = 0; i < 5; i++) {
-      const value = low + (high - low) * i / 4;
+    for (const { value, step } of yTicks) {
       svg.append(svgElement('line', { x1: this.left, x2: this.right, y1: this.y(value), y2: this.y(value), class: 'grid-line' }));
-      svg.append(svgElement('text', { x: this.left - 8, y: this.y(value) + 4, 'text-anchor': 'end', class: 'axis-label' }, config.format(value)));
+      svg.append(svgElement('text', { x: this.left - 8, y: this.y(value) + 4, 'text-anchor': 'end', class: 'axis-label' }, (config.formatAxis || config.format)(value, step)));
     }
     if (low < 0 && high > 0) svg.append(svgElement('line', { x1: this.left, x2: this.right, y1: this.y(0), y2: this.y(0), class: 'zero-line' }));
     this.drawPath(this.points, 'chart-line');
@@ -1723,7 +1799,7 @@ async function load(from, to, silent = false) {
     refreshConnectionError = null;
     if (currentRoute === 'overview' && requestedClosingDate && requestedClosingDate !== data.today) activePreset = null;
     report = data;
-    if (unchanged) { renderFreshness(); setMarket(data.market); }
+    if (unchanged) { renderNotifications(); renderFreshness(); setMarket(data.market); }
     else render();
     if (currentRoute === 'overview') syncRouteUrl();
     if (!silent) text('status', '');

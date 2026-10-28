@@ -5,8 +5,9 @@ const { chromium } = require('playwright-core');
 const base = process.env.BASE_URL || 'http://127.0.0.1:8099';
 async function main() {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
+  let page;
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errors = []; page.on('pageerror', e => errors.push(e.message));
     let security, currency, dailyRequests = 0, price = 110, stale = false;
     await page.route('**/api/dashboard*', async route => {
@@ -17,7 +18,7 @@ async function main() {
         dailyRequests++;
         const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
         data.dailyRankings = { securities: [
-          { uuid: security.uuid, name: 'Alpha', gain: 300, rate: .03 },
+          { uuid: security.uuid, name: 'Alpha', gain: 300, rate: .03, closingValueReturnFactor: .0001 },
           ...Array.from({ length: 5 }, (_, i) => ({ uuid: uuid(i + 1), name: `Gain ${i}`, gain: (i + 2) * 100, rate: .01 })),
           ...Array.from({ length: 6 }, (_, i) => ({ uuid: uuid(i + 10), name: `Loss ${i}`, gain: -(i + 1) * 100, rate: -.01 })),
           { uuid: uuid(99), name: 'Unavailable', gain: null, rate: null }
@@ -41,14 +42,18 @@ async function main() {
     assert.equal(await page.locator('#daily-losers-body tr').count(), 5);
     assert.equal(await page.locator('#daily-gainers-body tr').first().locator('td').last().innerText(),
       await page.evaluate(() => money(1300, true)));
+    assert.equal(await page.locator('#daily-gainers-body tr').first().locator('td').nth(1).innerText(), await page.evaluate(() => percent(.13)));
+    assert.match(await page.locator('#daily-performers-status').innerText(), /Daily change is time-weighted return/);
     assert.match(await page.locator('#daily-performers-status').innerText(), /1 securities unavailable/);
     price = 50;
     await page.locator('#daily-losers-body tr').first().getByRole('link', { name: 'Alpha' }).waitFor();
     assert.equal(await page.locator('#daily-losers-body tr').first().locator('td').last().innerText(),
       await page.evaluate(() => money(-4700, true)));
+    assert.equal(await page.locator('#daily-losers-body tr').first().locator('td').nth(1).innerText(), await page.evaluate(() => percent(-.47)), 'daily return follows live quotes');
     assert.equal(dailyRequests, 1, 'ticks reuse the native daily baseline');
     stale = true;
-    await page.waitForFunction(() => !document.querySelector('#daily-losers-body').textContent.includes('Alpha'));
+    await page.waitForFunction(() => document.querySelector('#day-live-status').textContent.includes('stale data'));
+    assert.match(await page.locator('#daily-losers-body').innerText(), /Alpha/, 'stale last quote remains in use');
     await page.evaluate(() => { report.asOf = '2000-01-01'; renderOverviewLive(); });
     assert.match(await page.locator('#daily-performers-status').innerText(), /saved historical prices/);
     assert.equal(await page.locator('#daily-gainers-body tr').filter({ hasText: 'Alpha' }).locator('td').last().innerText(),
@@ -57,6 +62,7 @@ async function main() {
     await page.locator('#instrument-name').waitFor({ state: 'visible' });
     await page.locator('[data-route="overview"]').click();
     await page.locator('#daily-gainers-body').getByRole('link', { name: 'Alpha' }).waitFor();
+    await page.waitForFunction(() => report?.dailyRankings != null);
     assert(await panel.isVisible(), 'open state survives navigation');
     await page.setViewportSize({ width: 390, height: 844 });
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
@@ -66,7 +72,7 @@ async function main() {
     await toggle.focus(); await page.keyboard.press('Enter');
     assert(await panel.isHidden()); assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
     assert.deepEqual(errors, []);
-    console.log('Daily performers: lazy expansion, top/bottom five, live reordering, stale/historical fallback, empty states, drilldown, mobile and keyboard passed.');
-  } finally { await browser.close(); }
+    console.log('Daily performers: lazy expansion, top/bottom five, live reordering, stale quote retention, historical fallback, empty states, drilldown, mobile and keyboard passed.');
+  } finally { if (page) await page.unrouteAll({ behavior: 'ignoreErrors' }); await browser.close(); }
 }
 main().catch(e => { console.error(e); process.exitCode = 1; });

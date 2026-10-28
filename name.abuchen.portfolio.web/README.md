@@ -138,6 +138,12 @@ fallback conversion. By default the app loads cached exchange-rate providers fro
 A fresh runtime may lack FX data present in the desktop workspace; review
 the warnings before comparing multi-currency results. Security quotes come from the loaded file.
 
+The instrument price chart can switch between the security currency and portfolio reporting
+currency. Each converted point uses the available historical exchange rate on the quote date;
+missing rates leave gaps. The chart shows stored price history, not investment return.
+The top-bar filter also applies to instrument positions and activity. Data-quality notices appear
+in the notification menu; marking them read is remembered in the browser for that portfolio.
+
 ## Benchmark comparison
 
 Use **Compare with** above the chart to select a security or index with stored prices. The Return

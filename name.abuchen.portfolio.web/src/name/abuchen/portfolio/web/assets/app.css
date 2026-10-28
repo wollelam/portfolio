@@ -1036,11 +1036,12 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .instrument-title h2 {
   margin:0;
 }
-.instrument-title .asset-icon {
+.page-title-row { display:flex; align-items:center; gap:12px; }
+.page-title-row .asset-icon {
   width:40px;
   height:40px;
 }
-.instrument-title .asset-icon img {
+.page-title-row .asset-icon img {
   width:32px;
   height:32px;
 }
@@ -1051,8 +1052,17 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
   stroke-width:1;
 }
 
-.portfolio-scope { margin:14px 0; padding:16px; border:1px solid var(--border); border-radius:9px; background:#fff; }
-.portfolio-scope summary { cursor:pointer; font-weight:600; }
+.topbar-actions { display:flex; align-items:center; gap:8px; }
+.topbar-menu { position:relative; letter-spacing:normal; color:#1c293b; }
+.icon-button { position:relative; display:grid; place-items:center; width:36px; height:36px; border:1px solid var(--border); border-radius:8px; background:#fff; cursor:pointer; list-style:none; }
+.icon-button::-webkit-details-marker { display:none; }
+.icon-button svg { width:19px; height:19px; fill:none; stroke:#46596c; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.icon-button:focus-visible { outline:2px solid #2458a6; outline-offset:2px; }
+.menu-dot { position:absolute; right:4px; top:4px; width:9px; height:9px; border-radius:50%; background:#d63445; border:1px solid white; }
+.topbar-popover { position:absolute; right:0; top:calc(100% + 8px); z-index:20; width:min(380px, calc(100vw - 32px)); max-height:min(70vh, 600px); overflow:auto; padding:16px; border:1px solid var(--border); border-radius:9px; background:#fff; box-shadow:0 10px 30px #1c293b24; font-size:13px; }
+.topbar-popover h3 { margin:0 0 10px; font-size:15px; }
+.topbar-popover ul { padding-left:20px; line-height:1.5; }
+.topbar-popover li + li { margin-top:8px; }
 #scope-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin:16px 0; max-height:360px; overflow:auto; }
 #scope-options fieldset { border:1px solid var(--border); border-radius:6px; min-width:0; }
 #scope-options label { display:flex; gap:8px; align-items:baseline; margin:8px 0; font-size:13px; }
