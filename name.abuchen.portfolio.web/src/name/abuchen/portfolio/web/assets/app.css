@@ -1066,7 +1066,13 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .date-popover .chart-controls { padding:0; display:block; }
 .date-popover .periods { flex-wrap:wrap; gap:4px; margin-bottom:12px; }
 .date-popover #dates { flex-wrap:wrap; gap:10px; }
-.instrument-page #portfolio-label, .instrument-page .valuation-note, .instrument-page #refresh-info { display:none; }
+.instrument-page #portfolio-label, .instrument-page .valuation-note, .instrument-page #refresh-info,
+.overview-page #portfolio-label, .overview-page .valuation-note, .overview-page #refresh-info { display:none; }
+.market-menu-content .panel-heading { padding:0; gap:10px; }
+.market-menu-content .panel-heading h2 { font-size:16px; }
+.market-menu-content .market-grid { padding:8px 0; grid-template-columns:1fr; gap:8px; }
+.market-menu-content .panel-note { padding:0; }
+@media (max-width:760px) { .topbar > span:first-child { display:none; } .topbar { justify-content:flex-end; } }
 .instrument-price-status { display:inline-flex; align-items:center; gap:5px; border:1px solid #d7e0e8; border-radius:12px; padding:3px 7px; color:#657485; font-size:11px; white-space:nowrap; }
 .instrument-price-status::before { content:''; width:7px; height:7px; border-radius:50%; background:#8a98a8; }
 .instrument-price-status[data-state="live"]::before { background:#21a274; }

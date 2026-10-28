@@ -226,14 +226,21 @@ function showRoute() {
   byId('instrument-icon').hidden = currentRoute !== 'instrument';
   const instrumentPage = currentRoute === 'instrument';
   document.body.classList.toggle('instrument-page', instrumentPage);
+  document.body.classList.toggle('overview-page', currentRoute === 'overview');
   byId('instrument-price-status').hidden = !instrumentPage;
   const dateMenu = byId('instrument-date-menu'), dateControls = byId('date-controls');
-  dateMenu.hidden = !instrumentPage;
-  if (instrumentPage) byId('instrument-date-popover').append(dateControls);
-  else { dateMenu.open = false; byId('date-controls-anchor').after(dateControls); }
+  const hasPeriod = !['live-quotes', 'allocation'].includes(currentRoute);
+  dateMenu.hidden = !hasPeriod;
+  if (hasPeriod) byId('instrument-date-popover').append(dateControls);
+  else dateMenu.open = false;
+  byId('market-menu').hidden = currentRoute !== 'overview';
+  if (currentRoute !== 'overview') byId('market-menu').open = false;
+  byId('date-to-label').hidden = currentRoute === 'overview';
+  text('date-menu-title', currentRoute === 'overview' ? 'Period ending today' : 'Date range');
   document.body.classList.toggle('quote-page', quotePage);
   text('portfolio-label', quotePage ? 'Independent, read-only quote watchlist' : report?.label || 'Loading portfolio…');
-  text('refresh', quotePage ? '↻ Refresh quotes' : '↻ Refresh dashboard');
+  const refreshLabel = quotePage ? 'Refresh quotes' : 'Refresh dashboard';
+  byId('refresh').setAttribute('aria-label', refreshLabel); byId('refresh').title = refreshLabel;
   document.querySelector('.snapshot-badge').textContent = quotePage ? 'QUOTE PILOT' : 'LOCAL SNAPSHOT';
   const meta = routeMeta[currentRoute] || routeMeta.overview;
   text('page-eyebrow', meta[0]); text('page-title', currentRoute === 'instrument' && report?.instrument?.name ? report.instrument.name : meta[1]);
@@ -242,7 +249,7 @@ function showRoute() {
       || section.id === 'daily-performers-panel' && !dailyPerformersOpen;
   }
   byId('security-filter').hidden = !['holdings', 'performers'].includes(currentRoute);
-  byId('date-controls').hidden = ['overview', 'live-quotes', 'allocation'].includes(currentRoute);
+  byId('date-controls').hidden = !hasPeriod;
   for (const link of document.querySelectorAll('nav [data-route]')) {
     const active = link.dataset.route === currentRoute || currentRoute === 'instrument' && link.dataset.route === 'holdings';
     link.classList.toggle('nav-active', active);
