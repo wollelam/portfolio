@@ -1063,6 +1063,14 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .topbar-popover h3 { margin:0 0 10px; font-size:15px; }
 .topbar-popover ul { padding-left:20px; line-height:1.5; }
 .topbar-popover li + li { margin-top:8px; }
+.date-popover .chart-controls { padding:0; display:block; }
+.date-popover .periods { flex-wrap:wrap; gap:4px; margin-bottom:12px; }
+.date-popover #dates { flex-wrap:wrap; gap:10px; }
+.instrument-page #portfolio-label, .instrument-page .valuation-note, .instrument-page #refresh-info { display:none; }
+.instrument-price-status { display:inline-flex; align-items:center; gap:5px; border:1px solid #d7e0e8; border-radius:12px; padding:3px 7px; color:#657485; font-size:11px; white-space:nowrap; }
+.instrument-price-status::before { content:''; width:7px; height:7px; border-radius:50%; background:#8a98a8; }
+.instrument-price-status[data-state="live"]::before { background:#21a274; }
+.instrument-price-status[data-state="delayed"]::before, .instrument-price-status[data-state="stale"]::before, .instrument-price-status[data-state="frozen"]::before { background:#d08b1e; }
 #scope-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin:16px 0; max-height:360px; overflow:auto; }
 #scope-options fieldset { border:1px solid var(--border); border-radius:6px; min-width:0; }
 #scope-options label { display:flex; gap:8px; align-items:baseline; margin:8px 0; font-size:13px; }

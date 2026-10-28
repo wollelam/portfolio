@@ -224,6 +224,13 @@ function showRoute() {
   byId('portfolio-scope').hidden = quotePage;
   byId('warnings').hidden = quotePage;
   byId('instrument-icon').hidden = currentRoute !== 'instrument';
+  const instrumentPage = currentRoute === 'instrument';
+  document.body.classList.toggle('instrument-page', instrumentPage);
+  byId('instrument-price-status').hidden = !instrumentPage;
+  const dateMenu = byId('instrument-date-menu'), dateControls = byId('date-controls');
+  dateMenu.hidden = !instrumentPage;
+  if (instrumentPage) byId('instrument-date-popover').append(dateControls);
+  else { dateMenu.open = false; byId('date-controls-anchor').after(dateControls); }
   document.body.classList.toggle('quote-page', quotePage);
   text('portfolio-label', quotePage ? 'Independent, read-only quote watchlist' : report?.label || 'Loading portfolio…');
   text('refresh', quotePage ? '↻ Refresh quotes' : '↻ Refresh dashboard');
@@ -554,6 +561,19 @@ function renderPortfolioScope() {
 }
 
 let readWarnings = new Set(), warningPortfolio = null;
+function notificationItems() {
+  const items = (report?.warnings || []).map(message => ({ key: message, message }));
+  const quotes = market?.quotes, fx = market?.fx;
+  if (quotes?.providerFailures) {
+    const message = `${quotes.providerFailures} provider checks failed in the last confirmed run; previous prices for those feeds were retained.`;
+    items.push({ key: `provider:${quotes.lastSuccessAt || 'unknown'}:${message}`, message });
+  }
+  if (quotes?.error) items.push({ key: `quote-error:${quotes.error}`, message: quotes.error });
+  if (fx?.error) items.push({ key: `fx-error:${fx.error}`, message: fx.error });
+  if (fx?.rateDate && new Date(fx.rateDate + 'T12:00:00Z') < new Date(Date.now() - 8 * 86400000))
+    items.push({ key: `fx-stale:${fx.rateDate}`, message: 'Saved ECB rates are more than seven days old.' });
+  return items;
+}
 function renderNotifications() {
   if (!report) return;
   const key = `portfolio-web-read-warnings:${report.label}`;
@@ -561,18 +581,17 @@ function renderNotifications() {
     warningPortfolio = key; readWarnings = new Set();
     try { const saved = JSON.parse(localStorage.getItem(key) || '[]'); if (Array.isArray(saved)) readWarnings = new Set(saved.filter(item => typeof item === 'string')); } catch { /* Storage can be disabled. */ }
   }
-  const notices = report.warnings || [];
-  const unread = notices.filter(warning => !readWarnings.has(warning));
-  text('warning-summary', unread.length ? `${unread.length} unread data quality notice${unread.length === 1 ? '' : 's'}` : 'No unread notifications.');
+  const unread = notificationItems().filter(item => !readWarnings.has(item.key));
+  text('warning-summary', unread.length ? `${unread.length} unread notification${unread.length === 1 ? '' : 's'}` : 'No unread notifications.');
   byId('warning-indicator').hidden = unread.length === 0;
   const summary = byId('warnings').querySelector('summary');
   summary.setAttribute('aria-label', unread.length ? `Notifications · ${unread.length} unread` : 'Notifications · none unread');
   const list = byId('warning-list'); list.replaceChildren();
-  for (const warning of unread) { const li = document.createElement('li'); li.textContent = warning; list.append(li); }
+  for (const item of unread) { const li = document.createElement('li'); li.textContent = item.message; list.append(li); }
   byId('mark-warnings-read').disabled = unread.length === 0;
 }
 byId('mark-warnings-read').addEventListener('click', () => {
-  for (const warning of report?.warnings || []) readWarnings.add(warning);
+  for (const item of notificationItems()) readWarnings.add(item.key);
   try { localStorage.setItem(warningPortfolio, JSON.stringify([...readWarnings])); } catch { /* Keep the session state. */ }
   renderNotifications();
 });
@@ -886,7 +905,7 @@ function renderLiveQuotes() {
 }
 
 async function checkLiveQuotes() {
-  if (document.hidden || !['live-quotes', 'holdings', 'overview'].includes(currentRoute) || livePollBusy) return;
+  if (document.hidden || !['live-quotes', 'holdings', 'overview', 'instrument'].includes(currentRoute) || livePollBusy) return;
   livePollBusy = true;
   try {
     const response = await fetch('/api/price-updates', { cache: 'no-store' });
@@ -898,6 +917,7 @@ async function checkLiveQuotes() {
     if (currentRoute === 'live-quotes') renderLiveQuotes();
     renderHoldingsLive();
     renderOverviewLive();
+    renderInstrumentPriceStatus();
   } finally { livePollBusy = false; }
 }
 
@@ -1416,6 +1436,7 @@ function renderInstrument(instrument) {
   panel.hidden = !selectedInstrument;
   if (!selectedInstrument) return;
   byId('instrument-icon').replaceChildren(assetIcon(instrument?.name, report.icons?.[instrument?.uuid]));
+  renderInstrumentPriceStatus();
   renderSecurityActivity(instrument?.activity);
   if (!instrument) {
     text('instrument-name', 'Instrument unavailable'); text('instrument-message', 'The selected instrument detail is unavailable.');
@@ -1464,6 +1485,23 @@ function renderInstrument(instrument) {
     onSelect: index => { instrumentSelected = index; saveEntryState(); } });
 }
 
+function renderInstrumentPriceStatus() {
+  if (currentRoute !== 'instrument' || !report) return;
+  const instrument = report.instrument, status = byId('instrument-price-status');
+  if (!instrument) { status.hidden = true; return; }
+  const broker = holdingBrokerQuote({ uuid: instrument.uuid, quoteCurrency: instrument.currency,
+    quoteDate: instrument.quoteDate, shares: instrument.shares });
+  let label = 'Saved', detail = instrument.quoteDate ? `Saved price dated ${dateLabel(instrument.quoteDate)}` : 'No saved closing price available';
+  if (broker.quote) {
+    label = broker.stale ? 'Stale' : broker.quote.marketDataType === 'real_time' ? 'Live'
+      : broker.quote.marketDataType === 'delayed' ? 'Delayed' : 'Frozen';
+    detail = `IBKR ${broker.message}`;
+  }
+  status.hidden = false; status.dataset.state = label.toLowerCase(); status.textContent = label;
+  status.title = `${detail}. The price history chart uses saved prices.`;
+  status.setAttribute('aria-label', `${label} quote. ${status.title}`);
+}
+
 for (const button of document.querySelectorAll('[data-instrument-currency]')) button.addEventListener('click', () => {
   instrumentCurrency = button.dataset.instrumentCurrency;
   syncRouteUrl();
@@ -1479,21 +1517,19 @@ function setMarket(data) {
   if (currentRoute === 'live-quotes') renderLiveQuotes();
   renderHoldingsLive();
   renderOverviewLive();
+  renderInstrumentPriceStatus();
 }
 
 function renderMarket() {
   const quotes = market?.quotes;
   const fx = market?.fx;
   const showTime = value => new Date(value).toLocaleString();
-  const messages = [];
   if (quotes) {
     let status = quotes.lastSuccessAt ? `Last confirmed run: ${showTime(quotes.lastSuccessAt)}` : 'No confirmed quote run is available yet.';
     if (quotes.state === 'queued') status = 'Quote update queued for the existing updater.';
     if (quotes.state === 'running') status = 'The existing quote updater is running…';
     text('quote-status', status);
     text('quote-schedule', quotes.schedule || 'Existing updater schedule');
-    if (quotes.providerFailures) messages.push(`${quotes.providerFailures} provider checks failed in the last confirmed run; previous prices for those feeds were retained.`);
-    if (quotes.error) messages.push(quotes.error);
     byId('refresh-prices').disabled = busy || priceRequestPending || marketConnectionError || !quotes.canRequest;
     if (priceRequestPending) {
       text('price-action', 'Requesting a guarded price update…');
@@ -1518,14 +1554,11 @@ function renderMarket() {
   if (fx) {
     text('fx-status', fx.running ? 'Checking ECB exchange rates…' : fx.lastSuccessAt ? `Last successful check: ${showTime(fx.lastSuccessAt)}` : 'Using saved ECB rates; first online check is pending.');
     text('fx-coverage', `${fx.rateDate ? `ECB data through ${dateLabel(fx.rateDate)}. ` : ''}Automatic checks every 6 hours.${report?.fxVersion && report.fxVersion !== fx.version ? ' Updated rates are waiting to be applied to this report.' : ''}`);
-    if (fx.error) messages.push(fx.error);
-    if (fx.rateDate && new Date(fx.rateDate + 'T12:00:00Z') < new Date(Date.now() - 8 * 86400000)) messages.push('Saved ECB rates are more than seven days old.');
   } else {
     text('fx-status', 'Using saved workspace rates');
     text('fx-coverage', 'Automatic FX refresh is not configured for this instance.');
   }
-  byId('price-warning').hidden = messages.length === 0;
-  text('price-warning', messages.join(' '));
+  renderNotifications();
 }
 
 async function checkMarket() {
@@ -1835,6 +1868,7 @@ for (const kind of ['dividends', 'transactions']) {
 
 byId('dates').addEventListener('submit', event => {
   event.preventDefault(); activePreset = null;
+  byId('instrument-date-menu').open = false;
   syncRouteUrl();
   load(byId('from').value, byId('to').value);
 });
@@ -1882,6 +1916,7 @@ for (const button of document.querySelectorAll('[data-period]')) {
       start.setUTCDate(Math.min(day, lastDay));
     }
     byId('from').value = iso(start); byId('to').value = iso(end);
+    byId('instrument-date-menu').open = false;
     syncRouteUrl();
     load(iso(start), iso(end));
   });
