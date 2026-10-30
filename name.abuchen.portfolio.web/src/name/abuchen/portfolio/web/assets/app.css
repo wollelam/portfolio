@@ -1098,3 +1098,11 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 #total-value.value-masked { letter-spacing:.12em; }
 
 .day-live-status { display:block; margin-top:6px; }
+
+.instrument-page .page-heading > div { width:100%; min-width:0; }
+.instrument-page .page-title-row h1 { min-width:0; overflow-wrap:anywhere; }
+.instrument-current { margin-left:auto; display:flex; align-items:center; justify-content:flex-end; gap:8px; text-align:right; }
+.instrument-current[hidden] { display:none; }
+.instrument-day-change { font-size:13px; font-weight:600; white-space:nowrap; }
+#instrument-current-price { font-size:20px; font-weight:600; white-space:nowrap; }
+@media (max-width:760px) { .instrument-current { flex-wrap:wrap; } #instrument-current-price { font-size:16px; } }

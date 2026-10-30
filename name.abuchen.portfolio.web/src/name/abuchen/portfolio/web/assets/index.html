@@ -36,7 +36,7 @@
       <details id="warnings" class="topbar-menu"><summary class="icon-button" aria-label="Notifications" title="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-2 7-2 9h16c0-2-2-2-2-9M10 20h4"/></svg><span id="warning-indicator" class="menu-dot" hidden></span></summary><div class="topbar-popover notification-panel"><h3>Notifications</h3><p id="warning-summary" class="subtle"></p><ul id="warning-list"></ul><button id="mark-warnings-read" class="button secondary" type="button">Mark all as read</button></div></details>
     </div></header>
     <section id="overview" class="page-heading">
-      <div><p class="eyebrow" id="page-eyebrow">THE BIG PICTURE</p><div class="page-title-row"><span id="instrument-icon" hidden></span><h1 id="page-title">Portfolio overview</h1><span id="instrument-price-status" class="instrument-price-status" role="img" tabindex="0" hidden></span></div><p id="portfolio-label">Connecting to your portfolio…</p></div>
+      <div><p class="eyebrow" id="page-eyebrow">THE BIG PICTURE</p><div class="page-title-row"><span id="instrument-icon" hidden></span><h1 id="page-title">Portfolio overview</h1><div id="instrument-current" class="instrument-current" hidden><span id="instrument-current-price"></span><span id="instrument-day-change" class="instrument-day-change"></span><span id="instrument-price-status" class="instrument-price-status" tabindex="0"></span></div></div><p id="portfolio-label">Connecting to your portfolio…</p></div>
     </section>
     <div id="status" role="status" aria-live="polite">Loading portfolio…</div>
     <div id="error" class="notice error" role="alert" hidden></div>
@@ -115,8 +115,10 @@
           <div><span>Top five positions · gross exposure</span><strong id="allocation-top-five"></strong><small class="subtle">Sum of absolute position values</small></div>
           <div><span>Cash · net value</span><strong id="allocation-cash"></strong><small id="allocation-cash-weight" class="subtle"></small></div>
         </div>
+        <p class="panel-note"><label for="allocation-color">Color by <select id="allocation-color"><option value="allocation">Position type</option><option value="performance">Daily performance</option></select></label></p>
         <p id="allocation-summary" class="panel-note"></p>
-        <div class="allocation-legend"><span class="allocation-key securities"></span>Securities <span class="allocation-key cash"></span>Cash <span class="allocation-key negative"></span>Negative positions</div>
+        <div id="allocation-category-legend" class="allocation-legend"><span class="allocation-key securities"></span>Securities <span class="allocation-key cash"></span>Cash <span class="allocation-key negative"></span>Negative positions</div>
+        <div id="allocation-performance-legend" class="allocation-legend" hidden><span style="color:#d33340">−3% or less</span> · −2% · −1% · 0% · +1% · +2% · <span style="color:#16a05a">+3% or more</span> · Gray: unavailable / cash. Daily time-weighted returns in portfolio currency, using saved prices. Size: absolute position value.</div>
         <div class="table-scroll allocation-map"><svg id="allocation-chart" role="group" aria-label="Position allocation by absolute closing value"></svg></div>
         <p id="allocation-detail" class="chart-explorer" role="status"></p>
         <p class="panel-note">Tile area shows absolute position value at the selected closing date, including cash. It measures exposure, not performance. Negative values have a red striped background; net portfolio weights retain their sign. The 20 largest positions are shown individually; remaining positions are grouped by sign and asset type. Hover or focus a tile for its exact value and weight; select a security to open its details.</p>
@@ -157,14 +159,14 @@
         <p class="panel-note">Gain / loss accounts for the security’s value change, trades, net dividends, taxes and fees in the portfolio’s reporting currency. Return is time weighted. Missing prices or calculation errors are excluded from the affected ranking.</p>
       </section>
       <section data-page="instrument" id="instrument-panel" class="panel" hidden aria-live="polite">
-        <h3>Stored price history · <span id="instrument-currency"></span></h3>
+        <h3>Price history · <span id="instrument-currency"></span></h3>
         <div id="instrument-currency-choice" class="segmented" role="group" aria-label="Price chart currency" hidden>
           <button type="button" data-instrument-currency="native" aria-pressed="true">Instrument currency</button><button type="button" data-instrument-currency="portfolio" aria-pressed="false">Portfolio currency</button>
         </div>
         <svg id="instrument-chart" class="time-series-chart" viewBox="0 0 800 180" role="img" aria-label="Stored instrument price history in instrument currency"></svg>
         <p id="instrument-chart-detail" class="chart-explorer"></p>
         <p id="instrument-fx-note" class="panel-note" hidden></p>
-        <p class="panel-note">Price history shows stored quotes only. It is not investment return. Future quotes are excluded.</p>
+        <p class="panel-note">Price history includes the latest available broker quote for today. It is not investment return. Future quotes are excluded.</p>
         <div class="panel-heading">
           <div><p class="eyebrow">INSTRUMENT DETAIL</p><div class="instrument-title"><h2 id="instrument-name"></h2></div></div>
           <a id="instrument-back" class="button secondary" href="#/holdings">← Back</a>

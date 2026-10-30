@@ -315,6 +315,10 @@ linkable same-origin hash pages (`#/overview`, `#/performance`, `#/waterfall`, `
 `#/instrument/SECURITY_UUID`) and retains date, benchmark, chart-mode, scroll, and chart-selection
 state in browser history. Instrument links are normal anchors, so direct links and opening a detail
 in a new tab work without server routes. The Back control returns to Holdings in a direct-open tab.
+The instrument heading shows the latest validated broker price and its freshness, or the latest
+saved price in the selected period. The price chart replaces today’s saved point with the broker
+price; portfolio-currency charts require a usable live exchange rate for that point. Historical
+views continue to use saved prices.
 
 Both graphs use the same internal `TimeSeriesChart` component for time-based axes, crosshair,
 pointer/touch selection, and keyboard navigation. It is bundled locally with no third-party graph

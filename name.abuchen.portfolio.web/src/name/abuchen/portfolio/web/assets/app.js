@@ -227,7 +227,7 @@ function showRoute() {
   const instrumentPage = currentRoute === 'instrument';
   document.body.classList.toggle('instrument-page', instrumentPage);
   document.body.classList.toggle('overview-page', currentRoute === 'overview');
-  byId('instrument-price-status').hidden = !instrumentPage;
+  byId('instrument-current').hidden = !instrumentPage;
   const dateMenu = byId('instrument-date-menu'), dateControls = byId('date-controls');
   const hasPeriod = !['live-quotes', 'allocation'].includes(currentRoute);
   dateMenu.hidden = !hasPeriod;
@@ -924,7 +924,7 @@ async function checkLiveQuotes() {
     if (currentRoute === 'live-quotes') renderLiveQuotes();
     renderHoldingsLive();
     renderOverviewLive();
-    renderInstrumentPriceStatus();
+    if (currentRoute === 'instrument' && report) renderInstrument(report.instrument);
   } finally { livePollBusy = false; }
 }
 
@@ -959,7 +959,7 @@ function selectAllocationDate(date, immediate = false, playback = false) {
   syncRouteUrl(); clearTimeout(allocationTimer); allocationTimer = null;
   if (report.asOf === date && !busy) return;
   text('allocation-date-status', `Loading ${dateLabel(date)}; chart still shows ${dateLabel(report.asOf)}`);
-  if (playback) return showBufferedAllocation(date);
+  if (playback && !allocationPerformanceMode()) return showBufferedAllocation(date);
   const refresh = () => { allocationTimer = null; return currentRoute === 'allocation' ? load() : null; };
   if (immediate) return refresh(); else allocationTimer = setTimeout(refresh, 250);
 }
@@ -1066,6 +1066,22 @@ byId('allocation-position').addEventListener('change', () => { if (allocationTim
 byId('allocation-date').addEventListener('change', event => { if (event.target.checkValidity()) selectAllocationDate(event.target.value, true); });
 byId('allocation-today').addEventListener('click', () => selectAllocationDate(report.today, true));
 
+function allocationPerformanceMode() { return byId('allocation-color').value === 'performance'; }
+function allocationPerformanceColor(rate) {
+  if (!Number.isFinite(rate)) return '#526479';
+  if (rate === 0) return '#414554';
+  const colors = rate < 0 ? ['#754047', '#a83c45', '#d33340'] : ['#326653', '#228554', '#16a05a'];
+  return colors[Math.min(2, Math.floor(Math.abs(rate) / 0.01))];
+}
+function allocationPerformanceLabel(rate) {
+  return Number.isFinite(rate) ? new Intl.NumberFormat(undefined, { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' }).format(rate) : '—';
+}
+byId('allocation-color').addEventListener('change', () => {
+  stopAllocationPlayback();
+  renderAllocation();
+  if (allocationPerformanceMode()) load();
+});
+
 // Binary treemap partitions absolute native valuations; it does not calculate investment returns.
 function allocationTiles(items, x, y, width, height, result = []) {
   if (!items.length) return result;
@@ -1132,7 +1148,7 @@ function renderAllocationLabel(group, defs, tile, index, share) {
   });
   if (lineCount) top += lineCount * 18 + 8;
   if (layout.percentage) {
-    labels.append(svgElement('text', { x: center, y: top + 13, 'text-anchor': 'middle', class: 'allocation-size allocation-percentage' }, weight(share)));
+    labels.append(svgElement('text', { x: center, y: top + 13, 'text-anchor': 'middle', class: 'allocation-size allocation-percentage' }, allocationPerformanceMode() ? allocationPerformanceLabel(item.dailyRate) : weight(share)));
     top += 24;
   }
   if (layout.amount) labels.append(svgElement('text', { x: center, y: top + 13, 'text-anchor': 'middle', class: 'allocation-size allocation-amount' }, money(item.value)));
@@ -1141,8 +1157,12 @@ function renderAllocationLabel(group, defs, tile, index, share) {
 
 function renderAllocation() {
   renderAllocationTimeline();
+  const performanceMode = allocationPerformanceMode();
+  byId('allocation-category-legend').hidden = performanceMode;
+  byId('allocation-performance-legend').hidden = !performanceMode;
+  const rates = new Map((report.dailyRankings?.securities || []).map(row => [row.uuid, row.rate]));
   const positions = (report.holdings || []).filter(item => Number.isFinite(item.value) && item.value !== 0)
-    .slice().sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name));
+    .map(item => ({ ...item, dailyRate: item.type === 'security' ? rates.get(item.uuid) : null })).sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name));
   const gross = positions.reduce((sum, item) => sum + Math.abs(item.value), 0);
   const cash = positions.filter(item => item.type === 'cash').reduce((sum, item) => sum + item.value, 0);
   const largest = positions[0];
@@ -1167,8 +1187,8 @@ function renderAllocation() {
   if (!gross) {
     svg.append(svgElement('text', { x: width / 2, y: height / 2, 'text-anchor': 'middle', class: 'axis-label' }, 'No non-zero holdings at this valuation date.')); return;
   }
-  const items = positions.slice(0, 20), groups = new Map();
-  for (const item of positions.slice(20)) {
+  const items = performanceMode ? positions.slice() : positions.slice(0, 20), groups = new Map();
+  for (const item of performanceMode ? [] : positions.slice(20)) {
     const key = `${item.type === 'cash' ? 'cash' : 'securities'}:${item.value < 0 ? 'negative' : 'positive'}`;
     const group = groups.get(key) || { name: `Other ${item.value < 0 ? 'negative' : 'positive'} ${item.type === 'cash' ? 'cash positions' : 'securities'}`, type: item.type, value: 0, count: 0 };
     group.value += item.value; group.count++; groups.set(key, group);
@@ -1180,10 +1200,10 @@ function renderAllocation() {
   const palette = ['#286e62', '#3c6382', '#56618d', '#695b83', '#2b7581'];
   allocationTiles(items, 0, 0, width, height).forEach((tile, index) => {
     const item = tile.item, share = Math.abs(item.value) / gross, netWeight = report.totalValue === 0 ? null : item.value / report.totalValue;
-    const description = `${item.name}: ${money(item.value)} · ${weight(share)} of gross exposure · ${netWeight == null ? 'net weight unavailable' : `${weight(netWeight)} net portfolio weight`}${item.count ? ` · ${item.count} grouped positions` : ''}`;
+    const description = `${item.name}: ${money(item.value)} · ${weight(share)} of gross exposure · ${netWeight == null ? 'net weight unavailable' : `${weight(netWeight)} net portfolio weight`}${item.count ? ` · ${item.count} grouped positions` : ''}${performanceMode ? ` · Daily return: ${allocationPerformanceLabel(item.dailyRate)} (saved prices)` : ''}`;
     const group = svgElement('g', { tabindex: 0, role: item.uuid ? 'link' : 'img', class: 'allocation-tile', 'aria-label': `${description}${item.uuid ? '. Open security details' : ''}`, 'data-allocation-value': item.value });
     group.dataset.key = item.uuid || item.id || item.name;
-    const fill = item.value < 0 ? 'url(#allocation-negative)' : item.type === 'cash' ? '#526479' : palette[index % palette.length];
+    const fill = performanceMode ? allocationPerformanceColor(item.dailyRate) : item.value < 0 ? 'url(#allocation-negative)' : item.type === 'cash' ? '#526479' : palette[index % palette.length];
     group.append(svgElement('title', {}, description), svgElement('rect', { x: tile.x + 2, y: tile.y + 2, width: Math.max(0, tile.width - 4), height: Math.max(0, tile.height - 4), rx: 7, fill }));
     renderAllocationLabel(group, defs, tile, index, share);
     const previous = previousTiles.get(group.dataset.key);
@@ -1476,7 +1496,7 @@ function renderInstrument(instrument) {
   }
   const missingFx = converted ? (instrument.prices || []).filter(p => !Number.isFinite(p.reportingPrice)).length : 0;
   const fxNote = byId('instrument-fx-note'); fxNote.hidden = !converted;
-  fxNote.textContent = `Converted using the stored exchange rate on each quote date.${missingFx ? ` ${missingFx} quote${missingFx === 1 ? '' : 's'} unavailable because exchange rates are missing; gaps are shown.` : ''}`;
+  fxNote.textContent = `Stored prices use the exchange rate on each quote date; the latest broker price uses a live exchange rate when available.${missingFx ? ` ${missingFx} quote${missingFx === 1 ? '' : 's'} unavailable because exchange rates are missing; gaps are shown.` : ''}`;
   instrumentChart = new TimeSeriesChart(byId('instrument-chart'));
   const format = value => new Intl.NumberFormat(undefined, { ...(currency ? { style: 'currency', currency } : {}), maximumFractionDigits: 6 }).format(value);
   const formatAxis = (value, step) => {
@@ -1485,27 +1505,48 @@ function renderInstrument(instrument) {
     return new Intl.NumberFormat(undefined, { ...(currency ? { style: 'currency', currency } : {}),
       minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
   };
-  instrumentChart.draw({ points: (instrument.prices || []).map(p => ({ date: p.date, value: converted ? (Number.isFinite(p.reportingPrice) ? p.reportingPrice / instrument.quoteScale : null) : p.price / instrument.quoteScale })),
+  const points = (instrument.prices || []).map(p => ({ date: p.date, value: converted ? (Number.isFinite(p.reportingPrice) ? p.reportingPrice / instrument.quoteScale : null) : p.price / instrument.quoteScale }));
+  const broker = instrumentBrokerQuote(instrument);
+  const fx = converted ? liveFxRate(instrument.currency) : { rate: 1 };
+  if (broker.quote && fx && report.today >= report.period.openingDate && report.today <= report.period.closingDate) {
+    const point = { date: report.today, value: broker.quote.last * fx.rate };
+    const index = points.findIndex(p => p.date === report.today);
+    if (index >= 0) points[index] = point; else points.push(point);
+  }
+  instrumentChart.draw({ points,
     format, formatAxis, niceAxis: true, output: byId('instrument-chart-detail'), selected: instrumentSelected,
     empty: converted && missingFx ? 'No converted prices available; exchange rates are missing.' : 'No stored quotes in the selected period.',
-    title: `Stored price history in ${currency || 'instrument units'}`,
+    title: `Price history in ${currency || 'instrument units'}`,
     onSelect: index => { instrumentSelected = index; saveEntryState(); } });
+}
+
+function instrumentBrokerQuote(instrument) {
+  return holdingBrokerQuote({ uuid: instrument.uuid, quoteCurrency: instrument.currency,
+    quoteDate: instrument.quoteDate, shares: instrument.shares });
 }
 
 function renderInstrumentPriceStatus() {
   if (currentRoute !== 'instrument' || !report) return;
   const instrument = report.instrument, status = byId('instrument-price-status');
-  if (!instrument) { status.hidden = true; return; }
-  const broker = holdingBrokerQuote({ uuid: instrument.uuid, quoteCurrency: instrument.currency,
-    quoteDate: instrument.quoteDate, shares: instrument.shares });
-  let label = 'Saved', detail = instrument.quoteDate ? `Saved price dated ${dateLabel(instrument.quoteDate)}` : 'No saved closing price available';
+  if (!instrument) { byId('instrument-current').hidden = true; return; }
+  const broker = instrumentBrokerQuote(instrument);
+  const saved = (instrument.prices || []).at(-1);
+  const price = broker.quote?.last ?? (saved ? saved.price / instrument.quoteScale : null);
+  text('instrument-current-price', Number.isFinite(price) ? new Intl.NumberFormat(undefined, { ...(instrument.currency ? { style: 'currency', currency: instrument.currency } : {}), maximumFractionDigits: 6 }).format(price) : 'Price unavailable');
+  const change = broker.quote ? liveDailyChange(broker.quote) : null;
+  const dayChange = byId('instrument-day-change');
+  dayChange.textContent = change === null ? '—' : `${new Intl.NumberFormat(undefined, { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' }).format(change)}`;
+  dayChange.classList.toggle('positive', change !== null && change > 0);
+  dayChange.classList.toggle('negative', change !== null && change < 0);
+  dayChange.title = change === null ? 'Daily change unavailable; broker previous close or quote is missing' : `Compared with IBKR previous close: ${livePriceFormat.format(broker.quote.previousClose)} ${broker.quote.currency}`;
+  let label = 'Saved', detail = saved ? `Saved price dated ${dateLabel(saved.date)}` : 'No saved price in the selected period';
   if (broker.quote) {
     label = broker.stale ? 'Stale' : broker.quote.marketDataType === 'real_time' ? 'Live'
       : broker.quote.marketDataType === 'delayed' ? 'Delayed' : 'Frozen';
     detail = `IBKR ${broker.message}`;
   }
-  status.hidden = false; status.dataset.state = label.toLowerCase(); status.textContent = label;
-  status.title = `${detail}. The price history chart uses saved prices.`;
+  byId('instrument-current').hidden = false; status.dataset.state = label.toLowerCase(); status.textContent = label;
+  status.title = detail;
   status.setAttribute('aria-label', `${label} quote. ${status.title}`);
 }
 
@@ -1524,7 +1565,7 @@ function setMarket(data) {
   if (currentRoute === 'live-quotes') renderLiveQuotes();
   renderHoldingsLive();
   renderOverviewLive();
-  renderInstrumentPriceStatus();
+  if (currentRoute === 'instrument' && report) renderInstrument(report.instrument);
 }
 
 function renderMarket() {
@@ -1824,7 +1865,7 @@ async function load(from, to, silent = false) {
     if (excludedGroups.size) params.set('exclude', [...excludedGroups].sort().join(','));
     if (selectedInstrument) params.set('instrument', selectedInstrument);
     if (currentRoute === 'performers') params.set('rankings', 'true');
-    if (currentRoute === 'overview' && dailyPerformersOpen) params.set('rankings', 'day');
+    if (currentRoute === 'overview' && dailyPerformersOpen || currentRoute === 'allocation' && allocationPerformanceMode()) params.set('rankings', 'day');
     if (currentRoute === 'waterfall') params.set('waterfall', waterfallMode);
     const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal: controller.signal });
     const data = await response.json();
