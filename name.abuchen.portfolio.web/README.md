@@ -39,8 +39,9 @@ performance use each file's saved prices and exchange rates before aggregation. 
 details show both source price histories, combined booked activity and a flow-aware total-return
 series. Contribution waterfalls merge securities before applying the household top-20 limit.
 The reporting-currency selector offers CHF, DKK, THB and USD on every view; its choice persists
-in the URL. Missing historical rates make the selected conversion unavailable rather than assuming
-a 1:1 rate. Neither source file is modified. The same single IBKR collector
+in the URL. Conversion uses the latest recorded rate on or before each date; dates before a
+currency pair's first recorded rate use that first rate. A pair with no recorded rate remains
+unavailable rather than assuming 1:1. Neither source file is modified. The same single IBKR collector
 feeds all three views. A live quote appears for a holding only when its source security UUID is
 mapped in the collector's private watchlist.
 

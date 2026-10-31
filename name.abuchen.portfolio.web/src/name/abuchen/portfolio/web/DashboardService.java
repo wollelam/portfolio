@@ -22,7 +22,6 @@ import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Quote;
-import name.abuchen.portfolio.money.StrictCurrencyConverter;
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
@@ -1002,7 +1001,7 @@ final class DashboardService
 
     private void validateReportingRates(LocalDate from, LocalDate to)
     {
-        if (!(converter instanceof StrictCurrencyConverter))
+        if (!(converter instanceof AvailableCurrencyConverter))
             return;
         var cacheKey = from + ":" + to + ":" + converter.getTermCurrency();
         if (validatedRateRanges.contains(cacheKey))
@@ -1037,12 +1036,12 @@ final class DashboardService
 
     DashboardService withCurrency(String currency) throws IOException
     {
-        if (converter.getTermCurrency().equals(currency) && converter instanceof StrictCurrencyConverter)
+        if (converter.getTermCurrency().equals(currency) && converter instanceof AvailableCurrencyConverter)
             return this;
         var loaded = new PortfolioSource.LoadedPortfolio(ClientFactory.duplicate(portfolio.client()), portfolio.label(),
                         portfolio.revision(), portfolio.loadedAt(), portfolio.demo());
         var factory = rates == null ? new ExchangeRateProviderFactory(loaded.client()) : rates.factory(loaded.client());
-        var reportingConverter = new StrictCurrencyConverter(new CurrencyConverterImpl(factory, currency));
+        var reportingConverter = new AvailableCurrencyConverter(factory, currency);
         var result = new DashboardService(loaded, clock, startupWarnings, rates, new PortfolioScope(loaded.client()),
                         List.of(), reportingConverter);
         result.quoteKeys = quoteKeys;
