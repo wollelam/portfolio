@@ -5,7 +5,7 @@ local session, CLI commands, desktop menu workflow, command application and
 accepted event replay APIs are implemented; automatic change capture,
 background aggregation, and a dedicated review UI remain future work.
 
-- Checkout: `/home/ole/source/portfolio-shared-sync`
+- Checkout: `/path/to/portfolio-shared-sync`
 - Branch: `feature/shared-sync`
 - Base: `personal/master` at `d4707123c` (includes both desktop and CLI).
 

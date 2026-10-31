@@ -46,7 +46,8 @@ async function main() {
     mode = 'broken';
     await page.goto(`${base}/#/holdings`, { waitUntil: 'networkidle' });
     await page.locator('#refresh').click();
-    await page.waitForFunction(() => !document.querySelector('#holdings-body img'));
+    await page.waitForFunction(() => document.querySelectorAll('#holdings-body .asset-icon').length === 2
+      && !document.querySelector('#holdings-body img, #holdings-body .asset-icon.has-logo'));
     assert.equal(await page.locator('#holdings-body .asset-icon').count(), 2, 'failed images retain initials');
     assert.equal(await page.locator('#holdings-body .asset-icon.has-logo').count(), 0);
     mode = 'missing'; await page.reload({ waitUntil: 'networkidle' });

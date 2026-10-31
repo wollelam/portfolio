@@ -118,8 +118,8 @@ final class DashboardService
     private Map<String, byte[]> iconImages;
     private Map<String, List<String>> combinedSecurityGroups = Map.of();
     private Map<String, String> canonicalSecurityIds = Map.of();
-    private DashboardService combinedOle;
-    private DashboardService combinedYing;
+    private DashboardService combinedPrimary;
+    private DashboardService combinedSecondary;
 
     DashboardService(PortfolioSource.LoadedPortfolio portfolio, Clock clock, List<String> startupWarnings)
     {
@@ -157,14 +157,14 @@ final class DashboardService
                         portfolio.client().getBaseCurrency());
     }
 
-    static DashboardService combined(DashboardService ole, DashboardService ying)
+    static DashboardService combined(DashboardService primary, DashboardService secondary)
     {
         try
         {
-            var first = ClientFactory.duplicate(ole.portfolio.client());
-            var second = ClientFactory.duplicate(ying.portfolio.client());
+            var first = ClientFactory.duplicate(primary.portfolio.client());
+            var second = ClientFactory.duplicate(secondary.portfolio.client());
             var merged = new name.abuchen.portfolio.model.Client();
-            merged.setBaseCurrency(ole.portfolio.client().getBaseCurrency());
+            merged.setBaseCurrency(primary.portfolio.client().getBaseCurrency());
             first.getTaxonomies().forEach(merged::addTaxonomy);
             second.getTaxonomies().forEach(merged::addTaxonomy);
             var sourceToCanonical = new java.util.IdentityHashMap<Security, Security>();
@@ -197,10 +197,10 @@ final class DashboardService
                 if (!uuids.add(portfolio.getUUID())) throw new IllegalArgumentException("Conflicting portfolio UUIDs in combined view");
                 merged.addPortfolio(portfolio);
             }
-            var loaded = new PortfolioSource.LoadedPortfolio(merged, "Combined (" + ole.portfolio.label() + " + " + ying.portfolio.label() + ")",
-                            ole.portfolio.revision() + ":" + ying.portfolio.revision(),
-                            ole.portfolio.loadedAt().isAfter(ying.portfolio.loadedAt()) ? ole.portfolio.loadedAt() : ying.portfolio.loadedAt(), false);
-            var result = new DashboardService(loaded, ole.clock, java.util.stream.Stream.concat(ole.startupWarnings.stream(), ying.startupWarnings.stream()).distinct().toList(), ole.rates);
+            var loaded = new PortfolioSource.LoadedPortfolio(merged, "Combined (" + primary.portfolio.label() + " + " + secondary.portfolio.label() + ")",
+                            primary.portfolio.revision() + ":" + secondary.portfolio.revision(),
+                            primary.portfolio.loadedAt().isAfter(secondary.portfolio.loadedAt()) ? primary.portfolio.loadedAt() : secondary.portfolio.loadedAt(), false);
+            var result = new DashboardService(loaded, primary.clock, java.util.stream.Stream.concat(primary.startupWarnings.stream(), secondary.startupWarnings.stream()).distinct().toList(), primary.rates);
             var keys = new LinkedHashMap<String, List<String>>();
             var groups = new LinkedHashMap<String, List<String>>();
             var canonicalIds = new LinkedHashMap<String, String>();
@@ -222,25 +222,25 @@ final class DashboardService
             result.quoteKeys = Map.copyOf(keys);
             result.combinedSecurityGroups = Map.copyOf(groups);
             result.canonicalSecurityIds = Map.copyOf(canonicalIds);
-            result.combinedOle = ole;
-            result.combinedYing = ying;
-            var imageUrls = new LinkedHashMap<>(ole.icons.urls());
+            result.combinedPrimary = primary;
+            result.combinedSecondary = secondary;
+            var imageUrls = new LinkedHashMap<>(primary.icons.urls());
             for (var entry : sourceToCanonical.entrySet())
             {
-                var url = ole.icons.urls().get(entry.getKey().getUUID());
+                var url = primary.icons.urls().get(entry.getKey().getUUID());
                 if (url == null)
-                    url = ying.icons.urls().get(entry.getKey().getUUID());
+                    url = secondary.icons.urls().get(entry.getKey().getUUID());
                 if (url != null)
                     imageUrls.putIfAbsent(entry.getValue().getUUID(), url);
             }
             result.iconUrls = Map.copyOf(imageUrls);
             var images = new LinkedHashMap<String, byte[]>();
             for (var security : first.getSecurities())
-                addIcon(images, ole, security.getUUID(), sourceToCanonical.get(security).getUUID());
+                addIcon(images, primary, security.getUUID(), sourceToCanonical.get(security).getUUID());
             for (var security : second.getSecurities())
-                addIcon(images, ole, security.getUUID(), sourceToCanonical.get(security).getUUID(), ying);
-            first.getAccounts().forEach(account -> addIcon(images, ole, account.getUUID(), account.getUUID()));
-            second.getAccounts().forEach(account -> addIcon(images, ole, account.getUUID(), account.getUUID(), ying));
+                addIcon(images, primary, security.getUUID(), sourceToCanonical.get(security).getUUID(), secondary);
+            first.getAccounts().forEach(account -> addIcon(images, primary, account.getUUID(), account.getUUID()));
+            second.getAccounts().forEach(account -> addIcon(images, primary, account.getUUID(), account.getUUID(), secondary));
             result.iconImages = Map.copyOf(images);
             return result;
         }
@@ -339,12 +339,12 @@ final class DashboardService
         result.iconImages = iconImages;
         result.combinedSecurityGroups = combinedSecurityGroups;
         result.canonicalSecurityIds = canonicalSecurityIds;
-        if (combinedOle != null)
+        if (combinedPrimary != null)
         {
-            var oleIds = selected.stream().filter(id -> combinedOle.scope.selection(List.of()).options().stream().anyMatch(o -> o.id().equals(id))).toList();
-            var yingIds = selected.stream().filter(id -> combinedYing.scope.selection(List.of()).options().stream().anyMatch(o -> o.id().equals(id))).toList();
-            result.combinedOle = combinedOle.excluding(String.join(",", oleIds));
-            result.combinedYing = combinedYing.excluding(String.join(",", yingIds));
+            var primaryIds = selected.stream().filter(id -> combinedPrimary.scope.selection(List.of()).options().stream().anyMatch(o -> o.id().equals(id))).toList();
+            var secondaryIds = selected.stream().filter(id -> combinedSecondary.scope.selection(List.of()).options().stream().anyMatch(o -> o.id().equals(id))).toList();
+            result.combinedPrimary = combinedPrimary.excluding(String.join(",", primaryIds));
+            result.combinedSecondary = combinedSecondary.excluding(String.join(",", secondaryIds));
         }
         if (filtered.size() >= 12)
             filtered.remove(filtered.keySet().iterator().next());
@@ -366,21 +366,21 @@ final class DashboardService
                         || java.time.temporal.ChronoUnit.DAYS.between(from, to) > 92)
             throw new IllegalArgumentException("Choose at most 93 recorded allocation dates");
         validateReportingRates(from, to);
-        if (combinedOle != null)
+        if (combinedPrimary != null)
         {
-            var oleFrames = sourceAllocationFrames(combinedOle, from, to);
-            var yingFrames = sourceAllocationFrames(combinedYing, from, to);
-            if (oleFrames.size() != yingFrames.size())
+            var primaryFrames = sourceAllocationFrames(combinedPrimary, from, to);
+            var secondaryFrames = sourceAllocationFrames(combinedSecondary, from, to);
+            if (primaryFrames.size() != secondaryFrames.size())
                 throw new IllegalArgumentException("Source allocation ranges do not align");
             var frames = new ArrayList<AllocationFrame>();
-            for (int ii = 0; ii < oleFrames.size(); ii++)
+            for (int ii = 0; ii < primaryFrames.size(); ii++)
             {
-                var oleFrame = oleFrames.get(ii);
-                var yingFrame = yingFrames.get(ii);
-                if (!oleFrame.date().equals(yingFrame.date()))
+                var primaryFrame = primaryFrames.get(ii);
+                var secondaryFrame = secondaryFrames.get(ii);
+                if (!primaryFrame.date().equals(secondaryFrame.date()))
                     throw new IllegalArgumentException("Source allocation dates do not align");
-                frames.add(new AllocationFrame(oleFrame.date(), oleFrame.totalValue() + yingFrame.totalValue(),
-                                combinedHoldings(oleFrame.holdings(), yingFrame.holdings())));
+                frames.add(new AllocationFrame(primaryFrame.date(), primaryFrame.totalValue() + secondaryFrame.totalValue(),
+                                combinedHoldings(primaryFrame.holdings(), secondaryFrame.holdings())));
             }
             return new AllocationFrames(portfolio.revision(), fxVersion(), converter.getTermCurrency(), scope.selection(exclusions), List.copyOf(frames));
         }
@@ -490,7 +490,7 @@ final class DashboardService
     {
         if (waterfallMode != null && !waterfallMode.equals("calculation") && !waterfallMode.equals("contributions"))
             throw new IllegalArgumentException("Invalid waterfall mode");
-        if (combinedOle != null)
+        if (combinedPrimary != null)
             return combinedDashboard(openingDate, closingDate, benchmark, instrumentId, includeRankings, waterfallMode,
                             includeDailyRankings);
         var earliest = closingDate.minusDays(3660);
@@ -785,7 +785,7 @@ final class DashboardService
     private Dashboard combinedDashboard(LocalDate openingDate, LocalDate closingDate, String benchmark,
                     String instrumentId, boolean includeRankings, String waterfallMode, boolean includeDailyRankings)
     {
-        if (!combinedOle.converter.getTermCurrency().equals(combinedYing.converter.getTermCurrency()))
+        if (!combinedPrimary.converter.getTermCurrency().equals(combinedSecondary.converter.getTermCurrency()))
             throw new IllegalArgumentException("Source reporting currencies must match for a combined view");
         var earliest = closingDate.minusDays(3660);
         if (inceptionDate.isBefore(earliest))
@@ -795,45 +795,45 @@ final class DashboardService
         validateReportingRates(reportingRateStart(openingDate, closingDate), closingDate);
         var group = instrumentId == null ? List.<String>of() : combinedSecurityGroups.getOrDefault(
                         canonicalSecurityIds.getOrDefault(instrumentId, instrumentId), List.of(instrumentId));
-        var oleInstrumentId = sourceSecurity(combinedOle, group);
-        var yingInstrumentId = sourceSecurity(combinedYing, group);
-        var oleDashboard = sourceDashboard(combinedOle, openingDate, closingDate, benchmark, oleInstrumentId, waterfallMode);
-        var yingDashboard = sourceDashboard(combinedYing, openingDate, closingDate, benchmark, yingInstrumentId, waterfallMode);
+        var primaryInstrumentId = sourceSecurity(combinedPrimary, group);
+        var secondaryInstrumentId = sourceSecurity(combinedSecondary, group);
+        var primaryDashboard = sourceDashboard(combinedPrimary, openingDate, closingDate, benchmark, primaryInstrumentId, waterfallMode);
+        var secondaryDashboard = sourceDashboard(combinedSecondary, openingDate, closingDate, benchmark, secondaryInstrumentId, waterfallMode);
         var warnings = new LinkedHashSet<String>();
-        warnings.addAll(oleDashboard.warnings());
-        warnings.addAll(yingDashboard.warnings());
+        warnings.addAll(primaryDashboard.warnings());
+        warnings.addAll(secondaryDashboard.warnings());
         var index = combinedIndex(openingDate, closingDate, warnings);
-        var dayIndex = combinedIndex(index(combinedOle, previousTradingDay(closingDate), closingDate, warnings),
-                        index(combinedYing, previousTradingDay(closingDate), closingDate, warnings));
-        var weekIndex = combinedIndex(index(combinedOle, closingDate.minusWeeks(1), closingDate, warnings),
-                        index(combinedYing, closingDate.minusWeeks(1), closingDate, warnings));
+        var dayIndex = combinedIndex(index(combinedPrimary, previousTradingDay(closingDate), closingDate, warnings),
+                        index(combinedSecondary, previousTradingDay(closingDate), closingDate, warnings));
+        var weekIndex = combinedIndex(index(combinedPrimary, closingDate.minusWeeks(1), closingDate, warnings),
+                        index(combinedSecondary, closingDate.minusWeeks(1), closingDate, warnings));
         var points = new ArrayList<Point>();
         for (int ii = 0; ii < index.dates().length; ii++)
             points.add(new Point(index.dates()[ii].toString(), index.totals()[ii], finite(index.accumulated()[ii]), index.invested()[ii]));
-        var holdings = combinedHoldings(oleDashboard.holdings(), yingDashboard.holdings());
-        long total = oleDashboard.totalValue() + yingDashboard.totalValue();
+        var holdings = combinedHoldings(primaryDashboard.holdings(), secondaryDashboard.holdings());
+        long total = primaryDashboard.totalValue() + secondaryDashboard.totalValue();
         var securityHoldings = holdings.stream().filter(h -> h.type().equals("security")).toList();
         var quoteDates = securityHoldings.stream().map(Holding::quoteDate).filter(java.util.Objects::nonNull).sorted().toList();
         var coverage = new PriceCoverage(closingDate.toString(), securityHoldings.size(), securityHoldings.size() - quoteDates.size(),
                         (int) quoteDates.stream().filter(date -> LocalDate.parse(date).isBefore(closingDate.minusDays(7))).count(),
                         quoteDates.isEmpty() ? null : quoteDates.getFirst(), quoteDates.isEmpty() ? null : quoteDates.getLast());
-        var dividends = new ArrayList<Dividend>(oleDashboard.dividends());
-        dividends.addAll(yingDashboard.dividends());
+        var dividends = new ArrayList<Dividend>(primaryDashboard.dividends());
+        dividends.addAll(secondaryDashboard.dividends());
         dividends.sort(Comparator.comparing(Dividend::date));
-        var instrument = instrumentId == null ? null : combinedInstrument(instrumentId, group, oleDashboard, yingDashboard,
-                        oleDashboard.instrument(), yingDashboard.instrument(), openingDate, closingDate);
-        var inception = combinedOle.inceptionDate.isBefore(combinedYing.inceptionDate)
-                        ? combinedOle.inceptionDate : combinedYing.inceptionDate;
-        var benchmarks = java.util.stream.Stream.concat(oleDashboard.benchmarks().stream(), yingDashboard.benchmarks().stream()).distinct().toList();
-        var benchmarkResult = oleDashboard.benchmark() != null ? oleDashboard.benchmark() : yingDashboard.benchmark();
+        var instrument = instrumentId == null ? null : combinedInstrument(instrumentId, group, primaryDashboard, secondaryDashboard,
+                        primaryDashboard.instrument(), secondaryDashboard.instrument(), openingDate, closingDate);
+        var inception = combinedPrimary.inceptionDate.isBefore(combinedSecondary.inceptionDate)
+                        ? combinedPrimary.inceptionDate : combinedSecondary.inceptionDate;
+        var benchmarks = java.util.stream.Stream.concat(primaryDashboard.benchmarks().stream(), secondaryDashboard.benchmarks().stream()).distinct().toList();
+        var benchmarkResult = primaryDashboard.benchmark() != null ? primaryDashboard.benchmark() : secondaryDashboard.benchmark();
         var combinedWaterfall = waterfallMode == null ? null
-                        : combinedWaterfall(oleDashboard.waterfall(), yingDashboard.waterfall(), waterfallMode);
-        var combinedFxVersion = oleDashboard.fxVersion() == null && yingDashboard.fxVersion() == null ? null
-                        : String.valueOf(oleDashboard.fxVersion()) + ":" + String.valueOf(yingDashboard.fxVersion());
+                        : combinedWaterfall(primaryDashboard.waterfall(), secondaryDashboard.waterfall(), waterfallMode);
+        var combinedFxVersion = primaryDashboard.fxVersion() == null && secondaryDashboard.fxVersion() == null ? null
+                        : String.valueOf(primaryDashboard.fxVersion()) + ":" + String.valueOf(secondaryDashboard.fxVersion());
         var rankings = includeRankings ? combinedRankings(openingDate, closingDate) : null;
         var dailyRankings = includeDailyRankings ? combinedRankings(previousTradingDay(closingDate), closingDate) : null;
         return new Dashboard(portfolio.label(), portfolio.revision(), portfolio.loadedAt().toString(),
-                        oleDashboard.demo() && yingDashboard.demo(), converter.getTermCurrency(), closingDate.toString(), total,
+                        primaryDashboard.demo() && secondaryDashboard.demo(), converter.getTermCurrency(), closingDate.toString(), total,
                         combinedPeriod(dayIndex), combinedPeriod(weekIndex),
                         combinedPeriod(index), List.copyOf(points), holdings, List.copyOf(dividends), List.copyOf(warnings),
                         benchmarks, benchmarkResult, coverage, combinedFxVersion, instrument, rankings, dailyRankings, combinedWaterfall,
@@ -861,29 +861,29 @@ final class DashboardService
 
     private SecurityRankingService.Rankings combinedRankings(LocalDate from, LocalDate to)
     {
-        var oleEntries = rankingEntries(combinedOle, from, to);
-        var yingEntries = rankingEntries(combinedYing, from, to);
+        var primaryEntries = rankingEntries(combinedPrimary, from, to);
+        var secondaryEntries = rankingEntries(combinedSecondary, from, to);
         var entries = new ArrayList<SecurityRankingService.Entry>();
         for (var group : combinedSecurityGroups.entrySet())
         {
             var ids = group.getValue();
-            var oleId = sourceSecurity(combinedOle, ids);
-            var yingId = sourceSecurity(combinedYing, ids);
-            var oleEntry = oleId == null ? null : oleEntries.get(oleId);
-            var yingEntry = yingId == null ? null : yingEntries.get(yingId);
-            if (oleEntry == null && yingEntry == null)
+            var primaryId = sourceSecurity(combinedPrimary, ids);
+            var secondaryId = sourceSecurity(combinedSecondary, ids);
+            var primaryEntry = primaryId == null ? null : primaryEntries.get(primaryId);
+            var secondaryEntry = secondaryId == null ? null : secondaryEntries.get(secondaryId);
+            if (primaryEntry == null && secondaryEntry == null)
                 continue;
-            var name = oleEntry != null ? oleEntry.name() : yingEntry.name();
-            Long gain = oleEntry != null && oleEntry.gain() == null || yingEntry != null && yingEntry.gain() == null
-                            ? null : (oleEntry == null ? 0 : oleEntry.gain()) + (yingEntry == null ? 0 : yingEntry.gain());
+            var name = primaryEntry != null ? primaryEntry.name() : secondaryEntry.name();
+            Long gain = primaryEntry != null && primaryEntry.gain() == null || secondaryEntry != null && secondaryEntry.gain() == null
+                            ? null : (primaryEntry == null ? 0 : primaryEntry.gain()) + (secondaryEntry == null ? 0 : secondaryEntry.gain());
             Double rate;
             Double factor;
-            if (oleId != null && yingId != null)
+            if (primaryId != null && secondaryId != null)
             {
                 try
                 {
-                    var index = combinedIndex(investmentIndex(combinedOle, oleId, from, to),
-                                    investmentIndex(combinedYing, yingId, from, to));
+                    var index = combinedIndex(investmentIndex(combinedPrimary, primaryId, from, to),
+                                    investmentIndex(combinedSecondary, secondaryId, from, to));
                     int last = index.totals().length - 1;
                     rate = finite(index.accumulated()[last]);
                     double denominator = last > 0 ? (double) index.totals()[last - 1] + index.inbound()[last] : 0;
@@ -897,7 +897,7 @@ final class DashboardService
             }
             else
             {
-                var source = oleEntry != null ? oleEntry : yingEntry;
+                var source = primaryEntry != null ? primaryEntry : secondaryEntry;
                 rate = source.rate();
                 factor = source.closingValueReturnFactor();
             }
@@ -922,15 +922,15 @@ final class DashboardService
                         Interval.of(from, to), new ArrayList<>());
     }
 
-    private Waterfall combinedWaterfall(Waterfall ole, Waterfall ying, String mode)
+    private Waterfall combinedWaterfall(Waterfall primary, Waterfall secondary, String mode)
     {
-        if (ole == null || ying == null || ole.message() != null || ying.message() != null)
+        if (primary == null || secondary == null || primary.message() != null || secondary.message() != null)
             return new Waterfall(List.of(), "Waterfall details are unavailable for the combined view.");
         record WaterfallKey(String kind, String type, String uuid, String label)
         {
         }
         var entries = new LinkedHashMap<WaterfallKey, WaterfallEntry>();
-        java.util.stream.Stream.concat(ole.entries().stream(), ying.entries().stream()).forEach(entry -> {
+        java.util.stream.Stream.concat(primary.entries().stream(), secondary.entries().stream()).forEach(entry -> {
             var uuid = entry.uuid() == null ? null : canonicalSecurityIds.getOrDefault(entry.uuid(), entry.uuid());
             var key = new WaterfallKey(entry.kind(), entry.type(), uuid, uuid == null ? entry.label() : null);
             var previous = entries.get(key);
@@ -1051,17 +1051,17 @@ final class DashboardService
         result.iconImages = iconImages;
         result.combinedSecurityGroups = combinedSecurityGroups;
         result.canonicalSecurityIds = canonicalSecurityIds;
-        if (combinedOle != null)
+        if (combinedPrimary != null)
         {
-            result.combinedOle = combinedOle.withCurrency(currency);
-            result.combinedYing = combinedYing.withCurrency(currency);
+            result.combinedPrimary = combinedPrimary.withCurrency(currency);
+            result.combinedSecondary = combinedSecondary.withCurrency(currency);
         }
         return result;
     }
 
     private CombinedIndex combinedIndex(LocalDate from, LocalDate to, Set<String> warnings)
     {
-        return combinedIndex(index(combinedOle, from, to, warnings), index(combinedYing, from, to, warnings));
+        return combinedIndex(index(combinedPrimary, from, to, warnings), index(combinedSecondary, from, to, warnings));
     }
 
     private PerformanceIndex index(DashboardService service, LocalDate from, LocalDate to, Set<String> warnings)
@@ -1069,27 +1069,27 @@ final class DashboardService
         return service.index(from, to, warnings);
     }
 
-    private CombinedIndex combinedIndex(PerformanceIndex ole, PerformanceIndex ying)
+    private CombinedIndex combinedIndex(PerformanceIndex primary, PerformanceIndex secondary)
     {
-        if (ole.getDates().length != ying.getDates().length)
+        if (primary.getDates().length != secondary.getDates().length)
             throw new IllegalArgumentException("Source portfolio ranges do not align");
-        int size = ole.getDates().length;
-        var dates = ole.getDates().clone();
+        int size = primary.getDates().length;
+        var dates = primary.getDates().clone();
         var totals = new long[size];
         var inbound = new long[size];
         var outbound = new long[size];
         var invested = new long[size];
         var accumulated = new double[size];
-        var oleInvested = ole.calculateInvestedCapital();
-        var yingInvested = ying.calculateInvestedCapital();
+        var primaryInvested = primary.calculateInvestedCapital();
+        var secondaryInvested = secondary.calculateInvestedCapital();
         for (int ii = 0; ii < size; ii++)
         {
-            if (!dates[ii].equals(ying.getDates()[ii]))
+            if (!dates[ii].equals(secondary.getDates()[ii]))
                 throw new IllegalArgumentException("Source portfolio dates do not align");
-            totals[ii] = ole.getTotals()[ii] + ying.getTotals()[ii];
-            inbound[ii] = ole.getInboundTransferals()[ii] + ying.getInboundTransferals()[ii];
-            outbound[ii] = ole.getOutboundTransferals()[ii] + ying.getOutboundTransferals()[ii];
-            invested[ii] = oleInvested[ii] + yingInvested[ii];
+            totals[ii] = primary.getTotals()[ii] + secondary.getTotals()[ii];
+            inbound[ii] = primary.getInboundTransferals()[ii] + secondary.getInboundTransferals()[ii];
+            outbound[ii] = primary.getOutboundTransferals()[ii] + secondary.getOutboundTransferals()[ii];
+            invested[ii] = primaryInvested[ii] + secondaryInvested[ii];
             if (ii > 0)
             {
                 long opening = totals[ii - 1] + inbound[ii];
@@ -1105,9 +1105,9 @@ final class DashboardService
         return period(index.dates(), index.totals(), index.inbound(), index.outbound(), index.accumulated());
     }
 
-    private Period combinedPeriod(PerformanceIndex ole, PerformanceIndex ying)
+    private Period combinedPeriod(PerformanceIndex primary, PerformanceIndex secondary)
     {
-        return combinedPeriod(combinedIndex(ole, ying));
+        return combinedPeriod(combinedIndex(primary, secondary));
     }
 
     private Period period(LocalDate[] dates, long[] totals, long[] inbound, long[] outbound, double[] accumulated)
@@ -1123,10 +1123,10 @@ final class DashboardService
                         finite(accumulated[last]), closingFactor);
     }
 
-    private List<Holding> combinedHoldings(List<Holding> ole, List<Holding> ying)
+    private List<Holding> combinedHoldings(List<Holding> primary, List<Holding> secondary)
     {
-        var all = new ArrayList<Holding>(ole);
-        all.addAll(ying);
+        var all = new ArrayList<Holding>(primary);
+        all.addAll(secondary);
         long total = all.stream().mapToLong(Holding::value).sum();
         var rows = new LinkedHashMap<String, Holding>();
         var values = new LinkedHashMap<String, long[]>();
@@ -1156,46 +1156,46 @@ final class DashboardService
     }
 
     private Instrument combinedInstrument(String uuid, List<String> ids,
-                    Dashboard oleDashboard, Dashboard yingDashboard, Instrument oleInstrument, Instrument yingInstrument,
+                    Dashboard primaryDashboard, Dashboard secondaryDashboard, Instrument primaryInstrument, Instrument secondaryInstrument,
                     LocalDate openingDate, LocalDate closingDate)
     {
         if (ids.size() < 2)
-            return oleInstrument != null ? oleInstrument : yingInstrument != null ? yingInstrument
+            return primaryInstrument != null ? primaryInstrument : secondaryInstrument != null ? secondaryInstrument
                             : new Instrument(uuid, null, null, Values.Quote.divider(), 0, null, null, null, null, null, 0,
                                             List.of(), Map.of(), "This instrument is no longer available in the loaded portfolio.",
                                             SecurityActivityService.empty(), List.of(), List.of());
-        var name = oleInstrument != null ? oleInstrument.name() : yingInstrument == null ? null : yingInstrument.name();
-        var currency = oleInstrument != null ? oleInstrument.currency() : yingInstrument == null ? null : yingInstrument.currency();
-        var shares = (oleInstrument == null ? 0 : oleInstrument.shares()) + (yingInstrument == null ? 0 : yingInstrument.shares());
-        var holdingRows = java.util.stream.Stream.concat(oleDashboard.holdings().stream(), yingDashboard.holdings().stream())
+        var name = primaryInstrument != null ? primaryInstrument.name() : secondaryInstrument == null ? null : secondaryInstrument.name();
+        var currency = primaryInstrument != null ? primaryInstrument.currency() : secondaryInstrument == null ? null : secondaryInstrument.currency();
+        var shares = (primaryInstrument == null ? 0 : primaryInstrument.shares()) + (secondaryInstrument == null ? 0 : secondaryInstrument.shares());
+        var holdingRows = java.util.stream.Stream.concat(primaryDashboard.holdings().stream(), secondaryDashboard.holdings().stream())
                         .filter(h -> h.uuid() != null && ids.contains(h.uuid())).toList();
         Long value = holdingRows.isEmpty() ? null : holdingRows.stream().mapToLong(Holding::value).sum();
         var quoteDate = holdingRows.stream().map(Holding::quoteDate).filter(java.util.Objects::nonNull)
                         .max(Comparator.naturalOrder()).orElse(null);
         var sourcePrices = new LinkedHashMap<String, List<InstrumentPoint>>();
-        var oleSecurity = sourceSecurity(combinedOle, ids);
-        var yingSecurity = sourceSecurity(combinedYing, ids);
-        if (oleSecurity != null)
-            sourcePrices.put("Ole", sourcePrices(combinedOle, oleSecurity, openingDate, closingDate));
-        if (yingSecurity != null)
-            sourcePrices.put("Ying", sourcePrices(combinedYing, yingSecurity, openingDate, closingDate));
+        var primarySecurity = sourceSecurity(combinedPrimary, ids);
+        var secondarySecurity = sourceSecurity(combinedSecondary, ids);
+        if (primarySecurity != null)
+            sourcePrices.put("Primary", sourcePrices(combinedPrimary, primarySecurity, openingDate, closingDate));
+        if (secondarySecurity != null)
+            sourcePrices.put("Secondary", sourcePrices(combinedSecondary, secondarySecurity, openingDate, closingDate));
 
         var combinedReturn = new ArrayList<ReturnPoint>();
         Double twror = null;
         try
         {
-            var oleIndex = oleSecurity == null ? null : investmentIndex(combinedOle, oleSecurity, openingDate, closingDate);
-            var yingIndex = yingSecurity == null ? null : investmentIndex(combinedYing, yingSecurity, openingDate, closingDate);
-            if (oleIndex != null && yingIndex != null)
+            var primaryIndex = primarySecurity == null ? null : investmentIndex(combinedPrimary, primarySecurity, openingDate, closingDate);
+            var secondaryIndex = secondarySecurity == null ? null : investmentIndex(combinedSecondary, secondarySecurity, openingDate, closingDate);
+            if (primaryIndex != null && secondaryIndex != null)
             {
-                var index = combinedIndex(oleIndex, yingIndex);
+                var index = combinedIndex(primaryIndex, secondaryIndex);
                 for (int ii = 0; ii < index.dates().length; ii++)
                     combinedReturn.add(new ReturnPoint(index.dates()[ii].toString(), finite(index.accumulated()[ii])));
                 twror = finite(index.accumulated()[index.accumulated().length - 1]);
             }
             else
             {
-                var index = oleIndex == null ? yingIndex : oleIndex;
+                var index = primaryIndex == null ? secondaryIndex : primaryIndex;
                 for (int ii = 0; ii < index.getDates().length; ii++)
                     combinedReturn.add(new ReturnPoint(index.getDates()[ii].toString(),
                                     finite(index.getAccumulatedPercentage()[ii])));
@@ -1207,13 +1207,13 @@ final class DashboardService
             combinedReturn.clear();
         }
 
-        var activity = combineActivity(oleInstrument == null ? null : oleInstrument.activity(),
-                        yingInstrument == null ? null : yingInstrument.activity());
-        var events = Stream.concat(oleInstrument == null ? Stream.empty() : oleInstrument.events().stream(),
-                        yingInstrument == null ? Stream.empty() : yingInstrument.events().stream())
+        var activity = combineActivity(primaryInstrument == null ? null : primaryInstrument.activity(),
+                        secondaryInstrument == null ? null : secondaryInstrument.activity());
+        var events = Stream.concat(primaryInstrument == null ? Stream.empty() : primaryInstrument.events().stream(),
+                        secondaryInstrument == null ? Stream.empty() : secondaryInstrument.events().stream())
                         .sorted(Comparator.comparing(ChartEvent::date)).toList();
-        long dividends = reportedDividends(oleInstrument) + reportedDividends(yingInstrument);
-        Long gain = combineGain(oleInstrument, yingInstrument);
+        long dividends = reportedDividends(primaryInstrument) + reportedDividends(secondaryInstrument);
+        Long gain = combineGain(primaryInstrument, secondaryInstrument);
         String message = combinedReturn.isEmpty() ? "Combined performance is unavailable for this period; source price histories remain available."
                         : "Performance and activity combine both source holdings; price histories are shown separately by source.";
         return new Instrument(uuid, name, currency, Values.Quote.divider(), shares, value, quoteDate, twror, null,
@@ -1231,14 +1231,14 @@ final class DashboardService
                         .map(price -> instrumentPoint(price, security.getCurrencyCode(), service.converter)).toList();
     }
 
-    private Long combineGain(Instrument ole, Instrument ying)
+    private Long combineGain(Instrument primary, Instrument secondary)
     {
-        if (ole == null && ying == null)
+        if (primary == null && secondary == null)
             return null;
-        if (hasUnavailableGain(ole) || hasUnavailableGain(ying))
+        if (hasUnavailableGain(primary) || hasUnavailableGain(secondary))
             return null;
-        return (ole == null || ole.gain() == null ? 0 : ole.gain())
-                        + (ying == null || ying.gain() == null ? 0 : ying.gain());
+        return (primary == null || primary.gain() == null ? 0 : primary.gain())
+                        + (secondary == null || secondary.gain() == null ? 0 : secondary.gain());
     }
 
     private boolean hasUnavailableGain(Instrument instrument)
@@ -1257,14 +1257,14 @@ final class DashboardService
         return payments.stream().mapToLong(SecurityActivityService.Payment::reportingNet).sum();
     }
 
-    private SecurityActivityService.Activity combineActivity(SecurityActivityService.Activity ole,
-                    SecurityActivityService.Activity ying)
+    private SecurityActivityService.Activity combineActivity(SecurityActivityService.Activity primary,
+                    SecurityActivityService.Activity secondary)
     {
-        var dividends = Stream.concat(ole == null ? Stream.empty() : ole.dividends().stream(),
-                        ying == null ? Stream.empty() : ying.dividends().stream())
+        var dividends = Stream.concat(primary == null ? Stream.empty() : primary.dividends().stream(),
+                        secondary == null ? Stream.empty() : secondary.dividends().stream())
                         .sorted(Comparator.comparing(SecurityActivityService.Payment::date).reversed()).toList();
-        var transactions = Stream.concat(ole == null ? Stream.empty() : ole.transactions().stream(),
-                        ying == null ? Stream.empty() : ying.transactions().stream())
+        var transactions = Stream.concat(primary == null ? Stream.empty() : primary.transactions().stream(),
+                        secondary == null ? Stream.empty() : secondary.transactions().stream())
                         .sorted(Comparator.comparing(SecurityActivityService.Entry::date).reversed()).toList();
         return new SecurityActivityService.Activity(dividends, transactions);
     }

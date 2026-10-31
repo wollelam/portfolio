@@ -20,14 +20,14 @@ async function main() {
       const url = new URL(route.request().url());
       const fixtureUrl = new URL(url); fixtureUrl.searchParams.delete('view'); fixtureUrl.searchParams.delete('currency');
       const response = await route.fetch({ url: fixtureUrl.toString() }), data = await response.json();
-      data.views = ['ole', 'ying', 'combined'];
+      data.views = ['primary', 'secondary', 'combined'];
       if (url.searchParams.has('instrument') && data.instrument) {
         const start = data.period.openingDate, end = data.period.closingDate;
         data.instrument.currency = 'USD';
         if (sourceMode === 'shared') {
           data.instrument.sourcePrices = {
-            Ole: [{ date: start, price: 10000, reportingPrice: 9000 }, { date: end, price: 12000, reportingPrice: 10800 }],
-            Ying: [{ date: start, price: 11000, reportingPrice: 9900 }, { date: end, price: 13000, reportingPrice: 11700 }]
+            Primary: [{ date: start, price: 10000, reportingPrice: 9000 }, { date: end, price: 12000, reportingPrice: 10800 }],
+            Secondary: [{ date: start, price: 11000, reportingPrice: 9900 }, { date: end, price: 13000, reportingPrice: 11700 }]
           };
           data.instrument.prices = [];
         } else {
@@ -47,13 +47,13 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('#dashboard')?.getAttribute('aria-busy') === 'false');
     const legend = page.locator('#instrument-source-legend');
     assert.equal(await legend.isVisible(), true, 'shared price chart identifies each source');
-    assert.match(await legend.innerText(), /Ole/);
-    assert.match(await legend.innerText(), /Ying/);
-    assert.equal(await page.locator('#instrument-chart path.instrument-source-ole').count(), 1);
-    assert.equal(await page.locator('#instrument-chart path.instrument-source-ying').count(), 1);
+    assert.match(await legend.innerText(), /Primary/);
+    assert.match(await legend.innerText(), /Secondary/);
+    assert.equal(await page.locator('#instrument-chart path.instrument-source-primary').count(), 1);
+    assert.equal(await page.locator('#instrument-chart path.instrument-source-secondary').count(), 1);
     await page.locator('[data-instrument-currency="portfolio"]').click();
     assert.equal(await page.locator('#instrument-source-legend').isVisible(), true, 'currency toggle keeps both source histories visible');
-    assert.equal(await page.locator('#instrument-chart path.instrument-source-ying').count(), 1);
+    assert.equal(await page.locator('#instrument-chart path.instrument-source-secondary').count(), 1);
     sourceMode = 'single';
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForSelector('#dashboard:not([hidden])');

@@ -23,22 +23,22 @@ const weight = value => value === null ? '—' : new Intl.NumberFormat(undefined
 const dateLabel = value => new Date(value + 'T12:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const iso = date => date.toISOString().slice(0, 10);
 let report;
-let portfolioView = 'ole';
+let portfolioView = 'primary';
 const reportingCurrencies = ['CHF', 'DKK', 'THB', 'USD'];
 let reportingCurrency = null;
-const viewTitles = { ole: 'Ole', ying: 'Ying', combined: 'Combined' };
+const viewTitles = { primary: 'Primary', secondary: 'Secondary', combined: 'Combined' };
 function iconUrl(url) {
   const params = new URLSearchParams(url.split('?')[1] || '');
   params.set('view', portfolioView);
   return `/api/icon?${params}`;
 }
 function updateViewOptions(views) {
-  const available = Array.isArray(views) ? views.filter(view => Object.hasOwn(viewTitles, view)) : ['ole'];
+  const available = Array.isArray(views) ? views.filter(view => Object.hasOwn(viewTitles, view)) : ['primary'];
   const selector = byId('view-selector'), label = byId('view-selector-label');
   selector.replaceChildren(...available.map(view => new Option(viewTitles[view], view)));
   label.hidden = false;
   selector.disabled = available.length < 2;
-  if (!available.includes(portfolioView)) portfolioView = available[0] || 'ole';
+  if (!available.includes(portfolioView)) portfolioView = available[0] || 'primary';
   selector.value = portfolioView;
 }
 function updateCurrencyOptions() {
@@ -308,7 +308,7 @@ async function enterRoute() {
   clearTimeout(allocationTimer); allocationTimer = null;
   restoringScroll = true;
   const route = parseRoute();
-  portfolioView = ['ole', 'ying', 'combined'].includes(route.params.get('view')) ? route.params.get('view') : 'ole';
+  portfolioView = ['primary', 'secondary', 'combined'].includes(route.params.get('view')) ? route.params.get('view') : 'primary';
   byId('view-selector').value = portfolioView;
   reportingCurrency = reportingCurrencies.includes(route.params.get('currency')) ? route.params.get('currency') : null;
   updateCurrencyOptions();
@@ -1544,8 +1544,8 @@ function renderInstrument(instrument) {
     button.setAttribute('aria-pressed', String(button.dataset.instrumentCurrency === (converted ? 'portfolio' : 'native')));
   }
   const sourcePrices = instrument.sourcePrices && typeof instrument.sourcePrices === 'object' ? instrument.sourcePrices : null;
-  const sharedHistory = Array.isArray(sourcePrices?.Ole) || Array.isArray(sourcePrices?.Ying);
-  const missingFx = converted ? (sharedHistory ? ['Ole', 'Ying'].flatMap(name => sourcePrices[name] || []).filter(p => !Number.isFinite(p.reportingPrice)).length : (instrument.prices || []).filter(p => !Number.isFinite(p.reportingPrice)).length) : 0;
+  const sharedHistory = Array.isArray(sourcePrices?.Primary) || Array.isArray(sourcePrices?.Secondary);
+  const missingFx = converted ? (sharedHistory ? ['Primary', 'Secondary'].flatMap(name => sourcePrices[name] || []).filter(p => !Number.isFinite(p.reportingPrice)).length : (instrument.prices || []).filter(p => !Number.isFinite(p.reportingPrice)).length) : 0;
   const fxNote = byId('instrument-fx-note'); fxNote.hidden = !converted;
   fxNote.textContent = `Stored prices use the exchange rate on each quote date; the latest broker price uses a live exchange rate when available.${missingFx ? ` ${missingFx} quote${missingFx === 1 ? '' : 's'} unavailable because exchange rates are missing; gaps are shown.` : ''}`;
   const focusedEvent = document.activeElement?.dataset?.eventKey;
@@ -1558,19 +1558,19 @@ function renderInstrument(instrument) {
       minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
   };
   const toChartPoints = prices => (prices || []).map(p => ({ date: p.date, value: converted ? (Number.isFinite(p.reportingPrice) ? p.reportingPrice / instrument.quoteScale : null) : p.price / instrument.quoteScale }));
-  const primarySource = sharedHistory ? (Array.isArray(sourcePrices.Ole) && sourcePrices.Ole.length ? 'Ole'
-    : Array.isArray(sourcePrices.Ying) && sourcePrices.Ying.length ? 'Ying'
-      : Array.isArray(sourcePrices.Ole) ? 'Ole' : 'Ying') : null;
+  const primarySource = sharedHistory ? (Array.isArray(sourcePrices.Primary) && sourcePrices.Primary.length ? 'Primary'
+    : Array.isArray(sourcePrices.Secondary) && sourcePrices.Secondary.length ? 'Secondary'
+      : Array.isArray(sourcePrices.Primary) ? 'Primary' : 'Secondary') : null;
   const points = sharedHistory ? toChartPoints(primarySource ? sourcePrices[primarySource] : []) : toChartPoints(instrument.prices);
-  const sourceSeries = sharedHistory ? ['Ole', 'Ying'].filter(name => name !== primarySource && Array.isArray(sourcePrices[name])).map(name => ({
-    name, className: name === 'Ying' ? 'instrument-source-ying' : 'instrument-source-ole', points: toChartPoints(sourcePrices[name])
+  const sourceSeries = sharedHistory ? ['Primary', 'Secondary'].filter(name => name !== primarySource && Array.isArray(sourcePrices[name])).map(name => ({
+    name, className: name === 'Secondary' ? 'instrument-source-secondary' : 'instrument-source-primary', points: toChartPoints(sourcePrices[name])
   })) : [];
-  const primaryClass = sharedHistory ? (primarySource === 'Ying' ? 'instrument-source-ying' : 'instrument-source-ole') : 'chart-line';
+  const primaryClass = sharedHistory ? (primarySource === 'Secondary' ? 'instrument-source-secondary' : 'instrument-source-primary') : 'chart-line';
   const sourceLegend = byId('instrument-source-legend');
   sourceLegend.hidden = !sharedHistory || totalReturn;
   if (sharedHistory) {
-    sourceLegend.querySelector('.source-ole').parentElement.hidden = !Array.isArray(sourcePrices.Ole);
-    sourceLegend.querySelector('.source-ying').parentElement.hidden = !Array.isArray(sourcePrices.Ying);
+    sourceLegend.querySelector('.source-primary').parentElement.hidden = !Array.isArray(sourcePrices.Primary);
+    sourceLegend.querySelector('.source-secondary').parentElement.hidden = !Array.isArray(sourcePrices.Secondary);
   }
   const broker = instrumentBrokerQuote(instrument);
   const fx = converted ? liveFxRate(instrument.currency) : { rate: 1 };
@@ -2103,7 +2103,7 @@ enterRoute();
 byId('ranking-limit').addEventListener('change', event => { rankingLimit = event.target.value; syncRouteUrl(); renderRankings(report?.rankings); });
 byId('view-selector').addEventListener('change', event => {
   const nextView = event.target.value;
-  if (!['ole', 'ying', 'combined'].includes(nextView) || nextView === portfolioView) return;
+  if (!['primary', 'secondary', 'combined'].includes(nextView) || nextView === portfolioView) return;
   const from = byId('from').value, to = byId('to').value;
   portfolioView = nextView;
   selectedBenchmark = ''; excludedGroups = new Set(); selectedInstrument = ''; selectedLiveQuote = '';

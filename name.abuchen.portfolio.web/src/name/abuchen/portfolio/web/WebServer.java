@@ -22,7 +22,7 @@ import com.sun.net.httpserver.HttpServer;
 @SuppressWarnings("nls")
 final class WebServer implements AutoCloseable
 {
-    private record CombinedCache(DashboardService ole, DashboardService ying, String oleRevision, String yingRevision,
+    private record CombinedCache(DashboardService primary, DashboardService secondary, String primaryRevision, String secondaryRevision,
                     PortfolioRefresh.Snapshot snapshot)
     {
     }
@@ -36,7 +36,7 @@ final class WebServer implements AutoCloseable
     private final HttpServer server;
     private final ThreadPoolExecutor executor;
     private final PortfolioRefresh portfolios;
-    private final PortfolioRefresh yingPortfolios;
+    private final PortfolioRefresh secondaryPortfolios;
     private final MarketUpdates market;
     private volatile CombinedCache combinedCache;
     private final Map<CurrencyCacheKey, DashboardService> currencyCache = new LinkedHashMap<>();
@@ -57,11 +57,11 @@ final class WebServer implements AutoCloseable
         this(address, portfolios, null, market);
     }
 
-    WebServer(InetSocketAddress address, PortfolioRefresh portfolios, PortfolioRefresh yingPortfolios,
+    WebServer(InetSocketAddress address, PortfolioRefresh portfolios, PortfolioRefresh secondaryPortfolios,
                     MarketUpdates market) throws IOException
     {
         this.portfolios = portfolios;
-        this.yingPortfolios = yingPortfolios;
+        this.secondaryPortfolios = secondaryPortfolios;
         this.market = market;
         server = HttpServer.create(address, 16);
         executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16));
@@ -150,7 +150,7 @@ final class WebServer implements AutoCloseable
                 {
                     iconParams = Map.of();
                 }
-                var view = iconParams.getOrDefault("view", "ole");
+                var view = iconParams.getOrDefault("view", "primary");
                 if (iconParams.containsKey("view") && !validView(view) || !iconParams.keySet().stream().allMatch(k -> k.equals("id") || k.equals("v") || k.equals("view"))
                                 || !iconParams.containsKey("id") || !iconParams.get("id").matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
                                 || (iconParams.containsKey("v") && !iconParams.get("v").matches("[0-9a-f]{64}")))
@@ -162,7 +162,7 @@ final class WebServer implements AutoCloseable
                     if (image == null)
                         image = snapshot(view).service().icon(id);
                     if (image == null && view.equals("combined"))
-                        image = yingPortfolios.snapshot().service().icon(id);
+                        image = secondaryPortfolios.snapshot().service().icon(id);
                     if (image == null)
                         json(exchange, 404, Map.of("message", "Icon unavailable."));
                     else
@@ -174,7 +174,7 @@ final class WebServer implements AutoCloseable
                 try
                 {
                     var params = query(exchange.getRequestURI().getRawQuery());
-                    var view = params.getOrDefault("view", "ole");
+                    var view = params.getOrDefault("view", "primary");
                     if (!validView(view))
                         throw new IllegalArgumentException("Unknown portfolio view");
                     var snapshot = snapshot(view);
@@ -189,11 +189,11 @@ final class WebServer implements AutoCloseable
                     }
                     var dashboard = gson.toJsonTree(service.dashboard(from, to, params.get("benchmark"), params.get("instrument"),
                                     Boolean.parseBoolean(params.getOrDefault("rankings", "false")), params.get("waterfall"), "day".equals(params.get("rankings")))).getAsJsonObject();
-                    if (yingPortfolios != null && !view.equals("combined"))
+                    if (secondaryPortfolios != null && !view.equals("combined"))
                         dashboard.add("quoteKeys", gson.toJsonTree(quoteKeysForView(service)));
                     dashboard.add("refresh", gson.toJsonTree(snapshot.status()));
                     dashboard.add("market", gson.toJsonTree(market.status()));
-                    dashboard.add("views", gson.toJsonTree(yingPortfolios == null ? java.util.List.of("ole") : java.util.List.of("ole", "ying", "combined")));
+                    dashboard.add("views", gson.toJsonTree(secondaryPortfolios == null ? java.util.List.of("primary") : java.util.List.of("primary", "secondary", "combined")));
                     json(exchange, 200, dashboard);
                 }
                 catch (DashboardService.MissingReportingRateException e)
@@ -283,7 +283,7 @@ final class WebServer implements AutoCloseable
 
     private boolean validView(String view)
     {
-        return view.equals("ole") || (yingPortfolios != null && (view.equals("ying") || view.equals("combined")));
+        return view.equals("primary") || (secondaryPortfolios != null && (view.equals("secondary") || view.equals("combined")));
     }
 
     private Map<String, java.util.List<String>> quoteKeysForView(DashboardService service)
@@ -297,30 +297,30 @@ final class WebServer implements AutoCloseable
 
     private PortfolioRefresh.Snapshot snapshot(String view)
     {
-        if (view.equals("ole") || yingPortfolios == null)
+        if (view.equals("primary") || secondaryPortfolios == null)
             return portfolios.snapshot();
-        if (view.equals("ying"))
-            return yingPortfolios.snapshot();
-        var ole = portfolios.snapshot();
-        var ying = yingPortfolios.snapshot();
+        if (view.equals("secondary"))
+            return secondaryPortfolios.snapshot();
+        var primary = portfolios.snapshot();
+        var secondary = secondaryPortfolios.snapshot();
         var cached = combinedCache;
-        if (cached != null && cached.ole() == ole.service() && cached.ying() == ying.service()
-                        && java.util.Objects.equals(cached.oleRevision(), ole.revision())
-                        && java.util.Objects.equals(cached.yingRevision(), ying.revision()))
-            return new PortfolioRefresh.Snapshot(cached.snapshot().service(), cached.snapshot().revision(), ole.status());
+        if (cached != null && cached.primary() == primary.service() && cached.secondary() == secondary.service()
+                        && java.util.Objects.equals(cached.primaryRevision(), primary.revision())
+                        && java.util.Objects.equals(cached.secondaryRevision(), secondary.revision()))
+            return new PortfolioRefresh.Snapshot(cached.snapshot().service(), cached.snapshot().revision(), primary.status());
         synchronized (this)
         {
             cached = combinedCache;
-            if (cached == null || cached.ole() != ole.service() || cached.ying() != ying.service()
-                            || !java.util.Objects.equals(cached.oleRevision(), ole.revision())
-                            || !java.util.Objects.equals(cached.yingRevision(), ying.revision()))
+            if (cached == null || cached.primary() != primary.service() || cached.secondary() != secondary.service()
+                            || !java.util.Objects.equals(cached.primaryRevision(), primary.revision())
+                            || !java.util.Objects.equals(cached.secondaryRevision(), secondary.revision()))
             {
-                var combined = new PortfolioRefresh.Snapshot(DashboardService.combined(ole.service(), ying.service()),
-                                ole.revision() + ":" + ying.revision(), ole.status());
-                combinedCache = new CombinedCache(ole.service(), ying.service(), ole.revision(), ying.revision(), combined);
+                var combined = new PortfolioRefresh.Snapshot(DashboardService.combined(primary.service(), secondary.service()),
+                                primary.revision() + ":" + secondary.revision(), primary.status());
+                combinedCache = new CombinedCache(primary.service(), secondary.service(), primary.revision(), secondary.revision(), combined);
                 cached = combinedCache;
             }
-            return new PortfolioRefresh.Snapshot(cached.snapshot().service(), cached.snapshot().revision(), ole.status());
+            return new PortfolioRefresh.Snapshot(cached.snapshot().service(), cached.snapshot().revision(), primary.status());
         }
     }
 

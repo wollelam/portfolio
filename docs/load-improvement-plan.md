@@ -26,12 +26,7 @@ There is also a concurrency concern: `Task` changes `Security.prices` and `Secur
 
 ## Dataset observations
 
-Only aggregate metadata was read from the two supplied files; no portfolio contents or names were copied into the repository.
-
-| File | Securities | Historical prices | Transactions | Uncompressed data |
-| --- | ---: | ---: | ---: | ---: |
-| PortOle.portfolio | 206 | 626,823 | 5,029 | about 9.0 MB |
-| PortYing.portfolio | 22 | 67,993 | 1,703 | about 0.8 MB |
+Only aggregate metadata was read from the two supplied files; no portfolio contents were copied into the repository. The larger sample had substantially more historical prices and transactions than the smaller sample.
 
 The larger file explains why a complete performance/snapshot rebuild can exceed the 300 ms update interval. Increasing the interval is machine- and view-dependent and cannot guarantee responsiveness.
 

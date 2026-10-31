@@ -214,26 +214,26 @@ public class WebServerTest
     {
         var today = LocalDate.of(2025, 6, 12);
         var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
-        var olePortfolio = DemoPortfolio.create(today);
-        var yingPortfolio = DemoPortfolio.create(today);
-        for (int ii = 0; ii < olePortfolio.client().getSecurities().size(); ii++)
+        var primaryPortfolio = DemoPortfolio.create(today);
+        var secondaryPortfolio = DemoPortfolio.create(today);
+        for (int ii = 0; ii < primaryPortfolio.client().getSecurities().size(); ii++)
         {
-            olePortfolio.client().getSecurities().get(ii).setIsin("TEST-" + ii);
-            yingPortfolio.client().getSecurities().get(ii).setIsin("TEST-" + ii);
+            primaryPortfolio.client().getSecurities().get(ii).setIsin("TEST-" + ii);
+            secondaryPortfolio.client().getSecurities().get(ii).setIsin("TEST-" + ii);
         }
-        var ole = new DashboardService(olePortfolio, clock, List.of());
-        var ying = new DashboardService(yingPortfolio, clock, List.of());
-        try (var oleRefresh = PortfolioRefresh.fixed(ole); var yingRefresh = PortfolioRefresh.fixed(ying);
-                        var server = new WebServer(new InetSocketAddress("127.0.0.1", 0), oleRefresh, yingRefresh, MarketUpdates.disabled());
+        var primary = new DashboardService(primaryPortfolio, clock, List.of());
+        var secondary = new DashboardService(secondaryPortfolio, clock, List.of());
+        try (var primaryRefresh = PortfolioRefresh.fixed(primary); var secondaryRefresh = PortfolioRefresh.fixed(secondary);
+                        var server = new WebServer(new InetSocketAddress("127.0.0.1", 0), primaryRefresh, secondaryRefresh, MarketUpdates.disabled());
                         var client = HttpClient.newHttpClient())
         {
             server.start();
             var base = "http://127.0.0.1:" + server.port();
             var defaultView = JsonParser.parseString(get(client, base + "/api/dashboard").body()).getAsJsonObject();
             assertEquals("EUR", defaultView.get("currency").getAsString());
-            assertEquals("[\"ole\",\"ying\",\"combined\"]", defaultView.getAsJsonArray("views").toString());
-            var yingView = JsonParser.parseString(get(client, base + "/api/dashboard?view=ying").body()).getAsJsonObject();
-            assertEquals(yingView.get("totalValue"), defaultView.get("totalValue"));
+            assertEquals("[\"primary\",\"secondary\",\"combined\"]", defaultView.getAsJsonArray("views").toString());
+            var secondaryView = JsonParser.parseString(get(client, base + "/api/dashboard?view=secondary").body()).getAsJsonObject();
+            assertEquals(secondaryView.get("totalValue"), defaultView.get("totalValue"));
             var combined = JsonParser.parseString(get(client, base + "/api/dashboard?view=combined").body()).getAsJsonObject();
             assertEquals(defaultView.get("totalValue").getAsLong() * 2, combined.get("totalValue").getAsLong());
             assertEquals(1, combined.getAsJsonArray("holdings").asList().stream()
@@ -241,15 +241,15 @@ public class WebServerTest
             assertEquals(2, combined.getAsJsonArray("holdings").asList().stream()
                             .filter(h -> "cash".equals(h.getAsJsonObject().get("type").getAsString())).count());
             assertTrue(combined.getAsJsonObject("quoteKeys").size() > 0);
-            var oleSecurity = olePortfolio.client().getSecurities().getFirst().getUUID();
-            var yingSecurity = yingPortfolio.client().getSecurities().getFirst().getUUID();
-            var sharedKeys = "[\"" + oleSecurity + "\",\"" + yingSecurity + "\"]";
-            assertEquals(sharedKeys, defaultView.getAsJsonObject("quoteKeys").getAsJsonArray(oleSecurity).toString());
-            assertEquals(sharedKeys, yingView.getAsJsonObject("quoteKeys").getAsJsonArray(yingSecurity).toString());
-            assertEquals("[\"" + oleSecurity + "\",\"" + yingSecurity + "\"]",
-                            combined.getAsJsonObject("quoteKeys").getAsJsonArray(oleSecurity).toString());
+            var primarySecurity = primaryPortfolio.client().getSecurities().getFirst().getUUID();
+            var secondarySecurity = secondaryPortfolio.client().getSecurities().getFirst().getUUID();
+            var sharedKeys = "[\"" + primarySecurity + "\",\"" + secondarySecurity + "\"]";
+            assertEquals(sharedKeys, defaultView.getAsJsonObject("quoteKeys").getAsJsonArray(primarySecurity).toString());
+            assertEquals(sharedKeys, secondaryView.getAsJsonObject("quoteKeys").getAsJsonArray(secondarySecurity).toString());
+            assertEquals("[\"" + primarySecurity + "\",\"" + secondarySecurity + "\"]",
+                            combined.getAsJsonObject("quoteKeys").getAsJsonArray(primarySecurity).toString());
             var excluded = JsonParser.parseString(get(client, base + "/api/dashboard?view=combined&exclude=a-"
-                            + olePortfolio.client().getAccounts().getFirst().getUUID()).body()).getAsJsonObject();
+                            + primaryPortfolio.client().getAccounts().getFirst().getUUID()).body()).getAsJsonObject();
             assertEquals(combined.getAsJsonObject("quoteKeys"), excluded.getAsJsonObject("quoteKeys"));
             assertEquals(400, get(client, base + "/api/dashboard?view=unknown").statusCode());
         }
@@ -261,20 +261,20 @@ public class WebServerTest
         var today = LocalDate.of(2025, 6, 12);
         var from = today.minusYears(1);
         var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
-        var olePortfolio = DemoPortfolio.create(today);
-        var yingPortfolio = DemoPortfolio.create(today);
-        for (int ii = 0; ii < olePortfolio.client().getSecurities().size(); ii++)
+        var primaryPortfolio = DemoPortfolio.create(today);
+        var secondaryPortfolio = DemoPortfolio.create(today);
+        for (int ii = 0; ii < primaryPortfolio.client().getSecurities().size(); ii++)
         {
-            olePortfolio.client().getSecurities().get(ii).setIsin("CURRENCY-" + ii);
-            yingPortfolio.client().getSecurities().get(ii).setIsin("CURRENCY-" + ii);
+            primaryPortfolio.client().getSecurities().get(ii).setIsin("CURRENCY-" + ii);
+            secondaryPortfolio.client().getSecurities().get(ii).setIsin("CURRENCY-" + ii);
         }
         var rates = reportingCurrencyRates(today);
-        var ole = new DashboardService(olePortfolio, clock, List.of(), rates);
-        var ying = new DashboardService(yingPortfolio, clock, List.of(), rates);
-        var instrument = olePortfolio.client().getSecurities().getFirst().getUUID();
-        var yingInstrument = yingPortfolio.client().getSecurities().getFirst().getUUID();
-        try (var oleRefresh = PortfolioRefresh.fixed(ole); var yingRefresh = PortfolioRefresh.fixed(ying);
-                        var server = new WebServer(new InetSocketAddress("127.0.0.1", 0), oleRefresh, yingRefresh,
+        var primary = new DashboardService(primaryPortfolio, clock, List.of(), rates);
+        var secondary = new DashboardService(secondaryPortfolio, clock, List.of(), rates);
+        var instrument = primaryPortfolio.client().getSecurities().getFirst().getUUID();
+        var secondaryInstrument = secondaryPortfolio.client().getSecurities().getFirst().getUUID();
+        try (var primaryRefresh = PortfolioRefresh.fixed(primary); var secondaryRefresh = PortfolioRefresh.fixed(secondary);
+                        var server = new WebServer(new InetSocketAddress("127.0.0.1", 0), primaryRefresh, secondaryRefresh,
                                         MarketUpdates.disabled());
                         var client = HttpClient.newHttpClient())
         {
@@ -283,72 +283,72 @@ public class WebServerTest
             for (var currency : List.of("CHF", "DKK", "THB", "USD"))
             {
                 var common = "&from=" + from + "&to=" + today + "&rankings=true&waterfall=contributions";
-                var oleReport = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=ole&instrument="
+                var primaryReport = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=primary&instrument="
                                 + instrument + common).body())
                                 .getAsJsonObject();
-                var yingReport = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=ying&instrument="
-                                + yingInstrument + common).body())
+                var secondaryReport = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=secondary&instrument="
+                                + secondaryInstrument + common).body())
                                 .getAsJsonObject();
                 var combined = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=combined&instrument="
                                 + instrument + common).body())
                                 .getAsJsonObject();
 
                 assertEquals(currency, combined.get("currency").getAsString());
-                assertEquals(oleReport.get("totalValue").getAsLong() + yingReport.get("totalValue").getAsLong(),
+                assertEquals(primaryReport.get("totalValue").getAsLong() + secondaryReport.get("totalValue").getAsLong(),
                                 combined.get("totalValue").getAsLong());
-                assertEquals(oleReport.getAsJsonArray("holdings").asList().stream()
+                assertEquals(primaryReport.getAsJsonArray("holdings").asList().stream()
                                 .mapToLong(row -> row.getAsJsonObject().get("value").getAsLong()).sum()
-                                + yingReport.getAsJsonArray("holdings").asList().stream()
+                                + secondaryReport.getAsJsonArray("holdings").asList().stream()
                                                 .mapToLong(row -> row.getAsJsonObject().get("value").getAsLong()).sum(),
                                 combined.getAsJsonArray("holdings").asList().stream()
                                                 .mapToLong(row -> row.getAsJsonObject().get("value").getAsLong()).sum());
                 for (var field : List.of("valueChange", "netFlows", "gain"))
-                    assertEquals(oleReport.getAsJsonObject("period").get(field).getAsLong()
-                                    + yingReport.getAsJsonObject("period").get(field).getAsLong(),
+                    assertEquals(primaryReport.getAsJsonObject("period").get(field).getAsLong()
+                                    + secondaryReport.getAsJsonObject("period").get(field).getAsLong(),
                                     combined.getAsJsonObject("period").get(field).getAsLong());
-                assertEquals(oleReport.getAsJsonObject("instrument").get("gain").getAsLong()
-                                + yingReport.getAsJsonObject("instrument").get("gain").getAsLong(),
+                assertEquals(primaryReport.getAsJsonObject("instrument").get("gain").getAsLong()
+                                + secondaryReport.getAsJsonObject("instrument").get("gain").getAsLong(),
                                 combined.getAsJsonObject("instrument").get("gain").getAsLong());
-                assertEquals(oleReport.getAsJsonObject("instrument").get("dividends").getAsLong()
-                                + yingReport.getAsJsonObject("instrument").get("dividends").getAsLong(),
+                assertEquals(primaryReport.getAsJsonObject("instrument").get("dividends").getAsLong()
+                                + secondaryReport.getAsJsonObject("instrument").get("dividends").getAsLong(),
                                 combined.getAsJsonObject("instrument").get("dividends").getAsLong());
-                var oleRank = oleReport.getAsJsonObject("rankings").getAsJsonArray("securities").asList().stream()
+                var primaryRank = primaryReport.getAsJsonObject("rankings").getAsJsonArray("securities").asList().stream()
                                 .map(element -> element.getAsJsonObject()).filter(entry -> entry.get("uuid").getAsString().equals(instrument))
                                 .findFirst().orElseThrow();
-                var yingRank = yingReport.getAsJsonObject("rankings").getAsJsonArray("securities").asList().stream()
-                                .map(element -> element.getAsJsonObject()).filter(entry -> entry.get("uuid").getAsString().equals(yingInstrument))
+                var secondaryRank = secondaryReport.getAsJsonObject("rankings").getAsJsonArray("securities").asList().stream()
+                                .map(element -> element.getAsJsonObject()).filter(entry -> entry.get("uuid").getAsString().equals(secondaryInstrument))
                                 .findFirst().orElseThrow();
                 var combinedRank = combined.getAsJsonObject("rankings").getAsJsonArray("securities").asList().stream()
                                 .map(element -> element.getAsJsonObject()).filter(entry -> entry.get("uuid").getAsString().equals(instrument))
                                 .findFirst().orElseThrow();
-                assertEquals(oleRank.get("gain").getAsLong() + yingRank.get("gain").getAsLong(),
+                assertEquals(primaryRank.get("gain").getAsLong() + secondaryRank.get("gain").getAsLong(),
                                 combinedRank.get("gain").getAsLong());
-                var oleWaterfallTotal = oleReport.getAsJsonObject("waterfall").getAsJsonArray("entries").get(oleReport
+                var primaryWaterfallTotal = primaryReport.getAsJsonObject("waterfall").getAsJsonArray("entries").get(primaryReport
                                 .getAsJsonObject("waterfall").getAsJsonArray("entries").size() - 1).getAsJsonObject()
                                 .get("amount").getAsLong();
-                var yingWaterfallTotal = yingReport.getAsJsonObject("waterfall").getAsJsonArray("entries").get(yingReport
+                var secondaryWaterfallTotal = secondaryReport.getAsJsonObject("waterfall").getAsJsonArray("entries").get(secondaryReport
                                 .getAsJsonObject("waterfall").getAsJsonArray("entries").size() - 1).getAsJsonObject()
                                 .get("amount").getAsLong();
                 var combinedEntries = combined.getAsJsonObject("waterfall").getAsJsonArray("entries");
-                assertEquals(oleWaterfallTotal + yingWaterfallTotal,
+                assertEquals(primaryWaterfallTotal + secondaryWaterfallTotal,
                                 combinedEntries.get(combinedEntries.size() - 1).getAsJsonObject().get("amount").getAsLong());
                 var combinedChanges = combinedEntries.asList().stream().map(element -> element.getAsJsonObject())
                                 .filter(entry -> entry.get("kind").getAsString().equals("CHANGE"))
                                 .mapToLong(entry -> entry.get("amount").getAsLong()).sum();
-                assertEquals(oleWaterfallTotal + yingWaterfallTotal, combinedChanges);
+                assertEquals(primaryWaterfallTotal + secondaryWaterfallTotal, combinedChanges);
 
                 var frameQuery = "&frames=true&from=" + today.minusDays(3) + "&to=" + today.minusDays(1);
-                var oleFrames = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=ole" + frameQuery).body())
+                var primaryFrames = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=primary" + frameQuery).body())
                                 .getAsJsonObject().getAsJsonArray("frames");
-                var yingFrames = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=ying" + frameQuery).body())
+                var secondaryFrames = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=secondary" + frameQuery).body())
                                 .getAsJsonObject().getAsJsonArray("frames");
                 var combinedFrames = JsonParser.parseString(get(client,
                                 base + "?currency=" + currency + "&view=combined" + frameQuery).body())
                                 .getAsJsonObject().getAsJsonArray("frames");
-                assertEquals(oleFrames.size(), combinedFrames.size());
-                for (int ii = 0; ii < oleFrames.size(); ii++)
-                    assertEquals(oleFrames.get(ii).getAsJsonObject().get("totalValue").getAsLong()
-                                    + yingFrames.get(ii).getAsJsonObject().get("totalValue").getAsLong(),
+                assertEquals(primaryFrames.size(), combinedFrames.size());
+                for (int ii = 0; ii < primaryFrames.size(); ii++)
+                    assertEquals(primaryFrames.get(ii).getAsJsonObject().get("totalValue").getAsLong()
+                                    + secondaryFrames.get(ii).getAsJsonObject().get("totalValue").getAsLong(),
                                     combinedFrames.get(ii).getAsJsonObject().get("totalValue").getAsLong());
             }
         }

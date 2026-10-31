@@ -46,15 +46,15 @@ public class DashboardServiceTest
     {
         var today = LocalDate.of(2025, 6, 12);
         var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
-        var olePortfolio = DemoPortfolio.create(today);
-        var yingPortfolio = DemoPortfolio.create(today);
-        olePortfolio.client().getSecurities().getFirst().setTickerSymbol("SHARED");
-        yingPortfolio.client().getSecurities().getFirst().setTickerSymbol("SHARED");
-        olePortfolio.client().getSecurities().getFirst().setIsin("ISIN-OLE");
-        yingPortfolio.client().getSecurities().getFirst().setIsin("ISIN-YING");
+        var primaryPortfolio = DemoPortfolio.create(today);
+        var secondaryPortfolio = DemoPortfolio.create(today);
+        primaryPortfolio.client().getSecurities().getFirst().setTickerSymbol("SHARED");
+        secondaryPortfolio.client().getSecurities().getFirst().setTickerSymbol("SHARED");
+        primaryPortfolio.client().getSecurities().getFirst().setIsin("ISIN-OLE");
+        secondaryPortfolio.client().getSecurities().getFirst().setIsin("ISIN-YING");
 
-        var combined = DashboardService.combined(new DashboardService(olePortfolio, clock, List.of()),
-                        new DashboardService(yingPortfolio, clock, List.of()));
+        var combined = DashboardService.combined(new DashboardService(primaryPortfolio, clock, List.of()),
+                        new DashboardService(secondaryPortfolio, clock, List.of()));
 
         assertEquals(4, combined.dashboard(today.minusYears(1), today).holdings().size());
     }
@@ -64,57 +64,57 @@ public class DashboardServiceTest
     {
         var today = LocalDate.of(2025, 6, 12);
         var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
-        var olePortfolio = DemoPortfolio.create(today);
-        var yingPortfolio = DemoPortfolio.create(today);
-        for (int ii = 0; ii < olePortfolio.client().getSecurities().size(); ii++)
+        var primaryPortfolio = DemoPortfolio.create(today);
+        var secondaryPortfolio = DemoPortfolio.create(today);
+        for (int ii = 0; ii < primaryPortfolio.client().getSecurities().size(); ii++)
         {
-            olePortfolio.client().getSecurities().get(ii).setIsin("QUOTE-" + ii);
-            yingPortfolio.client().getSecurities().get(ii).setIsin("QUOTE-" + ii);
+            primaryPortfolio.client().getSecurities().get(ii).setIsin("QUOTE-" + ii);
+            secondaryPortfolio.client().getSecurities().get(ii).setIsin("QUOTE-" + ii);
         }
-        olePortfolio.client().getSecurities().getFirst().addPrice(new name.abuchen.portfolio.model.SecurityPrice(today,
+        primaryPortfolio.client().getSecurities().getFirst().addPrice(new name.abuchen.portfolio.model.SecurityPrice(today,
                         name.abuchen.portfolio.money.Values.Quote.factorize(100)));
-        yingPortfolio.client().getSecurities().getFirst().addPrice(new name.abuchen.portfolio.model.SecurityPrice(today,
+        secondaryPortfolio.client().getSecurities().getFirst().addPrice(new name.abuchen.portfolio.model.SecurityPrice(today,
                         name.abuchen.portfolio.money.Values.Quote.factorize(200)));
-        var ole = new DashboardService(olePortfolio, clock, List.of()).dashboard(today.minusYears(1), today);
-        var ying = new DashboardService(yingPortfolio, clock, List.of()).dashboard(today.minusYears(1), today);
-        var combinedService = DashboardService.combined(new DashboardService(olePortfolio, clock, List.of()),
-                        new DashboardService(yingPortfolio, clock, List.of()));
+        var primary = new DashboardService(primaryPortfolio, clock, List.of()).dashboard(today.minusYears(1), today);
+        var secondary = new DashboardService(secondaryPortfolio, clock, List.of()).dashboard(today.minusYears(1), today);
+        var combinedService = DashboardService.combined(new DashboardService(primaryPortfolio, clock, List.of()),
+                        new DashboardService(secondaryPortfolio, clock, List.of()));
         var combined = combinedService.dashboard(today.minusYears(1), today);
 
-        assertEquals(ole.totalValue() + ying.totalValue(), combined.totalValue());
-        var sourceHoldingValue = java.util.stream.Stream.concat(ole.holdings().stream(), ying.holdings().stream())
+        assertEquals(primary.totalValue() + secondary.totalValue(), combined.totalValue());
+        var sourceHoldingValue = java.util.stream.Stream.concat(primary.holdings().stream(), secondary.holdings().stream())
                         .filter(h -> "security".equals(h.type())).mapToLong(DashboardService.Holding::value).sum();
         assertEquals(sourceHoldingValue, combined.holdings().stream().filter(h -> "security".equals(h.type()))
                         .mapToLong(DashboardService.Holding::value).sum());
         assertEquals(1, combined.holdings().stream().filter(h -> "security".equals(h.type())).count());
-        var securityUuid = olePortfolio.client().getSecurities().getFirst().getUUID();
+        var securityUuid = primaryPortfolio.client().getSecurities().getFirst().getUUID();
         var detail = combinedService.dashboard(today.minusYears(1), today, null, securityUuid).instrument();
         assertTrue(detail.message().contains("shown separately by source"));
         assertEquals(sourceHoldingValue, detail.value().longValue());
-        assertEquals(oleDashboardValue(olePortfolio, today.minusYears(1), today)
-                        + oleDashboardValue(yingPortfolio, today.minusYears(1), today), detail.value().longValue());
+        assertEquals(primaryDashboardValue(primaryPortfolio, today.minusYears(1), today)
+                        + primaryDashboardValue(secondaryPortfolio, today.minusYears(1), today), detail.value().longValue());
         assertEquals(2, detail.sourcePrices().size());
-        assertTrue(detail.sourcePrices().containsKey("Ole"));
-        assertTrue(detail.sourcePrices().containsKey("Ying"));
+        assertTrue(detail.sourcePrices().containsKey("Primary"));
+        assertTrue(detail.sourcePrices().containsKey("Secondary"));
         assertTrue(detail.sourcePrices().values().stream().allMatch(prices -> !prices.isEmpty()));
         assertFalse(detail.totalReturn().isEmpty());
-        var oleSource = new DashboardService(olePortfolio, clock, List.of());
-        var yingSource = new DashboardService(yingPortfolio, clock, List.of());
-        var oleDetail = oleSource.dashboard(today.minusYears(1), today, null,
-                        olePortfolio.client().getSecurities().getFirst().getUUID()).instrument();
-        var yingDetail = yingSource.dashboard(today.minusYears(1), today, null,
-                        yingPortfolio.client().getSecurities().getFirst().getUUID()).instrument();
-        var oleConverter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(olePortfolio.client()), "EUR");
-        var yingConverter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(yingPortfolio.client()), "EUR");
-        var oleIndex = PerformanceIndex.forInvestment(olePortfolio.client(), oleConverter,
-                        olePortfolio.client().getSecurities().getFirst(), Interval.of(today.minusYears(1), today),
+        var primarySource = new DashboardService(primaryPortfolio, clock, List.of());
+        var secondarySource = new DashboardService(secondaryPortfolio, clock, List.of());
+        var primaryDetail = primarySource.dashboard(today.minusYears(1), today, null,
+                        primaryPortfolio.client().getSecurities().getFirst().getUUID()).instrument();
+        var secondaryDetail = secondarySource.dashboard(today.minusYears(1), today, null,
+                        secondaryPortfolio.client().getSecurities().getFirst().getUUID()).instrument();
+        var primaryConverter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(primaryPortfolio.client()), "EUR");
+        var secondaryConverter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(secondaryPortfolio.client()), "EUR");
+        var primaryIndex = PerformanceIndex.forInvestment(primaryPortfolio.client(), primaryConverter,
+                        primaryPortfolio.client().getSecurities().getFirst(), Interval.of(today.minusYears(1), today),
                         new ArrayList<>());
-        var yingIndex = PerformanceIndex.forInvestment(yingPortfolio.client(), yingConverter,
-                        yingPortfolio.client().getSecurities().getFirst(), Interval.of(today.minusYears(1), today),
+        var secondaryIndex = PerformanceIndex.forInvestment(secondaryPortfolio.client(), secondaryConverter,
+                        secondaryPortfolio.client().getSecurities().getFirst(), Interval.of(today.minusYears(1), today),
                         new ArrayList<>());
-        assertEquals(combinedRate(oleIndex, yingIndex), detail.twror(), 0.0000001);
-        assertEquals(oleDetail.gain() + yingDetail.gain(), detail.gain().longValue());
-        assertEquals(oleDetail.dividends() + yingDetail.dividends(), detail.dividends());
+        assertEquals(combinedRate(primaryIndex, secondaryIndex), detail.twror(), 0.0000001);
+        assertEquals(primaryDetail.gain() + secondaryDetail.gain(), detail.gain().longValue());
+        assertEquals(primaryDetail.dividends() + secondaryDetail.dividends(), detail.dividends());
         assertFalse(detail.activity().dividends().isEmpty());
         assertFalse(detail.activity().transactions().isEmpty());
         assertTrue(detail.events().stream().anyMatch(event -> event.kind().equals("dividend")));
@@ -131,7 +131,7 @@ public class DashboardServiceTest
                         .filter(entry -> entry.kind().equals("CHANGE")).mapToLong(DashboardService.WaterfallEntry::amount).sum());
     }
 
-    private long oleDashboardValue(PortfolioSource.LoadedPortfolio loaded, LocalDate from, LocalDate to)
+    private long primaryDashboardValue(PortfolioSource.LoadedPortfolio loaded, LocalDate from, LocalDate to)
     {
         var service = new DashboardService(loaded, Clock.fixed(to.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC),
                         List.of());
@@ -144,92 +144,92 @@ public class DashboardServiceTest
     {
         var today = LocalDate.of(2025, 6, 12);
         var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
-        var olePortfolio = DemoPortfolio.create(today);
-        var yingPortfolio = DemoPortfolio.create(today);
-        olePortfolio.client().getSecurities().getFirst().setCurrencyCode("USD");
-        yingPortfolio.client().getSecurities().getFirst().setCurrencyCode("USD");
-        olePortfolio.client().getSecurities().getFirst().setIsin("FX-MATCH");
-        yingPortfolio.client().getSecurities().getFirst().setIsin("FX-MATCH");
-        var oleRates = fxView("ole", "0.90");
-        var yingRates = fxView("ying", "1.10");
-        var ole = new DashboardService(olePortfolio, clock, List.of(), oleRates);
-        var ying = new DashboardService(yingPortfolio, clock, List.of(), yingRates);
+        var primaryPortfolio = DemoPortfolio.create(today);
+        var secondaryPortfolio = DemoPortfolio.create(today);
+        primaryPortfolio.client().getSecurities().getFirst().setCurrencyCode("USD");
+        secondaryPortfolio.client().getSecurities().getFirst().setCurrencyCode("USD");
+        primaryPortfolio.client().getSecurities().getFirst().setIsin("FX-MATCH");
+        secondaryPortfolio.client().getSecurities().getFirst().setIsin("FX-MATCH");
+        var primaryRates = fxView("primary", "0.90");
+        var secondaryRates = fxView("secondary", "1.10");
+        var primary = new DashboardService(primaryPortfolio, clock, List.of(), primaryRates);
+        var secondary = new DashboardService(secondaryPortfolio, clock, List.of(), secondaryRates);
         var from = today.minusYears(1);
-        var oleDashboard = ole.dashboard(from, today);
-        var yingDashboard = ying.dashboard(from, today);
-        var combined = DashboardService.combined(ole, ying).dashboard(from, today);
+        var primaryDashboard = primary.dashboard(from, today);
+        var secondaryDashboard = secondary.dashboard(from, today);
+        var combined = DashboardService.combined(primary, secondary).dashboard(from, today);
 
-        assertEquals(oleDashboard.totalValue() + yingDashboard.totalValue(), combined.totalValue());
-        assertEquals(oleDashboard.period().valueChange() + yingDashboard.period().valueChange(), combined.period().valueChange());
-        assertEquals(oleDashboard.period().gain() + yingDashboard.period().gain(), combined.period().gain());
-        assertEquals(oleDashboard.day().valueChange() + yingDashboard.day().valueChange(), combined.day().valueChange());
-        assertEquals(oleDashboard.week().valueChange() + yingDashboard.week().valueChange(), combined.week().valueChange());
-        assertEquals(oleDashboard.series().size(), combined.series().size());
+        assertEquals(primaryDashboard.totalValue() + secondaryDashboard.totalValue(), combined.totalValue());
+        assertEquals(primaryDashboard.period().valueChange() + secondaryDashboard.period().valueChange(), combined.period().valueChange());
+        assertEquals(primaryDashboard.period().gain() + secondaryDashboard.period().gain(), combined.period().gain());
+        assertEquals(primaryDashboard.day().valueChange() + secondaryDashboard.day().valueChange(), combined.day().valueChange());
+        assertEquals(primaryDashboard.week().valueChange() + secondaryDashboard.week().valueChange(), combined.week().valueChange());
+        assertEquals(primaryDashboard.series().size(), combined.series().size());
         for (int ii = 0; ii < combined.series().size(); ii++)
-            assertEquals(oleDashboard.series().get(ii).value() + yingDashboard.series().get(ii).value(),
+            assertEquals(primaryDashboard.series().get(ii).value() + secondaryDashboard.series().get(ii).value(),
                             combined.series().get(ii).value());
         var expectedRate = combined.series().getLast().value() / (double) combined.series().getFirst().value() - 1;
         assertEquals(expectedRate, combined.period().rate(), 0.0000000001);
-        var individualHoldingValue = java.util.stream.Stream.concat(oleDashboard.holdings().stream(), yingDashboard.holdings().stream())
+        var individualHoldingValue = java.util.stream.Stream.concat(primaryDashboard.holdings().stream(), secondaryDashboard.holdings().stream())
                         .filter(h -> "security".equals(h.type())).mapToLong(DashboardService.Holding::value).sum();
         assertEquals(individualHoldingValue, combined.holdings().stream().filter(h -> "security".equals(h.type()))
                         .mapToLong(DashboardService.Holding::value).sum());
-        var individualCashValue = java.util.stream.Stream.concat(oleDashboard.holdings().stream(), yingDashboard.holdings().stream())
+        var individualCashValue = java.util.stream.Stream.concat(primaryDashboard.holdings().stream(), secondaryDashboard.holdings().stream())
                         .filter(h -> "cash".equals(h.type())).mapToLong(DashboardService.Holding::value).sum();
         assertEquals(individualCashValue, combined.holdings().stream().filter(h -> "cash".equals(h.type()))
                         .mapToLong(DashboardService.Holding::value).sum());
 
-        var detailed = DashboardService.combined(ole, ying).dashboard(from, today, null, null, true, null, true);
-        var oleDetailed = ole.dashboard(from, today, null, null, true);
-        var yingDetailed = ying.dashboard(from, today, null, null, true);
-        var oleUuid = olePortfolio.client().getSecurities().getFirst().getUUID();
-        var yingUuid = yingPortfolio.client().getSecurities().getFirst().getUUID();
-        var oleRank = oleDetailed.rankings().securities().stream().filter(e -> e.uuid().equals(oleUuid)).findFirst().orElseThrow();
-        var yingRank = yingDetailed.rankings().securities().stream().filter(e -> e.uuid().equals(yingUuid)).findFirst().orElseThrow();
-        var combinedRank = detailed.rankings().securities().stream().filter(e -> e.uuid().equals(oleUuid)).findFirst().orElseThrow();
-        assertEquals(oleRank.gain() + yingRank.gain(), combinedRank.gain().longValue());
-        var oleConverter = new CurrencyConverterImpl(oleRates.factory(olePortfolio.client()), "EUR");
-        var yingConverter = new CurrencyConverterImpl(yingRates.factory(yingPortfolio.client()), "EUR");
-        var oleIndex = PerformanceIndex.forInvestment(olePortfolio.client(), oleConverter,
-                        olePortfolio.client().getSecurities().getFirst(), Interval.of(from, today), new ArrayList<>());
-        var yingIndex = PerformanceIndex.forInvestment(yingPortfolio.client(), yingConverter,
-                        yingPortfolio.client().getSecurities().getFirst(), Interval.of(from, today), new ArrayList<>());
-        assertEquals(combinedRate(oleIndex, yingIndex), combinedRank.rate(), 0.0000000001);
+        var detailed = DashboardService.combined(primary, secondary).dashboard(from, today, null, null, true, null, true);
+        var primaryDetailed = primary.dashboard(from, today, null, null, true);
+        var secondaryDetailed = secondary.dashboard(from, today, null, null, true);
+        var primaryUuid = primaryPortfolio.client().getSecurities().getFirst().getUUID();
+        var secondaryUuid = secondaryPortfolio.client().getSecurities().getFirst().getUUID();
+        var primaryRank = primaryDetailed.rankings().securities().stream().filter(e -> e.uuid().equals(primaryUuid)).findFirst().orElseThrow();
+        var secondaryRank = secondaryDetailed.rankings().securities().stream().filter(e -> e.uuid().equals(secondaryUuid)).findFirst().orElseThrow();
+        var combinedRank = detailed.rankings().securities().stream().filter(e -> e.uuid().equals(primaryUuid)).findFirst().orElseThrow();
+        assertEquals(primaryRank.gain() + secondaryRank.gain(), combinedRank.gain().longValue());
+        var primaryConverter = new CurrencyConverterImpl(primaryRates.factory(primaryPortfolio.client()), "EUR");
+        var secondaryConverter = new CurrencyConverterImpl(secondaryRates.factory(secondaryPortfolio.client()), "EUR");
+        var primaryIndex = PerformanceIndex.forInvestment(primaryPortfolio.client(), primaryConverter,
+                        primaryPortfolio.client().getSecurities().getFirst(), Interval.of(from, today), new ArrayList<>());
+        var secondaryIndex = PerformanceIndex.forInvestment(secondaryPortfolio.client(), secondaryConverter,
+                        secondaryPortfolio.client().getSecurities().getFirst(), Interval.of(from, today), new ArrayList<>());
+        assertEquals(combinedRate(primaryIndex, secondaryIndex), combinedRank.rate(), 0.0000000001);
         var dailyFrom = LocalDate.parse(detailed.day().openingDate());
-        var oleDaily = SecurityRankingService.calculate(olePortfolio.client(), oleConverter, dailyFrom, today).securities().stream()
-                        .filter(e -> e.uuid().equals(oleUuid)).findFirst().orElseThrow();
-        var yingDaily = SecurityRankingService.calculate(yingPortfolio.client(), yingConverter, dailyFrom, today).securities().stream()
-                        .filter(e -> e.uuid().equals(yingUuid)).findFirst().orElseThrow();
-        var combinedDaily = detailed.dailyRankings().securities().stream().filter(e -> e.uuid().equals(oleUuid)).findFirst().orElseThrow();
-        assertEquals(oleDaily.gain() + yingDaily.gain(), combinedDaily.gain().longValue());
-        var oleDailyIndex = PerformanceIndex.forInvestment(olePortfolio.client(), oleConverter,
-                        olePortfolio.client().getSecurities().getFirst(), Interval.of(dailyFrom, today), new ArrayList<>());
-        var yingDailyIndex = PerformanceIndex.forInvestment(yingPortfolio.client(), yingConverter,
-                        yingPortfolio.client().getSecurities().getFirst(), Interval.of(dailyFrom, today), new ArrayList<>());
-        assertEquals(combinedRate(oleDailyIndex, yingDailyIndex), combinedDaily.rate(), 0.0000000001);
-        var oleWaterfall = ole.dashboard(from, today, null, null, false, "calculation").waterfall();
-        var yingWaterfall = ying.dashboard(from, today, null, null, false, "calculation").waterfall();
-        var waterfall = DashboardService.combined(ole, ying).dashboard(from, today, null, null, false,
+        var primaryDaily = SecurityRankingService.calculate(primaryPortfolio.client(), primaryConverter, dailyFrom, today).securities().stream()
+                        .filter(e -> e.uuid().equals(primaryUuid)).findFirst().orElseThrow();
+        var secondaryDaily = SecurityRankingService.calculate(secondaryPortfolio.client(), secondaryConverter, dailyFrom, today).securities().stream()
+                        .filter(e -> e.uuid().equals(secondaryUuid)).findFirst().orElseThrow();
+        var combinedDaily = detailed.dailyRankings().securities().stream().filter(e -> e.uuid().equals(primaryUuid)).findFirst().orElseThrow();
+        assertEquals(primaryDaily.gain() + secondaryDaily.gain(), combinedDaily.gain().longValue());
+        var primaryDailyIndex = PerformanceIndex.forInvestment(primaryPortfolio.client(), primaryConverter,
+                        primaryPortfolio.client().getSecurities().getFirst(), Interval.of(dailyFrom, today), new ArrayList<>());
+        var secondaryDailyIndex = PerformanceIndex.forInvestment(secondaryPortfolio.client(), secondaryConverter,
+                        secondaryPortfolio.client().getSecurities().getFirst(), Interval.of(dailyFrom, today), new ArrayList<>());
+        assertEquals(combinedRate(primaryDailyIndex, secondaryDailyIndex), combinedDaily.rate(), 0.0000000001);
+        var primaryWaterfall = primary.dashboard(from, today, null, null, false, "calculation").waterfall();
+        var secondaryWaterfall = secondary.dashboard(from, today, null, null, false, "calculation").waterfall();
+        var waterfall = DashboardService.combined(primary, secondary).dashboard(from, today, null, null, false,
                         "calculation", false).waterfall();
         assertNull(waterfall.message());
         assertTrue(waterfall.entries().size() > 0);
-        assertEquals(oleWaterfall.entries().stream().filter(e -> "START".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum()
-                        + yingWaterfall.entries().stream().filter(e -> "START".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum(),
+        assertEquals(primaryWaterfall.entries().stream().filter(e -> "START".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum()
+                        + secondaryWaterfall.entries().stream().filter(e -> "START".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum(),
                         waterfall.entries().stream().filter(e -> "START".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum());
-        assertEquals(oleWaterfall.entries().stream().filter(e -> "TOTAL".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum()
-                        + yingWaterfall.entries().stream().filter(e -> "TOTAL".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum(),
+        assertEquals(primaryWaterfall.entries().stream().filter(e -> "TOTAL".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum()
+                        + secondaryWaterfall.entries().stream().filter(e -> "TOTAL".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum(),
                         waterfall.entries().stream().filter(e -> "TOTAL".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum());
     }
 
-    private double combinedRate(PerformanceIndex ole, PerformanceIndex ying)
+    private double combinedRate(PerformanceIndex primary, PerformanceIndex secondary)
     {
         double accumulated = 0;
-        for (int ii = 1; ii < ole.getDates().length; ii++)
+        for (int ii = 1; ii < primary.getDates().length; ii++)
         {
-            long opening = ole.getTotals()[ii - 1] + ying.getTotals()[ii - 1]
-                            + ole.getInboundTransferals()[ii] + ying.getInboundTransferals()[ii];
-            long closing = ole.getTotals()[ii] + ying.getTotals()[ii]
-                            + ole.getOutboundTransferals()[ii] + ying.getOutboundTransferals()[ii];
+            long opening = primary.getTotals()[ii - 1] + secondary.getTotals()[ii - 1]
+                            + primary.getInboundTransferals()[ii] + secondary.getInboundTransferals()[ii];
+            long closing = primary.getTotals()[ii] + secondary.getTotals()[ii]
+                            + primary.getOutboundTransferals()[ii] + secondary.getOutboundTransferals()[ii];
             double daily = opening == 0 ? 0 : closing / (double) opening - 1;
             accumulated = (1 + accumulated) * (1 + daily) - 1;
         }

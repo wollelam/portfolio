@@ -216,7 +216,7 @@ directory into the container, so paths may be relative to the directory from
 which you launch it. This also permits `STORE` to save in-memory updates:
 
 ```
-./portfolio-cli.sh local-portfolios/PortOle.portfolio
+./portfolio-cli.sh local-portfolios/example.portfolio
 ./portfolio-cli.sh --rebuild /path/to/client.portfolio
 ```
 

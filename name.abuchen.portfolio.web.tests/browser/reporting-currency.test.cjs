@@ -26,11 +26,11 @@ async function main() {
       const fixtureUrl = new URL(url); fixtureUrl.searchParams.delete('view'); fixtureUrl.searchParams.delete('currency');
       const response = await route.fetch({ url: fixtureUrl.toString() });
       const data = await response.json();
-      data.views = ['ole', 'ying', 'combined'];
+      data.views = ['primary', 'secondary', 'combined'];
       fixtureData = data;
       await route.fulfill({ response, body: JSON.stringify(data) });
     });
-    await page.goto(`${base}/#/allocation?view=ole&currency=CHF`, { waitUntil: 'networkidle' });
+    await page.goto(`${base}/#/allocation?view=primary&currency=CHF`, { waitUntil: 'networkidle' });
     await page.waitForSelector('#dashboard:not([hidden])');
     const selectedDates = await Promise.all(['from', 'to'].map(id => page.locator(`#${id}`).inputValue()));
     const selector = page.locator('#currency-selector');
@@ -41,7 +41,7 @@ async function main() {
     await page.waitForFunction(() => new URLSearchParams(location.hash.split('?')[1]).get('currency') === 'USD');
     await page.waitForFunction(() => document.querySelector('#dashboard')?.getAttribute('aria-busy') === 'false');
     assert.match(page.url(), /#\/allocation\?/);
-    assert.match(page.url(), /view=ole/);
+    assert.match(page.url(), /view=primary/);
     assert.match(page.url(), new RegExp(`from=${selectedDates[0]}`));
     assert.match(page.url(), new RegExp(`to=${selectedDates[1]}`));
     assert(requests.some(request => request.currency === 'USD'), 'dashboard request carries selected currency');

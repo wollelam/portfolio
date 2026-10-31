@@ -18,7 +18,7 @@ it never accesses your portfolio or downloads quotes. Stop the server with Ctrl-
 
 ```sh
 ./portfolio-web.sh --file /path/to/portfolio.portfolio
-./portfolio-web.sh --file /path/to/PortOle.portfolio --second-file /path/to/PortYing.portfolio
+./portfolio-web.sh --file /path/to/primary.portfolio --second-file /path/to/secondary.portfolio
 ./portfolio-web.sh --rebuild --demo  # after changing source/assets
 ./portfolio-web.sh --build          # build and test without starting a server
 ./portfolio-web.sh --demo --port 8090
@@ -31,7 +31,7 @@ launcher passes the environment variable through to Java. The password is retain
 environment for that launch; this prototype does not implement an interactive unlock flow.
 For an encrypted second file, use `PP_WEB_SECOND_PASSWORD` in the same way.
 
-With `--second-file`, the Portfolio selector offers Ole, Ying and Combined. Each file refreshes
+With `--second-file`, the Portfolio selector offers Primary, Secondary and Combined. Each file refreshes
 independently and keeps its own recovery snapshot. Combined sums holdings of securities with an
 unambiguous matching ISIN and quote currency, or an unambiguous matching ticker and quote currency
 when no matching ISIN is available. Other holdings remain separate. Combined valuations and

@@ -86,24 +86,24 @@ public final class WebApplication implements IApplication
                             provider -> provider.update(new NullProgressMonitor()));
             updates = new MarketUpdates(new QuoteJobs(priceDirectory, clock, file.toAbsolutePath().normalize().toString()), fx, clock, liveQuotes);
         }
-        var yingSource = secondFile == null ? null : PortfolioSource.file(secondFile, () -> {
+        var secondarySource = secondFile == null ? null : PortfolioSource.file(secondFile, () -> {
             var value = System.getenv("PP_WEB_SECOND_PASSWORD");
             return value == null ? null : value.toCharArray();
         }, snapshots);
         try (var market = updates; var portfolios = new PortfolioRefresh(source, clock, warnings, demo ? 0 : pollSeconds,
                         Duration.ofSeconds(5), market.fx());
-                        var yingPortfolios = yingSource == null ? null : new PortfolioRefresh(yingSource, clock, warnings,
+                        var secondaryPortfolios = secondarySource == null ? null : new PortfolioRefresh(secondarySource, clock, warnings,
                                         pollSeconds, Duration.ofSeconds(5), market.fx()))
         {
-            server = new WebServer(new InetSocketAddress(bind, port), portfolios, yingPortfolios, market);
+            server = new WebServer(new InetSocketAddress(bind, port), portfolios, secondaryPortfolios, market);
             var shutdown = new Thread(this::stop, "portfolio-web-shutdown");
             Runtime.getRuntime().addShutdownHook(shutdown);
             try
             {
                 server.start();
                 portfolios.start();
-                if (yingPortfolios != null)
-                    yingPortfolios.start();
+                if (secondaryPortfolios != null)
+                    secondaryPortfolios.start();
                 market.start();
                 System.out.println("Portfolio Web: http://localhost:" + server.port()); // NOSONAR
                 System.out.println(demo ? "Synthetic demo; automatic file refresh is off."
