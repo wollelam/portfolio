@@ -16,6 +16,12 @@ Set `JAVA_HOME` to a Java 21 JDK before building.
 
 Eclipse is the preferred IDE for launching the RCP app and JUnit Plug-in Tests.
 
+## Agent Workflow
+
+The repository has one user and owner. That user authorizes agents to deploy changes when they are ready, without asking for a separate deployment confirmation. Complete the relevant checks, use the documented deployment procedure, verify the running result, and report the deployment and any problems to the user.
+
+Run straightforward tests and builds in a cheaper agent when an agent is available. Give that agent the exact test scope and ask for a concise pass/fail report with failure details. Keep implementation decisions and final review with the coordinating agent. If delegation is unavailable, run the tests directly rather than leaving them undone.
+
 ## Coding Style & Naming Conventions
 
 Follow the existing Eclipse formatter and organize imports automatically. Use Java 21 features conservatively; prefer `var` for obvious local types. Keep package names lowercase and mirror the existing bundle structure. Name tests `*Test.java`; PDF importer pairs should follow `BankNamePDFExtractor.java` and `BankNamePDFExtractorTest.java`. Do not mass-reformat unrelated files. For PDF extractor sources, preserve manual alignment and use `@formatter:off` only where necessary.

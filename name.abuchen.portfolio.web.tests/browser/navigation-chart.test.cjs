@@ -80,6 +80,11 @@ async function assertScrollAt(page, expected, label) {
     `${label}: expected scrollY=${expected}, actual=${state.scrollY}, entry=${JSON.stringify(state)}`);
 }
 
+async function openDateMenu(page) {
+  const menu = page.locator('#instrument-date-menu');
+  if (!(await menu.evaluate(element => element.open))) await menu.locator('summary').click();
+}
+
 async function main() {
   const browser = await chromium.launch({ executablePath: chromiumPath, headless: true, args: ['--no-sandbox'] });
   try {
@@ -90,7 +95,16 @@ async function main() {
     const fixture = await installSyntheticFixture(page);
     await page.goto(baseUrl, { waitUntil: 'networkidle' });
     await page.getByRole('heading', { name: 'Portfolio overview' }).waitFor();
-    assert(await page.locator('[data-page]:visible').count() >= 2, 'overview shows its summary and market pages');
+    assert.equal(await page.locator('[data-page="overview"]:visible').count(), 1, 'overview summary is visible');
+    assert.equal(await page.locator('#daily-performers-panel').isVisible(), false, 'daily performers start collapsed');
+    assert.equal(await page.locator('#daily-performers-toggle').getAttribute('aria-expanded'), 'false');
+    await page.locator('#daily-performers-toggle').click();
+    await page.locator('#daily-performers-panel').waitFor({ state: 'visible' });
+    await page.waitForFunction(() => document.querySelector('#daily-performers-status').textContent !== 'Loading daily performers…');
+    assert.equal(await page.locator('#daily-performers-toggle').getAttribute('aria-expanded'), 'true');
+    assert(await page.locator('#daily-performers-panel').isVisible(), 'expanded daily performers panel is visible');
+    await page.locator('#daily-performers-toggle').click();
+    assert.equal(await page.locator('#daily-performers-panel').isVisible(), false, 'daily performers can be collapsed');
 
     await page.locator('[data-route="holdings"]').click();
     await waitForRoute(page, 'holdings', fixture);
@@ -129,10 +143,13 @@ async function main() {
 
     await page.locator('[data-route="performers"]').click();
     await waitForRoute(page, 'performers', fixture);
+    const dateMenu = page.locator('#instrument-date-menu');
+    await openDateMenu(page);
     assert.equal(await page.locator('#gainers-body tr:first-child a').innerText(), 'Rate leader', 'percentage basis sorts by return');
     await page.locator('[data-ranking-basis="gain"]').click();
     assert.equal(await page.locator('#gainers-body tr:first-child a').innerText(), 'Money leader', 'currency basis sorts by gain');
     assert(page.url().includes('basis=gain'), 'ranking basis is saved in the URL');
+    await openDateMenu(page);
     await page.locator('#from').fill(await page.locator('#from').inputValue());
     const performerFrom = await page.locator('#from').inputValue();
     const performerTo = await page.locator('#to').inputValue();
@@ -147,14 +164,15 @@ async function main() {
     assert.equal(await page.locator('[data-ranking-basis="gain"]').getAttribute('aria-pressed'), 'true', 'sidebar navigation preserves ranking basis');
     await page.reload({ waitUntil: 'networkidle' }); await waitForRoute(page, 'performers', fixture);
     assert.equal(await page.locator('[data-ranking-basis="gain"]').getAttribute('aria-pressed'), 'true', 'reload restores ranking basis');
+    await openDateMenu(page);
     await page.locator('[data-period="1D"]').click(); await page.waitForTimeout(200);
     assert.equal(await page.locator('#from').inputValue(), fixture.priorTradingDate(), '1D preset uses the prior trading day');
-    await page.locator('[data-period="MTD"]').click(); await page.waitForTimeout(200);
+    await openDateMenu(page); await page.locator('[data-period="MTD"]').click(); await page.waitForTimeout(200);
     const mtdFrom = await page.locator('#from').inputValue();
     const mtdTo = await page.locator('#to').inputValue();
     const expectedMtdOpen = new Date(`${mtdTo}T12:00:00Z`); expectedMtdOpen.setUTCDate(0);
     assert.equal(mtdFrom, expectedMtdOpen.toISOString().slice(0, 10), 'MTD opens on the final day of the previous month');
-    await page.locator('[data-period="YTD"]').click(); await page.waitForTimeout(200);
+    await openDateMenu(page); await page.locator('[data-period="YTD"]').click(); await page.waitForTimeout(200);
     const ytdTo = new Date(`${await page.locator('#to').inputValue()}T12:00:00Z`);
     assert.equal(await page.locator('#from').inputValue(), `${ytdTo.getUTCFullYear() - 1}-12-31`, 'YTD uses the prior year end opening valuation');
     fixture.setEmptyRankings(true); await page.reload({ waitUntil: 'networkidle' }); await waitForRoute(page, 'performers', fixture);
@@ -164,10 +182,12 @@ async function main() {
 
     await page.locator('[data-route="performance"]').click();
     await waitForRoute(page, 'performance', fixture);
+    await openDateMenu(page);
     await page.locator('#mode-value').click();
     assert.equal(await page.locator('#chart .capital-line').count(), 1, 'value mode overlays native invested capital');
     assert(await page.locator('#value-legend').isVisible());
     assert.match(await page.locator('#chart-detail').innerText(), /Opening value \+ net contributions.*Investment gain \/ loss/);
+    await openDateMenu(page);
     const from = await page.locator('#from').inputValue();
     const to = await page.locator('#to').inputValue();
     await page.locator('#from').fill(from);
@@ -202,7 +222,13 @@ async function main() {
     const instrumentSvg = page.locator('#instrument-chart');
     await instrumentSvg.scrollIntoViewIfNeeded();
     const instrumentBox = await instrumentSvg.boundingBox();
-    await page.mouse.move(instrumentBox.x + instrumentBox.width * 0.60, instrumentBox.y + instrumentBox.height * 0.5);
+    const irregularX = await page.evaluate(date => {
+      const from = Date.parse(`${report.period.openingDate}T00:00:00Z`);
+      const to = Date.parse(`${report.period.closingDate}T00:00:00Z`);
+      const at = Date.parse(`${date}T00:00:00Z`);
+      return instrumentChart.left + (at - from) / Math.max(1, to - from) * (instrumentChart.right - instrumentChart.left);
+    }, fixture.irregularLastDate());
+    await page.mouse.move(instrumentBox.x + instrumentBox.width * irregularX / 800, instrumentBox.y + instrumentBox.height * 0.5);
     const irregularHover = await page.locator('#instrument-chart-detail').innerText();
     const expectedIrregularDate = new Date(`${fixture.irregularLastDate()}T12:00:00Z`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
     assert(irregularHover.includes(expectedIrregularDate), `instrument hover follows actual time spacing (${irregularHover} != ${expectedIrregularDate})`);
@@ -227,12 +253,14 @@ async function main() {
     assert.equal(await page.locator('input[type=range]:visible').count(), 0, 'graphs use direct inspection rather than sliders');
     const closingDate = await page.locator('#to').inputValue();
     for (const years of [2, 5, 10]) {
+      await openDateMenu(page);
       await page.locator(`[data-period="${years}Y"]`).click();
       await page.waitForFunction(expected => !document.querySelector('#from').disabled && document.querySelector('#from').value.slice(0, 4) === String(Number(expected.date.slice(0, 4)) - expected.years), { date: closingDate, years });
       assert.equal(await page.locator(`[data-period="${years}Y"]`).getAttribute('aria-pressed'), 'true');
     }
     const historyResponse = await page.request.get(`${baseUrl}/api/dashboard`);
     const historyStart = (await historyResponse.json()).inceptionDate;
+    await openDateMenu(page);
     await page.locator('[data-period="MAX"]').click();
     await page.waitForFunction(expected => !document.querySelector('#from').disabled && document.querySelector('#from').value === expected, historyStart);
     assert.equal(await page.locator('[data-period="MAX"]').getAttribute('aria-pressed'), 'true');

@@ -3,6 +3,10 @@
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright-core');
 const base = process.env.BASE_URL || 'http://127.0.0.1:8099';
+async function openDateMenu(page) {
+  const menu = page.locator('#instrument-date-menu');
+  if (!(await menu.evaluate(element => element.open))) await menu.locator('summary').click();
+}
 async function main() {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
   try {
@@ -30,6 +34,7 @@ async function main() {
     assert.equal(new URLSearchParams(page.url().split('?')[1]).get('exclude'), excluded);
     assert(!overviewRequests.includes(historical), 'overview never requests a historical closing valuation');
     await page.locator('[data-route="performance"]').click();
+    await openDateMenu(page);
     await page.locator('#to').fill(historical);
     await page.locator('#dates button[type="submit"]').click();
     await page.waitForFunction(date => report.asOf === date, historical);

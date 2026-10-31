@@ -5,6 +5,11 @@ const { chromium } = require('playwright-core');
 
 const baseUrl = process.env.BASE_URL || 'http://127.0.0.1:8097';
 
+async function openDateMenu(page) {
+  const menu = page.locator('#instrument-date-menu');
+  if (!(await menu.evaluate(element => element.open))) await menu.locator('summary').click();
+}
+
 async function ready(page) {
   await page.waitForFunction(() => document.querySelector('#dashboard').getAttribute('aria-busy') === 'false'
     && !document.querySelector('#dashboard').hidden);
@@ -36,6 +41,7 @@ async function main() {
     const to = await page.locator('#to').inputValue();
     const from = new Date(`${to}T12:00:00Z`);
     from.setUTCFullYear(from.getUTCFullYear() - 2);
+    await openDateMenu(page);
     await page.locator('#from').fill(from.toISOString().slice(0, 10));
     const applied = page.waitForResponse(item => item.url().includes('/api/dashboard'));
     await page.locator('#dates button').click();

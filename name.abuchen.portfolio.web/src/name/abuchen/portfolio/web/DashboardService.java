@@ -52,9 +52,17 @@ final class DashboardService
     {
     }
 
+    record ReturnPoint(String date, Double value)
+    {
+    }
+
+    record ChartEvent(String date, String kind, String label)
+    {
+    }
+
     record Instrument(String uuid, String name, String currency, double quoteScale, long shares, Long value, String quoteDate,
                     Double twror, Double irr, Long gain, long dividends, List<InstrumentPoint> prices, String message,
-                    SecurityActivityService.Activity activity)
+                    SecurityActivityService.Activity activity, List<ReturnPoint> totalReturn, List<ChartEvent> events)
     {
     }
 
@@ -396,7 +404,8 @@ final class DashboardService
         var security = scope.client.getSecurities().stream().filter(s -> uuid.equals(s.getUUID())).findFirst().orElse(null);
         if (security == null)
             return new Instrument(uuid, null, null, Values.Quote.divider(), 0, null, null, null, null, null, 0, List.of(),
-                            "This instrument is no longer available in the loaded portfolio.", SecurityActivityService.empty());
+                            "This instrument is no longer available in the loaded portfolio.", SecurityActivityService.empty(),
+                            List.of(), List.of());
 
         var atEnd = ClientSnapshot.create(portfolio.client(), converter, closingDate);
         var position = atEnd.getAssetPositions().filter(p -> security.equals(p.getInvestmentVehicle())).findFirst().orElse(null);
@@ -416,6 +425,8 @@ final class DashboardService
                                         && !t.getDateTime().toLocalDate().isAfter(closingDate)
                                         && NonCashDistributions.isSpinOff(portfolio.client(), account, t)))
                         .mapToLong(t -> converter.convert(t.getDateTime().toLocalDate(), t.getGrossValue()).getAmount()).sum();
+        var chart = InstrumentChartService.calculate(portfolio.client(), security, converter, openingDate, closingDate,
+                        record != null, atStart.getAssetPositions().anyMatch(p -> security.equals(p.getSecurity())), position != null);
         return new Instrument(security.getUUID(), security.getName(), security.getCurrencyCode(), Values.Quote.divider(),
                         record == null ? 0 : record.getSharesHeld(),
                         position == null || !hasClosingQuote ? null : position.getValuation().getAmount(),
@@ -427,7 +438,8 @@ final class DashboardService
                         !validPeriod ? (hasClosingQuote ? "The opening quote is missing or invalid; period performance is unavailable."
                                         : "No stored quote on or before the selected closing date is usable; valuation and period performance are unavailable.") :
                                         points.isEmpty() ? "No stored quotes in the selected period." : null,
-                        SecurityActivityService.calculate(portfolio.client(), security, converter, openingDate, closingDate));
+                        SecurityActivityService.calculate(portfolio.client(), security, converter, openingDate, closingDate),
+                        chart.totalReturn(), chart.events());
     }
 
     static InstrumentPoint instrumentPoint(SecurityPrice price, String currency, CurrencyConverter converter)

@@ -115,13 +115,13 @@
           <div><span>Top five positions · gross exposure</span><strong id="allocation-top-five"></strong><small class="subtle">Sum of absolute position values</small></div>
           <div><span>Cash · net value</span><strong id="allocation-cash"></strong><small id="allocation-cash-weight" class="subtle"></small></div>
         </div>
-        <p class="panel-note"><label for="allocation-color">Color by <select id="allocation-color"><option value="allocation">Position type</option><option value="performance">Daily performance</option></select></label></p>
+        <div class="segmented allocation-color" role="group" aria-label="Color by"><button type="button" data-allocation-color="allocation" aria-pressed="true">Allocation</button><button type="button" data-allocation-color="performance" aria-pressed="false">Daily performance</button></div>
         <p id="allocation-summary" class="panel-note"></p>
         <div id="allocation-category-legend" class="allocation-legend"><span class="allocation-key securities"></span>Securities <span class="allocation-key cash"></span>Cash <span class="allocation-key negative"></span>Negative positions</div>
-        <div id="allocation-performance-legend" class="allocation-legend" hidden><span style="color:#d33340">−3% or less</span> · −2% · −1% · 0% · +1% · +2% · <span style="color:#16a05a">+3% or more</span> · Gray: unavailable / cash. Daily time-weighted returns in portfolio currency, using saved prices. Size: absolute position value.</div>
+        <div id="allocation-performance-legend" class="allocation-legend" hidden><span class="heatmap-loss">−3% or less</span> · −2% · −1% · 0% · +1% · +2% · <span class="heatmap-gain">+3% or more</span> · Gray: unavailable / cash. Daily time-weighted returns in portfolio currency, using saved prices. Size: absolute position value.</div>
         <div class="table-scroll allocation-map"><svg id="allocation-chart" role="group" aria-label="Position allocation by absolute closing value"></svg></div>
         <p id="allocation-detail" class="chart-explorer" role="status"></p>
-        <p class="panel-note">Tile area shows absolute position value at the selected closing date, including cash. It measures exposure, not performance. Negative values have a red striped background; net portfolio weights retain their sign. The 20 largest positions are shown individually; remaining positions are grouped by sign and asset type. Hover or focus a tile for its exact value and weight; select a security to open its details.</p>
+        <p class="panel-note">Tile area shows absolute position value at the selected closing date, including cash. It measures exposure, not performance. In Allocation mode, negative values have a red striped background; net portfolio weights retain their sign. Allocation mode groups positions beyond the largest 20 by sign and asset type. Daily performance mode shows every position individually. Hover or focus a tile for its exact value and weight; select a security to open its details.</p>
       </section>
       <section data-page="holdings" id="holdings" class="panel"><div class="panel-heading"><div><p class="eyebrow">WHERE YOU’RE INVESTED</p><h2>Holdings &amp; cash</h2></div><span id="holding-count" class="subtle"></span></div><div class="table-scroll"><table><thead><tr><th scope="col">Asset</th><th scope="col" class="numeric">Value</th><th scope="col" class="numeric">Weight</th><th scope="col">Quote date</th><th scope="col" class="numeric">IBKR price</th><th scope="col" class="numeric">IBKR position value</th></tr></thead><tbody id="holdings-body"></tbody></table></div><p class="panel-note">Quote dates refer to the latest available price on or before the valuation date. Cash has no quote date. IBKR columns show explicitly mapped, fresh broker quotes only for today’s holdings, in each instrument’s currency. Position value uses the held quantity from this portfolio file; FX, taxes and fees are not included. Saved valuations and performance retain their stored prices.</p><p id="holdings-live-status" class="panel-note" role="status"></p></section>
       <section data-page="live-quotes" id="live-quotes" class="panel">
@@ -159,14 +159,18 @@
         <p class="panel-note">Gain / loss accounts for the security’s value change, trades, net dividends, taxes and fees in the portfolio’s reporting currency. Return is time weighted. Missing prices or calculation errors are excluded from the affected ranking.</p>
       </section>
       <section data-page="instrument" id="instrument-panel" class="panel" hidden aria-live="polite">
-        <h3>Price history · <span id="instrument-currency"></span></h3>
+        <h3>Instrument chart · <span id="instrument-currency"></span></h3>
+        <div class="segmented" role="group" aria-label="Instrument chart measure"><button type="button" data-instrument-chart="price" aria-pressed="true">Price</button><button type="button" data-instrument-chart="return" aria-pressed="false">Total return</button></div>
+        <div class="instrument-event-filters" role="group" aria-label="Chart events"><label><input type="checkbox" data-event-kind="dividend" checked> Dividends</label><label><input type="checkbox" data-event-kind="buy,sell" checked> Buys / sells</label><label><input type="checkbox" data-event-kind="corporate" checked> Corporate actions / notes</label></div>
         <div id="instrument-currency-choice" class="segmented" role="group" aria-label="Price chart currency" hidden>
           <button type="button" data-instrument-currency="native" aria-pressed="true">Instrument currency</button><button type="button" data-instrument-currency="portfolio" aria-pressed="false">Portfolio currency</button>
         </div>
-        <svg id="instrument-chart" class="time-series-chart" viewBox="0 0 800 180" role="img" aria-label="Stored instrument price history in instrument currency"></svg>
+        <svg id="instrument-chart" class="time-series-chart" viewBox="0 0 800 180" role="group" aria-label="Stored instrument price history in instrument currency"></svg>
         <p id="instrument-chart-detail" class="chart-explorer"></p>
         <p id="instrument-fx-note" class="panel-note" hidden></p>
-        <p class="panel-note">Price history includes the latest available broker quote for today. It is not investment return. Future quotes are excluded.</p>
+        <p id="instrument-chart-explanation" class="panel-note"></p>
+        <p id="instrument-events-count" class="panel-note"></p><p id="instrument-event-detail" class="chart-explorer" role="status">Focus or select a chart marker for event details.</p>
+        <details class="instrument-event-list"><summary>Event details</summary><ul id="instrument-events"></ul></details>
         <div class="panel-heading">
           <div><p class="eyebrow">INSTRUMENT DETAIL</p><div class="instrument-title"><h2 id="instrument-name"></h2></div></div>
           <a id="instrument-back" class="button secondary" href="#/holdings">← Back</a>

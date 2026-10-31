@@ -316,8 +316,8 @@ linkable same-origin hash pages (`#/overview`, `#/performance`, `#/waterfall`, `
 state in browser history. Instrument links are normal anchors, so direct links and opening a detail
 in a new tab work without server routes. The Back control returns to Holdings in a direct-open tab.
 The instrument heading shows the latest validated broker price and its freshness, or the latest
-saved price in the selected period. The price chart replaces today’s saved point with the broker
-price; portfolio-currency charts require a usable live exchange rate for that point. Historical
+saved price in the selected period. The price chart replaces today’s saved point only with a broker quote received today; older
+quotes stay in the header with their stale status and timestamp. Portfolio-currency charts require a usable live exchange rate for that point. Historical
 views continue to use saved prices.
 
 Both graphs use the same internal `TimeSeriesChart` component for time-based axes, crosshair,
@@ -492,3 +492,24 @@ other pages, saved links or browser history cannot disable live repricing there.
 and portfolio-group filters are preserved, and the URL is updated to the actual current date.
 Historical analysis remains available on the other pages and survives Back/Forward navigation.
 Overview background refresh also follows the server date across midnight.
+
+
+### Instrument chart events and total return
+
+The Price / Total return toggle preserves its mode in the URL. Price mode shows quoted prices
+in instrument or portfolio currency. Total return shows the holding’s native cumulative TTWROR
+in portfolio currency, from saved prices and booked activity; it is not a hypothetical
+buy-and-hold adjusted-price series. Missing boundary prices or calculation failures leave
+return data unavailable rather than displaying a fabricated zero.
+
+Chart event toggles independently show booked dividend payments (D), buys/sells (B/S), and
+recorded corporate actions or notes (C). Dividend amounts include gross, net, taxes and fees;
+these are payment dates, not inferred ex-dividend dates. Split events and explicitly recorded
+notes come from the portfolio file; validated non-cash spin-offs are corporate markers instead
+of cash dividends or ordinary purchases. Transfers/deliveries are not inferred to be trades.
+Markers are keyboard-focusable and provide details; the expandable event list preserves all
+entries, including dates with no saved quote. Same-day events of the same kind share a marker.
+
+Allocation uses a two-position Allocation / Daily performance toggle, persisted in the URL.
+The performance scale saturates at +/-3%, and unavailable returns/cash are gray. Daily returns
+use saved prices, including currency effects; tile area remains absolute position value.

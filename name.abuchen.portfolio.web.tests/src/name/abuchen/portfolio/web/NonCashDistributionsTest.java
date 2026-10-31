@@ -84,6 +84,12 @@ public class NonCashDistributionsTest
             assertTrue(filteredReport.dividends().isEmpty());
             assertEquals(0, filteredReport.instrument().dividends());
             assertTrue(filteredReport.instrument().activity().dividends().isEmpty());
+            assertTrue(filteredReport.instrument().events().stream().anyMatch(e -> e.kind().equals("corporate")
+                            && e.label().equals("Spin-off distribution (non-cash)")));
+            var filteredChild = view.dashboard(day.minusDays(1), day, null, child.getUUID()).instrument();
+            assertTrue(filteredChild.events().stream().anyMatch(e -> e.kind().equals("corporate")
+                            && e.label().startsWith("Spin-off acquisition")));
+            assertFalse(filteredChild.events().stream().anyMatch(e -> e.kind().equals("buy")));
         }
         distribution.setAmount(29_999);
         assertFalse(NonCashDistributions.isSpinOff(client, cash, distribution));

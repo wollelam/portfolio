@@ -1,0 +1,12 @@
+{
+  "name": "portfolio-web-browser-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Browser regression tests for Portfolio Web",
+  "scripts": {
+    "test": "node run-tests.cjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.64.1"
+  }
+}

@@ -1,0 +1,50 @@
+name: Web browser tests
+
+on:
+  push:
+    branches: [feature/native-web]
+    paths:
+      - '.github/workflows/web-browser.yml'
+      - 'docker/cli-build/**'
+      - 'portfolio-app/**'
+      - 'portfolio-web.sh'
+      - 'quote-stream/**'
+      - 'name.abuchen.portfolio/**'
+      - 'name.abuchen.portfolio.pdfbox1/**'
+      - 'name.abuchen.portfolio.pdfbox3/**'
+      - 'name.abuchen.portfolio.web/**'
+      - 'name.abuchen.portfolio.web.tests/**'
+      - 'portfolio-target-definition/**'
+  pull_request:
+    paths:
+      - '.github/workflows/web-browser.yml'
+      - 'docker/cli-build/**'
+      - 'portfolio-app/**'
+      - 'portfolio-web.sh'
+      - 'quote-stream/**'
+      - 'name.abuchen.portfolio/**'
+      - 'name.abuchen.portfolio.pdfbox1/**'
+      - 'name.abuchen.portfolio.pdfbox3/**'
+      - 'name.abuchen.portfolio.web/**'
+      - 'name.abuchen.portfolio.web.tests/**'
+      - 'portfolio-target-definition/**'
+
+jobs:
+  browser:
+    name: Web browser regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install headless Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v2
+      - name: Install browser test dependency
+        run: npm ci --prefix name.abuchen.portfolio.web.tests/browser
+      - name: Build bundles and run browser tests
+        run: name.abuchen.portfolio.web.tests/browser/run-browser-tests.sh
+        env:
+          CHROMIUM_PATH: ${{ steps.chrome.outputs.chrome-path }}

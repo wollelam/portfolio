@@ -1106,3 +1106,14 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .instrument-day-change { font-size:13px; font-weight:600; white-space:nowrap; }
 #instrument-current-price { font-size:20px; font-weight:600; white-space:nowrap; }
 @media (max-width:760px) { .instrument-current { flex-wrap:wrap; } #instrument-current-price { font-size:16px; } }
+
+.allocation-color { margin:16px 24px; }
+.heatmap-loss { color:#d33340; } .heatmap-gain { color:#16a05a; }
+.instrument-event-filters { display:flex; gap:16px; flex-wrap:wrap; margin:16px 24px; }
+.instrument-event-list { margin:16px 24px; }
+.instrument-event-list li { margin:8px 0; }
+.instrument-event { cursor:pointer; }
+.instrument-event circle { fill:#526479; stroke:#fff; stroke-width:1.5; }
+.event-dividend circle { fill:#8051a5; } .event-buy circle { fill:#286e62; } .event-sell circle { fill:#a83c45; }
+.instrument-event text { fill:white; font:bold 10px sans-serif; pointer-events:none; }
+.instrument-event:focus circle,.instrument-event:hover circle { stroke:#172534; stroke-width:3; }

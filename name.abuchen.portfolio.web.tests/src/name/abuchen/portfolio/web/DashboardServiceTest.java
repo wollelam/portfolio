@@ -18,6 +18,8 @@ import name.abuchen.portfolio.model.AccountTransaction;
 import name.abuchen.portfolio.model.BuySellEntry;
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.PortfolioTransaction;
+import name.abuchen.portfolio.model.Security;
+import name.abuchen.portfolio.model.SecurityEvent;
 import name.abuchen.portfolio.model.Transaction;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
@@ -303,8 +305,56 @@ public class DashboardServiceTest
         assertEquals(record.getDelta().getAmount(), detail.gain().longValue());
         assertEquals(record.getSumOfDividends().getAmount(), detail.dividends());
         assertEquals(record.getSharesHeld().longValue(), detail.shares());
+        var investmentIndex = PerformanceIndex.forInvestment(loaded.client(), converter, security, Interval.of(from, end),
+                        new java.util.ArrayList<>());
+        assertEquals(investmentIndex.getDates().length, detail.totalReturn().size());
+        for (int i = 0; i < detail.totalReturn().size(); i++)
+        {
+            assertEquals(investmentIndex.getDates()[i].toString(), detail.totalReturn().get(i).date());
+            assertEquals(investmentIndex.getAccumulatedPercentage()[i], detail.totalReturn().get(i).value(), 0.0000001);
+        }
         assertTrue(detail.prices().stream().noneMatch(p -> p.date().equals(end.plusDays(1).toString())));
         assertEquals(1, service.dashboard(from, end).holdings().stream().filter(h -> h.uuid() != null).count());
+    }
+
+    @Test
+    public void instrumentEventsIncludeBookedDividendsTradesAndStoredCorporateNotes()
+    {
+        var from = end.minusDays(5);
+        var client = new Client(); client.setBaseCurrency("EUR");
+        var cash = new Account("Cash"); cash.setCurrencyCode("EUR"); client.addAccount(cash);
+        var portfolio = new name.abuchen.portfolio.model.Portfolio("Investments");
+        portfolio.setReferenceAccount(cash); client.addPortfolio(portfolio);
+        var security = new Security("Example", "EUR"); client.addSecurity(security);
+        security.addPrice(new name.abuchen.portfolio.model.SecurityPrice(from.minusDays(2), name.abuchen.portfolio.money.Values.Quote.factorize(100)));
+        security.addPrice(new name.abuchen.portfolio.model.SecurityPrice(end, name.abuchen.portfolio.money.Values.Quote.factorize(110)));
+        var priorBuy = new BuySellEntry(portfolio, cash); priorBuy.setType(PortfolioTransaction.Type.BUY);
+        priorBuy.setDate(from.minusDays(1).atTime(10, 0)); priorBuy.setSecurity(security);
+        priorBuy.setShares(name.abuchen.portfolio.money.Values.Share.factorize(1));
+        priorBuy.setMonetaryAmount(Money.of("EUR", name.abuchen.portfolio.money.Values.Amount.factorize(100))); priorBuy.insert();
+        var trade = new BuySellEntry(portfolio, cash); trade.setType(PortfolioTransaction.Type.BUY); trade.setDate(from.atTime(10, 0));
+        trade.setSecurity(security); trade.setShares(name.abuchen.portfolio.money.Values.Share.factorize(10));
+        trade.setMonetaryAmount(Money.of("EUR", name.abuchen.portfolio.money.Values.Amount.factorize(1000))); trade.insert();
+        var sale = new BuySellEntry(portfolio, cash); sale.setType(PortfolioTransaction.Type.SELL); sale.setDate(end.atTime(10, 0));
+        sale.setSecurity(security); sale.setShares(name.abuchen.portfolio.money.Values.Share.factorize(2));
+        sale.setMonetaryAmount(Money.of("EUR", name.abuchen.portfolio.money.Values.Amount.factorize(220))); sale.insert();
+        var dividend = new AccountTransaction(end.minusDays(2).atTime(12, 0), "EUR", 800, security, AccountTransaction.Type.DIVIDENDS);
+        dividend.addUnit(new Transaction.Unit(Transaction.Unit.Type.TAX, Money.of("EUR", 150)));
+        dividend.addUnit(new Transaction.Unit(Transaction.Unit.Type.FEE, Money.of("EUR", 50))); cash.addTransaction(dividend);
+        security.addEvent(new SecurityEvent(end.minusDays(1), SecurityEvent.Type.NOTE, "Stored event detail"));
+        security.addEvent(new SecurityEvent(end.minusDays(3), SecurityEvent.Type.STOCK_SPLIT, "2:1"));
+        security.addEvent(new SecurityEvent(end.plusDays(1), SecurityEvent.Type.NOTE, "Future note"));
+
+        var detail = service(client).dashboard(from, end, null, security.getUUID()).instrument();
+        assertEquals(1, detail.events().stream().filter(e -> e.kind().equals("buy")).count());
+        assertTrue(detail.events().stream().anyMatch(e -> e.kind().equals("sell")));
+        assertTrue(detail.events().stream().anyMatch(e -> e.kind().equals("dividend") && e.label().startsWith("Dividend payment")
+                        && e.label().contains("gross EUR 10.00")
+                        && e.label().contains("net EUR 8.00") && e.label().contains("tax EUR 1.50") && e.label().contains("fee EUR 0.50")));
+        assertTrue(detail.events().stream().anyMatch(e -> e.kind().equals("corporate") && e.label().equals("Note: Stored event detail")));
+        assertTrue(detail.events().stream().anyMatch(e -> e.kind().equals("corporate") && e.label().equals("Stock split · 2:1")));
+        assertFalse(detail.events().stream().anyMatch(e -> e.label().contains("Future note")));
+        assertTrue(detail.events().stream().allMatch(e -> !LocalDate.parse(e.date()).isBefore(from) && !LocalDate.parse(e.date()).isAfter(end)));
     }
 
     @Test
@@ -345,6 +395,9 @@ public class DashboardServiceTest
         assertEquals(record.getTrueTimeWeightedRateOfReturn(), row.rate(), 0.0000001);
         assertEquals(record.getDelta().getAmount(), row.gain().longValue());
         assertFalse(ranking.securities().stream().anyMatch(r -> r.uuid().equals(benchmarkOnly.getUUID())));
+        var benchmark = service.dashboard(from, end, null, benchmarkOnly.getUUID()).instrument();
+        assertEquals(null, benchmark.twror());
+        assertTrue(benchmark.totalReturn().isEmpty());
     }
 
     @Test
@@ -378,6 +431,7 @@ public class DashboardServiceTest
         assertEquals(0, openingMissing.neutral());
         var detail = new DashboardService(loaded, clock, List.of()).dashboard(from, end, null, security.getUUID()).instrument();
         assertEquals(null, detail.twror());
+        assertTrue(detail.totalReturn().isEmpty());
         assertEquals(null, detail.gain());
         assertTrue(detail.message().contains("opening quote"));
 
@@ -443,6 +497,7 @@ public class DashboardServiceTest
         var detail = service.dashboard(end.minusMonths(1), end, null, "removed-uuid").instrument();
         assertTrue(detail.message().contains("no longer available"));
         assertEquals("removed-uuid", detail.uuid());
+        assertTrue(detail.totalReturn().isEmpty());
     }
 
     @Test

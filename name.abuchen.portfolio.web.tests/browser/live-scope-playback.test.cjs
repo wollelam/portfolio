@@ -4,6 +4,11 @@ const assert = require('node:assert/strict');
 const { chromium } = require('playwright-core');
 const base = process.env.BASE_URL || 'http://127.0.0.1:8097';
 
+async function openDateMenu(page) {
+  const menu = page.locator('#instrument-date-menu');
+  if (!(await menu.evaluate(element => element.open))) await menu.locator('summary').click();
+}
+
 async function main() {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
   try {
@@ -42,6 +47,7 @@ async function main() {
     }
     feedCase = 'valid'; await page.waitForFunction(() => document.querySelector('.holding-live-tick')?.dataset.value === '101');
     const yesterday = await page.evaluate(() => iso(new Date(Date.parse(report.today + 'T12:00:00Z') - 86400000)));
+    await openDateMenu(page);
     await page.locator('#to').fill(yesterday); await page.locator('#dates button[type="submit"]').click();
     await row.locator('.holding-live-price').getByText('Historical date', { exact: true }).waitFor();
 

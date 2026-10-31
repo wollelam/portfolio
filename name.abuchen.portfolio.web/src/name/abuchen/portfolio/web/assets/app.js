@@ -30,6 +30,9 @@ let mode = 'return';
 let selected = 0;
 let instrumentSelected = 0;
 let instrumentCurrency = 'native';
+let instrumentChartMode = 'price';
+let selectedInstrumentEvent = '';
+let allocationColor = 'allocation';
 let drawdownSelected = 0;
 let drawdownChart;
 let hasChartSelection = false;
@@ -188,6 +191,8 @@ function routeUrl() {
   if (activePreset) params.set('preset', activePreset);
   if (currentRoute === 'live-quotes' && selectedLiveQuote) params.set('quote', selectedLiveQuote);
   if (currentRoute === 'instrument' && instrumentCurrency === 'portfolio') params.set('priceCurrency', 'portfolio');
+  if (instrumentChartMode !== 'price') params.set('instrumentChart', instrumentChartMode);
+  if (allocationColor !== 'allocation') params.set('allocationColor', allocationColor);
   if (rankingBasis !== 'rate') params.set('basis', rankingBasis);
   if (currentRoute === 'allocation' && allocationDate) params.set('asof', allocationDate);
   if (securitySearch) params.set('q', securitySearch);
@@ -279,6 +284,8 @@ async function enterRoute() {
   restoringScroll = true;
   const route = parseRoute();
   currentRoute = route.page; selectedInstrument = route.instrument;
+  allocationColor = route.params.get('allocationColor') === 'performance' ? 'performance' : 'allocation';
+  instrumentChartMode = route.params.get('instrumentChart') === 'return' ? 'return' : 'price';
   instrumentCurrency = route.params.get('priceCurrency') === 'portfolio' ? 'portfolio' : 'native';
   if (currentRoute === 'allocation') allocationDate = route.params.get('asof') || allocationDate || route.params.get('to') || report?.today || '';
   selectedLiveQuote = route.params.get('quote') || selectedLiveQuote;
@@ -1066,19 +1073,20 @@ byId('allocation-position').addEventListener('change', () => { if (allocationTim
 byId('allocation-date').addEventListener('change', event => { if (event.target.checkValidity()) selectAllocationDate(event.target.value, true); });
 byId('allocation-today').addEventListener('click', () => selectAllocationDate(report.today, true));
 
-function allocationPerformanceMode() { return byId('allocation-color').value === 'performance'; }
+function allocationPerformanceMode() { return allocationColor === 'performance'; }
 function allocationPerformanceColor(rate) {
   if (!Number.isFinite(rate)) return '#526479';
   if (rate === 0) return '#414554';
   const colors = rate < 0 ? ['#754047', '#a83c45', '#d33340'] : ['#326653', '#228554', '#16a05a'];
-  return colors[Math.min(2, Math.floor(Math.abs(rate) / 0.01))];
+  return colors[Math.min(2, Math.max(0, Math.floor(Math.abs(rate) / 0.01) - 1))];
 }
 function allocationPerformanceLabel(rate) {
   return Number.isFinite(rate) ? new Intl.NumberFormat(undefined, { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' }).format(rate) : '—';
 }
-byId('allocation-color').addEventListener('change', () => {
+for (const button of document.querySelectorAll('[data-allocation-color]')) button.addEventListener('click', () => {
   stopAllocationPlayback();
-  renderAllocation();
+  allocationColor = button.dataset.allocationColor;
+  syncRouteUrl(); renderAllocation();
   if (allocationPerformanceMode()) load();
 });
 
@@ -1158,6 +1166,7 @@ function renderAllocationLabel(group, defs, tile, index, share) {
 function renderAllocation() {
   renderAllocationTimeline();
   const performanceMode = allocationPerformanceMode();
+  for (const button of document.querySelectorAll('[data-allocation-color]')) button.setAttribute('aria-pressed', String(button.dataset.allocationColor === allocationColor));
   byId('allocation-category-legend').hidden = performanceMode;
   byId('allocation-performance-legend').hidden = !performanceMode;
   const rates = new Map((report.dailyRankings?.securities || []).map(row => [row.uuid, row.rate]));
@@ -1486,10 +1495,13 @@ function renderInstrument(instrument) {
   text('instrument-gain', instrument.gain === null ? 'Unavailable' : money(instrument.gain, true));
   text('instrument-dividends', money(instrument.dividends));
   const canConvert = Boolean(instrument.currency && report.currency && instrument.currency !== report.currency);
-  const converted = canConvert && instrumentCurrency === 'portfolio';
+  const totalReturn = instrumentChartMode === 'return';
+  const converted = !totalReturn && canConvert && instrumentCurrency === 'portfolio';
+  for (const button of document.querySelectorAll('[data-instrument-chart]')) button.setAttribute('aria-pressed', String(button.dataset.instrumentChart === instrumentChartMode));
+  text('instrument-chart-explanation', totalReturn ? `Your holding’s cumulative time-weighted total return in ${report.currency}, including distributions, taxes and fees, with trades adjusted as flows. Uses saved prices; this is not a hypothetical buy-and-hold return.` : 'Price history is not investment return. Today’s broker quote is included only when received today; older quotes remain visible in the header with their actual timestamp.');
   const currency = converted ? report.currency : instrument.currency;
-  text('instrument-currency', currency || 'currency unavailable');
-  byId('instrument-currency-choice').hidden = !canConvert;
+  text('instrument-currency', totalReturn ? `Total return · ${report.currency}` : currency || 'currency unavailable');
+  byId('instrument-currency-choice').hidden = !canConvert || totalReturn;
   for (const button of document.querySelectorAll('[data-instrument-currency]')) {
     button.textContent = button.dataset.instrumentCurrency === 'native' ? `Instrument · ${instrument.currency}` : `Portfolio · ${report.currency}`;
     button.setAttribute('aria-pressed', String(button.dataset.instrumentCurrency === (converted ? 'portfolio' : 'native')));
@@ -1497,6 +1509,7 @@ function renderInstrument(instrument) {
   const missingFx = converted ? (instrument.prices || []).filter(p => !Number.isFinite(p.reportingPrice)).length : 0;
   const fxNote = byId('instrument-fx-note'); fxNote.hidden = !converted;
   fxNote.textContent = `Stored prices use the exchange rate on each quote date; the latest broker price uses a live exchange rate when available.${missingFx ? ` ${missingFx} quote${missingFx === 1 ? '' : 's'} unavailable because exchange rates are missing; gaps are shown.` : ''}`;
+  const focusedEvent = document.activeElement?.dataset?.eventKey;
   instrumentChart = new TimeSeriesChart(byId('instrument-chart'));
   const format = value => new Intl.NumberFormat(undefined, { ...(currency ? { style: 'currency', currency } : {}), maximumFractionDigits: 6 }).format(value);
   const formatAxis = (value, step) => {
@@ -1508,16 +1521,56 @@ function renderInstrument(instrument) {
   const points = (instrument.prices || []).map(p => ({ date: p.date, value: converted ? (Number.isFinite(p.reportingPrice) ? p.reportingPrice / instrument.quoteScale : null) : p.price / instrument.quoteScale }));
   const broker = instrumentBrokerQuote(instrument);
   const fx = converted ? liveFxRate(instrument.currency) : { rate: 1 };
-  if (broker.quote && fx && report.today >= report.period.openingDate && report.today <= report.period.closingDate) {
+  if (!totalReturn && broker.quote && broker.quote.receivedAt.slice(0, 10) === report.today && fx && report.today >= report.period.openingDate && report.today <= report.period.closingDate) {
     const point = { date: report.today, value: broker.quote.last * fx.rate };
     const index = points.findIndex(p => p.date === report.today);
     if (index >= 0) points[index] = point; else points.push(point);
   }
-  instrumentChart.draw({ points,
-    format, formatAxis, niceAxis: true, output: byId('instrument-chart-detail'), selected: instrumentSelected,
-    empty: converted && missingFx ? 'No converted prices available; exchange rates are missing.' : 'No stored quotes in the selected period.',
-    title: `Price history in ${currency || 'instrument units'}`,
+  instrumentChart.draw({ points: totalReturn ? (instrument.totalReturn || []) : points,
+    format: totalReturn ? percent : format, formatAxis: totalReturn ? percent : formatAxis, niceAxis: true, output: byId('instrument-chart-detail'), selected: instrumentSelected,
+    empty: totalReturn ? 'Total return unavailable for this period; check holdings and saved prices.' : converted && missingFx ? 'No converted prices available; exchange rates are missing.' : 'No stored quotes in the selected period.',
+    title: totalReturn ? `Holding total return in ${report.currency}` : `Price history in ${currency || 'instrument units'}`,
+    domain: [report.period.openingDate, report.period.closingDate],
     onSelect: index => { instrumentSelected = index; saveEntryState(); } });
+  renderInstrumentEvents(instrument.events || []);
+  if (focusedEvent) [...instrumentChart.svg.querySelectorAll('[data-event-key]')].find(element => element.dataset.eventKey === focusedEvent)?.focus({ preventScroll: true });
+}
+
+for (const button of document.querySelectorAll('[data-instrument-chart]')) button.addEventListener('click', () => {
+  instrumentChartMode = button.dataset.instrumentChart;
+  instrumentSelected = 0; syncRouteUrl(); renderInstrument(report.instrument);
+});
+for (const input of document.querySelectorAll('[data-event-kind]')) input.addEventListener('change', () => renderInstrument(report.instrument));
+function renderInstrumentEvents(events) {
+  const enabled = new Set([...document.querySelectorAll('[data-event-kind]:checked')].flatMap(input => input.dataset.eventKind.split(',')));
+  const visible = events.filter(event => enabled.has(event.kind) && event.date >= report.period.openingDate && event.date <= report.period.closingDate);
+  text('instrument-event-detail', visible.length ? 'Focus or select a chart marker for event details.' : 'No enabled events in this period.');
+  const list = byId('instrument-events'); list.replaceChildren();
+  const groups = new Map();
+  for (const event of visible) {
+    const key = `${selectedInstrument}:${event.date}:${event.kind}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(event);
+  }
+  for (const [key, entries] of groups) {
+    const event = entries[0], label = entries.map(item => item.label).join('; ');
+    const description = `${dateLabel(event.date)} · ${label}`;
+    const row = document.createElement('li'); row.textContent = description; list.append(row);
+    if (!instrumentChart.points.some(point => Number.isFinite(point.value)) || !instrumentChart.x || !Number.isFinite(instrumentChart.first)) continue;
+    const x = instrumentChart.x(seriesTime(event.date));
+    const lane = ['dividend', 'buy', 'sell', 'corporate'].indexOf(event.kind);
+    const y = instrumentChart.top + 12 + lane * 23;
+    const group = svgElement('g', { tabindex: 0, role: 'button', class: `instrument-event event-${event.kind}`, 'aria-label': description, 'data-event-key': key });
+    group.append(svgElement('title', {}, description), svgElement('circle', { cx: x, cy: y, r: 9 }), svgElement('text', { x, y: y + 4, 'text-anchor': 'middle' }, { dividend: 'D', buy: 'B', sell: 'S', corporate: 'C' }[event.kind]));
+    const inspect = () => { selectedInstrumentEvent = key; text('instrument-event-detail', description); };
+    if (selectedInstrumentEvent === key) inspect();
+    group.addEventListener('focus', inspect); group.addEventListener('pointerenter', inspect);
+    group.addEventListener('click', inspect);
+    group.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); inspect(); } });
+    instrumentChart.svg.append(group);
+  }
+  text('instrument-events-count', `${visible.length} events · D dividends (payment date), B buys, S sells, C corporate actions / notes`);
+  if (!visible.length) text('instrument-event-detail', 'No enabled events in this period.');
 }
 
 function instrumentBrokerQuote(instrument) {
@@ -1719,7 +1772,7 @@ class TimeSeriesChart {
     svg.setAttribute('viewBox', `0 0 ${this.width} ${this.height}`);
     this.left = mobile ? 70 : 85; this.right = this.width - (mobile ? 18 : 25); this.top = 22; this.bottom = this.height - 40;
     const times = this.points.map(p => seriesTime(p.date));
-    this.first = Math.min(...times); this.last = Math.max(...times);
+    this.first = config.domain ? seriesTime(config.domain[0]) : Math.min(...times); this.last = config.domain ? seriesTime(config.domain[1]) : Math.max(...times);
     this.x = time => this.left + (time - this.first) / Math.max(1, this.last - this.first) * (this.right - this.left);
     const series = config.series || [];
     const values = [...this.points.map(p => p.value), ...series.flatMap(s => s.points.map(p => p.value))]
