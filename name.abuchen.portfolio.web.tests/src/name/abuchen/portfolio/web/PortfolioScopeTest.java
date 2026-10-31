@@ -27,6 +27,7 @@ import name.abuchen.portfolio.model.Portfolio;
 import name.abuchen.portfolio.model.PortfolioTransaction;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.model.SecurityPrice;
+import name.abuchen.portfolio.model.Taxonomy;
 import name.abuchen.portfolio.money.Money;
 import name.abuchen.portfolio.money.Values;
 
@@ -60,6 +61,51 @@ public class PortfolioScopeTest
                         portfolio.getUUID() + ":" + Classification.ONE_HUNDRED_PERCENT / 2 + ","
                                         + account.getUUID() + ":" + Classification.ONE_HUNDRED_PERCENT / 2));
         return loaded;
+    }
+
+    @Test
+    public void assetClassPensionCanBeExcludedWithoutRemovingOtherAssets()
+    {
+        var loaded = DemoPortfolio.create(today);
+        var pensionCash = new Account("Pension cash");
+        pensionCash.setCurrencyCode("EUR");
+        loaded.client().addAccount(pensionCash);
+        var pensionPortfolio = new Portfolio("Pension investments");
+        pensionPortfolio.setReferenceAccount(pensionCash);
+        loaded.client().addPortfolio(pensionPortfolio);
+        pensionCash.addTransaction(new AccountTransaction(today.minusDays(30).atTime(9, 0), "EUR",
+                        Values.Amount.factorize(1000), null, AccountTransaction.Type.DEPOSIT));
+        var pensionSecurity = new Security("Pension security", "EUR");
+        pensionSecurity.addPrice(new SecurityPrice(today.minusDays(30), Values.Quote.factorize(10)));
+        pensionSecurity.addPrice(new SecurityPrice(today, Values.Quote.factorize(12)));
+        loaded.client().addSecurity(pensionSecurity);
+        var purchase = new BuySellEntry(pensionPortfolio, pensionCash);
+        purchase.setType(PortfolioTransaction.Type.BUY);
+        purchase.setDate(today.minusDays(30).atTime(12, 0));
+        purchase.setSecurity(pensionSecurity);
+        purchase.setShares(Values.Share.factorize(50));
+        purchase.setMonetaryAmount(Money.of("EUR", Values.Amount.factorize(500)));
+        purchase.insert();
+        var taxonomy = new Taxonomy("Asset Classes");
+        var root = new Classification("asset-class-root", "Asset class");
+        var pension = new Classification(root, "pension", "Pension");
+        pension.addAssignment(new Classification.Assignment(pensionCash));
+        pension.addAssignment(new Classification.Assignment(pensionSecurity));
+        root.addChild(pension);
+        taxonomy.setRootNode(root);
+        loaded.client().addTaxonomy(taxonomy);
+
+        var service = new DashboardService(loaded, clock, List.of());
+        var before = service.dashboard(today.minusYears(1), today);
+        var option = before.scope().options().stream()
+                        .filter(o -> o.name().equals("Pension") && o.type().equals("Asset Classes"))
+                        .findFirst().orElseThrow();
+        var after = service.excluding(option.id()).dashboard(today.minusYears(1), today);
+        var nonPension = new DashboardService(DemoPortfolio.create(today), clock, List.of())
+                        .dashboard(today.minusYears(1), today);
+        assertEquals(nonPension.totalValue(), after.totalValue());
+        assertTrue(after.holdings().stream().noneMatch(h -> pensionSecurity.getUUID().equals(h.uuid())));
+        assertEquals(before.totalValue(), service.dashboard(today.minusYears(1), today).totalValue());
     }
 
     @Test

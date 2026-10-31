@@ -106,7 +106,9 @@ and `chart-logos.test.cjs`.
 ## Portfolio scope and allocation playback
 
 Open **Portfolio filters** and check groups to exclude. The options reuse saved native account/portfolio
-groups, including pensions where configured, and expose individual securities and cash accounts.
+groups and expose individual securities accounts, cash accounts, and assigned Asset class categories
+such as Pension. Asset class exclusions use the native classification filter, including partial
+security and cash assignments; its security-only transaction treatment is pre-tax.
 Exclusions apply to native transactions before calculating values, returns, dividends, instrument
 activity, rankings and waterfalls. Securities held outside an excluded account remain in scope.
 Weighted ownership groups retain the complementary share; overlapping exclusions use the largest

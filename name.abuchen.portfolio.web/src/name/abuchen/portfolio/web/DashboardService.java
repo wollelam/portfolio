@@ -165,6 +165,8 @@ final class DashboardService
             var second = ClientFactory.duplicate(ying.portfolio.client());
             var merged = new name.abuchen.portfolio.model.Client();
             merged.setBaseCurrency(ole.portfolio.client().getBaseCurrency());
+            first.getTaxonomies().forEach(merged::addTaxonomy);
+            second.getTaxonomies().forEach(merged::addTaxonomy);
             var sourceToCanonical = new java.util.IdentityHashMap<Security, Security>();
             var identities = new LinkedHashMap<String, Security>();
             for (var security : first.getSecurities())
