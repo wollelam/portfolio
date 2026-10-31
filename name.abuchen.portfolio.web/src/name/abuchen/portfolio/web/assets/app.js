@@ -10,7 +10,7 @@ function assetIcon(name, url) {
     image.alt = ''; image.width = 24; image.height = 24;
     image.loading = 'lazy'; image.decoding = 'async';
     image.addEventListener('error', () => { image.remove(); icon.classList.remove('has-logo'); });
-    icon.classList.add('has-logo'); image.src = url; icon.append(image);
+    icon.classList.add('has-logo'); image.src = iconUrl(url); icon.append(image);
   }
   return icon;
 }
@@ -23,6 +23,22 @@ const weight = value => value === null ? '—' : new Intl.NumberFormat(undefined
 const dateLabel = value => new Date(value + 'T12:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const iso = date => date.toISOString().slice(0, 10);
 let report;
+let portfolioView = 'ole';
+const viewTitles = { ole: 'Ole', ying: 'Ying', combined: 'Combined' };
+function iconUrl(url) {
+  const params = new URLSearchParams(url.split('?')[1] || '');
+  params.set('view', portfolioView);
+  return `/api/icon?${params}`;
+}
+function updateViewOptions(views) {
+  const available = Array.isArray(views) ? views.filter(view => Object.hasOwn(viewTitles, view)) : ['ole'];
+  const selector = byId('view-selector'), label = byId('view-selector-label');
+  selector.replaceChildren(...available.map(view => new Option(viewTitles[view], view)));
+  label.hidden = false;
+  selector.disabled = available.length < 2;
+  if (!available.includes(portfolioView)) portfolioView = available[0] || 'ole';
+  selector.value = portfolioView;
+}
 const discreetPreferenceKey = 'portfolio.discreetMode';
 let discreetMode = false;
 try { discreetMode = localStorage.getItem(discreetPreferenceKey) === 'true'; } catch { /* Storage can be disabled. */ }
@@ -184,6 +200,7 @@ const routeMeta = {
 
 function routeUrl() {
   const params = new URLSearchParams();
+  params.set('view', portfolioView);
   if (byId('from').value) params.set('from', byId('from').value);
   if (byId('to').value) params.set('to', byId('to').value);
   if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
@@ -283,6 +300,8 @@ async function enterRoute() {
   clearTimeout(allocationTimer); allocationTimer = null;
   restoringScroll = true;
   const route = parseRoute();
+  portfolioView = ['ole', 'ying', 'combined'].includes(route.params.get('view')) ? route.params.get('view') : 'ole';
+  byId('view-selector').value = portfolioView;
   currentRoute = route.page; selectedInstrument = route.instrument;
   allocationColor = route.params.get('allocationColor') === 'performance' ? 'performance' : 'allocation';
   instrumentChartMode = route.params.get('instrumentChart') === 'return' ? 'return' : 'price';
@@ -627,9 +646,15 @@ function holdingBrokerQuote(holding) {
   const feed = market?.liveQuotes;
   if (report.asOf !== report.today) return { message: 'Historical date' };
   if (feed?.mode !== 'ibkr') return { message: feed?.mode === 'demo' ? 'Simulation only' : 'Not connected' };
-  const matches = (feed.quotes || []).filter(entry => entry.quote.key === holding.uuid);
-  if (matches.length !== 1) return { message: 'Not mapped' };
-  const entry = matches[0], quote = entry.quote;
+  const aliases = report.quoteKeys?.[holding.uuid] || [holding.uuid];
+  let entry;
+  for (const key of aliases) {
+    const matches = (feed.quotes || []).filter(item => item.quote.key === key);
+    if (matches.length > 1) return { message: 'Not mapped' };
+    if (matches.length === 1) { entry = matches[0]; break; }
+  }
+  if (!entry) return { message: 'Not mapped' };
+  const quote = entry.quote;
   if (quote.currency !== holding.quoteCurrency || !Number.isSafeInteger(quote.conId) || quote.conId <= 0) return { message: 'Identity mismatch' };
   if (quote.status === 'not_subscribed') return { message: 'Market-data permission needed' };
   if (quote.status === 'unresolved') return { message: 'Contract unresolved' };
@@ -985,6 +1010,7 @@ async function fetchAllocationFrames(date) {
   const controller = new AbortController(); allocationFrameController = controller;
   const end = iso(new Date(Math.min(Date.parse(report.today + 'T12:00:00Z'), Date.parse(date + 'T12:00:00Z') + 30 * 86400000)));
   const params = new URLSearchParams({ frames: 'true', from: date, to: end });
+  params.set('view', portfolioView);
   if (excludedGroups.size) params.set('exclude', [...excludedGroups].sort().join(','));
   const pending = (async () => {
     const response = await fetch(`/api/dashboard?${params}`, { cache: 'no-store', signal: controller.signal });
@@ -1113,7 +1139,7 @@ function chartLogo(url, x, y, size) {
   const group = svgElement('g', { class: 'chart-logo', 'aria-hidden': true });
   const inset = Math.max(4, size * .12);
   group.append(svgElement('rect', { x, y, width: size, height: size, rx: Math.min(7, size / 5), class: 'chart-logo-box' }));
-  const image = svgElement('image', { href: url, x: x + inset, y: y + inset, width: size - inset * 2, height: size - inset * 2, preserveAspectRatio: 'xMidYMid meet' });
+  const image = svgElement('image', { href: iconUrl(url), x: x + inset, y: y + inset, width: size - inset * 2, height: size - inset * 2, preserveAspectRatio: 'xMidYMid meet' });
   image.addEventListener('error', () => group.remove());
   group.append(image);
   return group;
@@ -1893,6 +1919,7 @@ function updateCursor() {
 }
 
 async function load(from, to, silent = false) {
+  const requestedView = portfolioView;
   const requestedClosingDate = to;
   // The overview is a current valuation. Let the server choose today, including after midnight.
   if (currentRoute === 'overview') to = undefined;
@@ -1912,6 +1939,7 @@ async function load(from, to, silent = false) {
   }
   try {
     const params = new URLSearchParams();
+    params.set('view', portfolioView);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
     if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
@@ -1924,6 +1952,8 @@ async function load(from, to, silent = false) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Could not load portfolio.');
     if (requestController !== controller) return null;
+    updateViewOptions(data.views);
+    if (requestedView !== portfolioView) { syncRouteUrl(); return load(from, to, silent); }
     const unchanged = silent && report && report.revision === data.revision && report.loadedAt === data.loadedAt
       && report.period.openingDate === data.period.openingDate && report.period.closingDate === data.period.closingDate
       && report.benchmark?.uuid === data.benchmark?.uuid && report.fxVersion === data.fxVersion
@@ -2039,6 +2069,24 @@ if (!location.hash) history.replaceState({ appEntry: true, canAppBack: false, ro
 enterRoute();
 
 byId('ranking-limit').addEventListener('change', event => { rankingLimit = event.target.value; syncRouteUrl(); renderRankings(report?.rankings); });
+byId('view-selector').addEventListener('change', event => {
+  const nextView = event.target.value;
+  if (!['ole', 'ying', 'combined'].includes(nextView) || nextView === portfolioView) return;
+  const from = byId('from').value, to = byId('to').value;
+  portfolioView = nextView;
+  selectedBenchmark = ''; excludedGroups = new Set(); selectedInstrument = ''; selectedLiveQuote = '';
+  securitySearch = ''; byId('security-search').value = '';
+  selected = 0; instrumentSelected = 0; drawdownSelected = 0; tableSorts = {};
+  allocationFrames.clear(); allocationFrameKey = ''; allocationFrameController?.abort(); allocationFramePromise = null;
+  const route = currentRoute === 'instrument' ? 'holdings' : currentRoute;
+  const params = new URLSearchParams({ view: portfolioView });
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  const hash = `#/${route}?${params}`;
+  history.pushState({ appEntry: true, canAppBack: false, routeKey: hash, scrollY: 0, selected: 0, instrumentSelected: 0, drawdownSelected: 0 }, '', hash);
+  currentRouteKey = '';
+  enterRoute();
+});
 for (const button of document.querySelectorAll('[data-waterfall-mode]')) button.addEventListener('click', () => {
   if (waterfallMode === button.dataset.waterfallMode) return;
   waterfallMode = button.dataset.waterfallMode; updateChoiceButtons(); syncRouteUrl(); load(byId('from').value, byId('to').value);

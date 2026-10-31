@@ -200,6 +200,51 @@ public class WebServerTest
         }
     }
 
+    @Test
+    public void selectsIndependentAndCombinedPortfolioViews() throws Exception
+    {
+        var today = LocalDate.of(2025, 6, 12);
+        var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+        var olePortfolio = DemoPortfolio.create(today);
+        var yingPortfolio = DemoPortfolio.create(today);
+        for (int ii = 0; ii < olePortfolio.client().getSecurities().size(); ii++)
+        {
+            olePortfolio.client().getSecurities().get(ii).setIsin("TEST-" + ii);
+            yingPortfolio.client().getSecurities().get(ii).setIsin("TEST-" + ii);
+        }
+        var ole = new DashboardService(olePortfolio, clock, List.of());
+        var ying = new DashboardService(yingPortfolio, clock, List.of());
+        try (var oleRefresh = PortfolioRefresh.fixed(ole); var yingRefresh = PortfolioRefresh.fixed(ying);
+                        var server = new WebServer(new InetSocketAddress("127.0.0.1", 0), oleRefresh, yingRefresh, MarketUpdates.disabled());
+                        var client = HttpClient.newHttpClient())
+        {
+            server.start();
+            var base = "http://127.0.0.1:" + server.port();
+            var defaultView = JsonParser.parseString(get(client, base + "/api/dashboard").body()).getAsJsonObject();
+            assertEquals("[\"ole\",\"ying\",\"combined\"]", defaultView.getAsJsonArray("views").toString());
+            var yingView = JsonParser.parseString(get(client, base + "/api/dashboard?view=ying").body()).getAsJsonObject();
+            assertEquals(yingView.get("totalValue"), defaultView.get("totalValue"));
+            var combined = JsonParser.parseString(get(client, base + "/api/dashboard?view=combined").body()).getAsJsonObject();
+            assertEquals(defaultView.get("totalValue").getAsLong() * 2, combined.get("totalValue").getAsLong());
+            assertEquals(1, combined.getAsJsonArray("holdings").asList().stream()
+                            .filter(h -> "security".equals(h.getAsJsonObject().get("type").getAsString())).count());
+            assertEquals(2, combined.getAsJsonArray("holdings").asList().stream()
+                            .filter(h -> "cash".equals(h.getAsJsonObject().get("type").getAsString())).count());
+            assertTrue(combined.getAsJsonObject("quoteKeys").size() > 0);
+            var oleSecurity = olePortfolio.client().getSecurities().getFirst().getUUID();
+            var yingSecurity = yingPortfolio.client().getSecurities().getFirst().getUUID();
+            var sharedKeys = "[\"" + oleSecurity + "\",\"" + yingSecurity + "\"]";
+            assertEquals(sharedKeys, defaultView.getAsJsonObject("quoteKeys").getAsJsonArray(oleSecurity).toString());
+            assertEquals(sharedKeys, yingView.getAsJsonObject("quoteKeys").getAsJsonArray(yingSecurity).toString());
+            assertEquals("[\"" + oleSecurity + "\",\"" + yingSecurity + "\"]",
+                            combined.getAsJsonObject("quoteKeys").getAsJsonArray(oleSecurity).toString());
+            var excluded = JsonParser.parseString(get(client, base + "/api/dashboard?view=combined&exclude=a-"
+                            + olePortfolio.client().getAccounts().getFirst().getUUID()).body()).getAsJsonObject();
+            assertEquals(combined.getAsJsonObject("quoteKeys"), excluded.getAsJsonObject("quoteKeys"));
+            assertEquals(400, get(client, base + "/api/dashboard?view=unknown").statusCode());
+        }
+    }
+
     private HttpResponse<String> get(HttpClient client, String url) throws Exception
     {
         return client.send(HttpRequest.newBuilder(URI.create(url)).build(), HttpResponse.BodyHandlers.ofString());

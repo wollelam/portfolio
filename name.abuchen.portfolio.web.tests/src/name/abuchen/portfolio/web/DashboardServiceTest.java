@@ -2,13 +2,16 @@ package name.abuchen.portfolio.web;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.Test;
@@ -22,8 +25,12 @@ import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.model.SecurityEvent;
 import name.abuchen.portfolio.model.Transaction;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
+import name.abuchen.portfolio.money.ExchangeRate;
+import name.abuchen.portfolio.money.ExchangeRateProvider;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
+import name.abuchen.portfolio.money.ExchangeRateTimeSeries;
 import name.abuchen.portfolio.money.Money;
+import name.abuchen.portfolio.money.impl.ExchangeRateTimeSeriesImpl;
 import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
 import name.abuchen.portfolio.snapshot.PerformanceBreakdown;
@@ -34,6 +41,183 @@ import name.abuchen.portfolio.util.Interval;
 @SuppressWarnings("nls")
 public class DashboardServiceTest
 {
+    @Test
+    public void tickerFallbackDoesNotMergeConflictingIsins()
+    {
+        var today = LocalDate.of(2025, 6, 12);
+        var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+        var olePortfolio = DemoPortfolio.create(today);
+        var yingPortfolio = DemoPortfolio.create(today);
+        olePortfolio.client().getSecurities().getFirst().setTickerSymbol("SHARED");
+        yingPortfolio.client().getSecurities().getFirst().setTickerSymbol("SHARED");
+        olePortfolio.client().getSecurities().getFirst().setIsin("ISIN-OLE");
+        yingPortfolio.client().getSecurities().getFirst().setIsin("ISIN-YING");
+
+        var combined = DashboardService.combined(new DashboardService(olePortfolio, clock, List.of()),
+                        new DashboardService(yingPortfolio, clock, List.of()));
+
+        assertEquals(4, combined.dashboard(today.minusYears(1), today).holdings().size());
+    }
+
+    @Test
+    public void combinedMatchedHoldingsKeepEachSourcesSavedQuote()
+    {
+        var today = LocalDate.of(2025, 6, 12);
+        var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+        var olePortfolio = DemoPortfolio.create(today);
+        var yingPortfolio = DemoPortfolio.create(today);
+        for (int ii = 0; ii < olePortfolio.client().getSecurities().size(); ii++)
+        {
+            olePortfolio.client().getSecurities().get(ii).setIsin("QUOTE-" + ii);
+            yingPortfolio.client().getSecurities().get(ii).setIsin("QUOTE-" + ii);
+        }
+        olePortfolio.client().getSecurities().getFirst().addPrice(new name.abuchen.portfolio.model.SecurityPrice(today,
+                        name.abuchen.portfolio.money.Values.Quote.factorize(100)));
+        yingPortfolio.client().getSecurities().getFirst().addPrice(new name.abuchen.portfolio.model.SecurityPrice(today,
+                        name.abuchen.portfolio.money.Values.Quote.factorize(200)));
+        var ole = new DashboardService(olePortfolio, clock, List.of()).dashboard(today.minusYears(1), today);
+        var ying = new DashboardService(yingPortfolio, clock, List.of()).dashboard(today.minusYears(1), today);
+        var combinedService = DashboardService.combined(new DashboardService(olePortfolio, clock, List.of()),
+                        new DashboardService(yingPortfolio, clock, List.of()));
+        var combined = combinedService.dashboard(today.minusYears(1), today);
+
+        assertEquals(ole.totalValue() + ying.totalValue(), combined.totalValue());
+        var sourceHoldingValue = java.util.stream.Stream.concat(ole.holdings().stream(), ying.holdings().stream())
+                        .filter(h -> "security".equals(h.type())).mapToLong(DashboardService.Holding::value).sum();
+        assertEquals(sourceHoldingValue, combined.holdings().stream().filter(h -> "security".equals(h.type()))
+                        .mapToLong(DashboardService.Holding::value).sum());
+        assertEquals(1, combined.holdings().stream().filter(h -> "security".equals(h.type())).count());
+        var securityUuid = olePortfolio.client().getSecurities().getFirst().getUUID();
+        var detail = combinedService.dashboard(today.minusYears(1), today, null, securityUuid).instrument();
+        assertTrue(detail.message().contains("separate saved prices"));
+        assertEquals(sourceHoldingValue, detail.value().longValue());
+    }
+
+    @Test
+    public void combinedValuesAndHistoryUseEachSourcesFxContext()
+    {
+        var today = LocalDate.of(2025, 6, 12);
+        var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+        var olePortfolio = DemoPortfolio.create(today);
+        var yingPortfolio = DemoPortfolio.create(today);
+        olePortfolio.client().getSecurities().getFirst().setCurrencyCode("USD");
+        yingPortfolio.client().getSecurities().getFirst().setCurrencyCode("USD");
+        olePortfolio.client().getSecurities().getFirst().setIsin("FX-MATCH");
+        yingPortfolio.client().getSecurities().getFirst().setIsin("FX-MATCH");
+        var oleRates = fxView("ole", "0.90");
+        var yingRates = fxView("ying", "1.10");
+        var ole = new DashboardService(olePortfolio, clock, List.of(), oleRates);
+        var ying = new DashboardService(yingPortfolio, clock, List.of(), yingRates);
+        var from = today.minusYears(1);
+        var oleDashboard = ole.dashboard(from, today);
+        var yingDashboard = ying.dashboard(from, today);
+        var combined = DashboardService.combined(ole, ying).dashboard(from, today);
+
+        assertEquals(oleDashboard.totalValue() + yingDashboard.totalValue(), combined.totalValue());
+        assertEquals(oleDashboard.period().valueChange() + yingDashboard.period().valueChange(), combined.period().valueChange());
+        assertEquals(oleDashboard.period().gain() + yingDashboard.period().gain(), combined.period().gain());
+        assertEquals(oleDashboard.day().valueChange() + yingDashboard.day().valueChange(), combined.day().valueChange());
+        assertEquals(oleDashboard.week().valueChange() + yingDashboard.week().valueChange(), combined.week().valueChange());
+        assertEquals(oleDashboard.series().size(), combined.series().size());
+        for (int ii = 0; ii < combined.series().size(); ii++)
+            assertEquals(oleDashboard.series().get(ii).value() + yingDashboard.series().get(ii).value(),
+                            combined.series().get(ii).value());
+        var expectedRate = combined.series().getLast().value() / (double) combined.series().getFirst().value() - 1;
+        assertEquals(expectedRate, combined.period().rate(), 0.0000000001);
+        var individualHoldingValue = java.util.stream.Stream.concat(oleDashboard.holdings().stream(), yingDashboard.holdings().stream())
+                        .filter(h -> "security".equals(h.type())).mapToLong(DashboardService.Holding::value).sum();
+        assertEquals(individualHoldingValue, combined.holdings().stream().filter(h -> "security".equals(h.type()))
+                        .mapToLong(DashboardService.Holding::value).sum());
+        var individualCashValue = java.util.stream.Stream.concat(oleDashboard.holdings().stream(), yingDashboard.holdings().stream())
+                        .filter(h -> "cash".equals(h.type())).mapToLong(DashboardService.Holding::value).sum();
+        assertEquals(individualCashValue, combined.holdings().stream().filter(h -> "cash".equals(h.type()))
+                        .mapToLong(DashboardService.Holding::value).sum());
+
+        var detailed = DashboardService.combined(ole, ying).dashboard(from, today, null, null, true, null, true);
+        var oleDetailed = ole.dashboard(from, today, null, null, true);
+        var yingDetailed = ying.dashboard(from, today, null, null, true);
+        var oleUuid = olePortfolio.client().getSecurities().getFirst().getUUID();
+        var yingUuid = yingPortfolio.client().getSecurities().getFirst().getUUID();
+        var oleRank = oleDetailed.rankings().securities().stream().filter(e -> e.uuid().equals(oleUuid)).findFirst().orElseThrow();
+        var yingRank = yingDetailed.rankings().securities().stream().filter(e -> e.uuid().equals(yingUuid)).findFirst().orElseThrow();
+        var combinedRank = detailed.rankings().securities().stream().filter(e -> e.uuid().equals(oleUuid)).findFirst().orElseThrow();
+        assertEquals(oleRank.gain() + yingRank.gain(), combinedRank.gain().longValue());
+        var oleConverter = new CurrencyConverterImpl(oleRates.factory(olePortfolio.client()), "EUR");
+        var yingConverter = new CurrencyConverterImpl(yingRates.factory(yingPortfolio.client()), "EUR");
+        var oleIndex = PerformanceIndex.forInvestment(olePortfolio.client(), oleConverter,
+                        olePortfolio.client().getSecurities().getFirst(), Interval.of(from, today), new ArrayList<>());
+        var yingIndex = PerformanceIndex.forInvestment(yingPortfolio.client(), yingConverter,
+                        yingPortfolio.client().getSecurities().getFirst(), Interval.of(from, today), new ArrayList<>());
+        assertEquals(combinedRate(oleIndex, yingIndex), combinedRank.rate(), 0.0000000001);
+        var dailyFrom = LocalDate.parse(detailed.day().openingDate());
+        var oleDaily = SecurityRankingService.calculate(olePortfolio.client(), oleConverter, dailyFrom, today).securities().stream()
+                        .filter(e -> e.uuid().equals(oleUuid)).findFirst().orElseThrow();
+        var yingDaily = SecurityRankingService.calculate(yingPortfolio.client(), yingConverter, dailyFrom, today).securities().stream()
+                        .filter(e -> e.uuid().equals(yingUuid)).findFirst().orElseThrow();
+        var combinedDaily = detailed.dailyRankings().securities().stream().filter(e -> e.uuid().equals(oleUuid)).findFirst().orElseThrow();
+        assertEquals(oleDaily.gain() + yingDaily.gain(), combinedDaily.gain().longValue());
+        var oleDailyIndex = PerformanceIndex.forInvestment(olePortfolio.client(), oleConverter,
+                        olePortfolio.client().getSecurities().getFirst(), Interval.of(dailyFrom, today), new ArrayList<>());
+        var yingDailyIndex = PerformanceIndex.forInvestment(yingPortfolio.client(), yingConverter,
+                        yingPortfolio.client().getSecurities().getFirst(), Interval.of(dailyFrom, today), new ArrayList<>());
+        assertEquals(combinedRate(oleDailyIndex, yingDailyIndex), combinedDaily.rate(), 0.0000000001);
+        var oleWaterfall = ole.dashboard(from, today, null, null, false, "calculation").waterfall();
+        var yingWaterfall = ying.dashboard(from, today, null, null, false, "calculation").waterfall();
+        var waterfall = DashboardService.combined(ole, ying).dashboard(from, today, null, null, false,
+                        "calculation", false).waterfall();
+        assertNull(waterfall.message());
+        assertTrue(waterfall.entries().size() > 0);
+        assertEquals(oleWaterfall.entries().stream().filter(e -> "START".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum()
+                        + yingWaterfall.entries().stream().filter(e -> "START".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum(),
+                        waterfall.entries().stream().filter(e -> "START".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum());
+        assertEquals(oleWaterfall.entries().stream().filter(e -> "TOTAL".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum()
+                        + yingWaterfall.entries().stream().filter(e -> "TOTAL".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum(),
+                        waterfall.entries().stream().filter(e -> "TOTAL".equals(e.kind())).mapToLong(DashboardService.WaterfallEntry::amount).sum());
+    }
+
+    private double combinedRate(PerformanceIndex ole, PerformanceIndex ying)
+    {
+        double accumulated = 0;
+        for (int ii = 1; ii < ole.getDates().length; ii++)
+        {
+            long opening = ole.getTotals()[ii - 1] + ying.getTotals()[ii - 1]
+                            + ole.getInboundTransferals()[ii] + ying.getInboundTransferals()[ii];
+            long closing = ole.getTotals()[ii] + ying.getTotals()[ii]
+                            + ole.getOutboundTransferals()[ii] + ying.getOutboundTransferals()[ii];
+            double daily = opening == 0 ? 0 : closing / (double) opening - 1;
+            accumulated = (1 + accumulated) * (1 + daily) - 1;
+        }
+        return accumulated;
+    }
+
+    private FxRates.View fxView(String version, String rate)
+    {
+        ExchangeRateProvider provider = new ExchangeRateProvider()
+        {
+            private final ExchangeRateTimeSeriesImpl series = createSeries();
+
+            private ExchangeRateTimeSeriesImpl createSeries()
+            {
+                var result = new ExchangeRateTimeSeriesImpl(this, "USD", "EUR");
+                result.addRate(new ExchangeRate(LocalDate.of(2020, 1, 1), new BigDecimal(rate)));
+                return result;
+            }
+
+            @Override
+            public String getName()
+            {
+                return version;
+            }
+
+            @Override
+            public List<ExchangeRateTimeSeries> getAvailableTimeSeries(Client client)
+            {
+                return List.of(series);
+            }
+        };
+        return new FxRates.View(version, provider.getAvailableTimeSeries(new Client()));
+    }
+
     private final LocalDate end = LocalDate.of(2025, 6, 12);
     private final Clock clock = Clock.fixed(end.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
 

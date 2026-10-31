@@ -23,7 +23,8 @@ async function main() {
     const colors = await page.evaluate(() => [getComputedStyle(document.querySelector('.quote-up')).color,
       getComputedStyle(document.querySelector('.quote-down')).color]);
     assert.notEqual(colors[0], colors[1], 'up/down ticks use distinct colors');
-    assert.match(await page.locator('.quote-up').first().getAttribute('aria-label'), /up since previous update/);
+    await page.waitForFunction(() => [...document.querySelectorAll('.live-price.quote-up')]
+      .some(cell => cell.getAttribute('aria-label')?.includes('up since previous update')));
 
     const chart = page.locator('#live-chart');
     await chart.scrollIntoViewIfNeeded();

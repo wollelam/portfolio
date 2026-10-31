@@ -10,11 +10,12 @@ rebuild=false
 build_only=false
 detached=false
 file=
+second_file=
 demo=false
 
 usage()
 {
-    printf 'Usage: %s [--rebuild] [--detach] [--demo | --file PATH] [--port PORT]\n' "$(basename -- "$0")"
+    printf 'Usage: %s [--rebuild] [--detach] [--demo | --file PATH [--second-file PATH]] [--port PORT]\n' "$(basename -- "$0")"
     printf '       %s --build\n' "$(basename -- "$0")"
     printf 'Runs a local, read-only dashboard. Defaults to synthetic demo data.\n'
 }
@@ -26,6 +27,7 @@ while (($#)); do
         --detach) detached=true ;;
         --demo) demo=true ;;
         --file) file=${2:?--file requires a path}; shift ;;
+        --second-file) second_file=${2:?--second-file requires a path}; shift ;;
         --port) port=${2:?--port requires a number}; shift ;;
         --help|-h) usage; exit 0 ;;
         *) usage >&2; exit 2 ;;
@@ -48,6 +50,17 @@ if [[ -n "$file" ]]; then
         exit 2
     fi
     file=$(realpath -- "$file")
+fi
+if [[ -n "$second_file" ]]; then
+    if [[ -z "$file" || ! -f "$second_file" ]]; then
+        printf 'Use --second-file only with --file and an existing second portfolio file.\n' >&2
+        exit 2
+    fi
+    second_file=$(realpath -- "$second_file")
+    if [[ "$second_file" == "$file" ]]; then
+        printf 'The second portfolio file must differ from the first.\n' >&2
+        exit 2
+    fi
 fi
 if ! command -v docker >/dev/null 2>&1; then
     printf 'Docker is required by this development launcher.\n' >&2
@@ -90,6 +103,14 @@ if [[ -n "$file" ]]; then
     fi
     mounts=(-v "$file_root:/portfolio-input:ro")
     arguments=(--file "/portfolio-input/$relative_file")
+    if [[ -n "$second_file" ]]; then
+        relative_second=$(realpath --relative-to="$file_root" -- "$second_file")
+        if [[ "$relative_second" == .. || "$relative_second" == ../* || "$relative_second" == /* ]]; then
+            printf 'Second portfolio file must be inside PP_WEB_FILE_ROOT.\n' >&2
+            exit 2
+        fi
+        arguments+=(--second-file "/portfolio-input/$relative_second")
+    fi
 fi
 if [[ "${PP_WEB_PRICE_UPDATES:-0}" == 1 ]]; then
     arguments+=(--price-updates-dir /web-state/price-updates)
@@ -118,7 +139,7 @@ else
 fi
 exec docker run "${run_options[@]}" --init --user "$(id -u):$(id -g)" --entrypoint /bin/sh -p "127.0.0.1:$port:$port" \
     -v "$repo:/workspace:ro" -v portfolio-cli-m2:/maven:ro -v "$state:/web-state" \
-    "${mounts[@]}" -e PP_WEB_PASSWORD -w /workspace "$image" -c '
+    "${mounts[@]}" -e PP_WEB_PASSWORD -e PP_WEB_SECOND_PASSWORD -w /workspace "$image" -c '
         mkdir -p /web-state/configuration
         sed "s#/root/.m2/#/maven/#g" /workspace/name.abuchen.portfolio.web.tests/target/work/configuration/config.ini > /web-state/configuration/config.ini
         exec "$@"

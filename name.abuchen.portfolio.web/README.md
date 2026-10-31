@@ -18,6 +18,7 @@ it never accesses your portfolio or downloads quotes. Stop the server with Ctrl-
 
 ```sh
 ./portfolio-web.sh --file /path/to/portfolio.portfolio
+./portfolio-web.sh --file /path/to/PortOle.portfolio --second-file /path/to/PortYing.portfolio
 ./portfolio-web.sh --rebuild --demo  # after changing source/assets
 ./portfolio-web.sh --build          # build and test without starting a server
 ./portfolio-web.sh --demo --port 8090
@@ -28,6 +29,15 @@ For an encrypted file, export `PP_WEB_PASSWORD` in the launching shell (for exam
 shell prompt), then unset it when finished. Do not put the password in a command argument. The
 launcher passes the environment variable through to Java. The password is retained in the process
 environment for that launch; this prototype does not implement an interactive unlock flow.
+For an encrypted second file, use `PP_WEB_SECOND_PASSWORD` in the same way.
+
+With `--second-file`, the Portfolio selector offers Ole, Ying and Combined. Each file refreshes
+independently and keeps its own recovery snapshot. Combined sums holdings of securities with an
+unambiguous matching ISIN and quote currency, or an unambiguous matching ticker and quote currency
+when no matching ISIN is available. Other holdings remain separate. Combined calculations use the
+first file's reporting currency; neither source file is modified. The same single IBKR collector
+feeds all three views. A live quote appears for a holding only when its source security UUID is
+mapped in the collector's private watchlist.
 
 The launcher publishes only on host loopback. This slice has no login system and is intended for
 local use. Remote hosting and reverse proxy support require a separate authentication/deployment

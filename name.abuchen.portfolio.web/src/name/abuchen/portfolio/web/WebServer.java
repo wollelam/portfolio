@@ -21,12 +21,19 @@ import com.sun.net.httpserver.HttpServer;
 @SuppressWarnings("nls")
 final class WebServer implements AutoCloseable
 {
+    private record CombinedCache(DashboardService ole, DashboardService ying, String oleRevision, String yingRevision,
+                    PortfolioRefresh.Snapshot snapshot)
+    {
+    }
+
     private static final Map<String, String> ASSETS = Map.of("/", "index.html", "/app.js", "app.js", "/app.css", "app.css",
                     "/favicon.svg", "favicon.svg");
     private final HttpServer server;
     private final ThreadPoolExecutor executor;
     private final PortfolioRefresh portfolios;
+    private final PortfolioRefresh yingPortfolios;
     private final MarketUpdates market;
+    private volatile CombinedCache combinedCache;
     private final Gson gson = new GsonBuilder().serializeNulls().create();
 
     WebServer(InetSocketAddress address, DashboardService service) throws IOException
@@ -41,7 +48,14 @@ final class WebServer implements AutoCloseable
 
     WebServer(InetSocketAddress address, PortfolioRefresh portfolios, MarketUpdates market) throws IOException
     {
+        this(address, portfolios, null, market);
+    }
+
+    WebServer(InetSocketAddress address, PortfolioRefresh portfolios, PortfolioRefresh yingPortfolios,
+                    MarketUpdates market) throws IOException
+    {
         this.portfolios = portfolios;
+        this.yingPortfolios = yingPortfolios;
         this.market = market;
         server = HttpServer.create(address, 16);
         executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16));
@@ -121,12 +135,28 @@ final class WebServer implements AutoCloseable
             }
             if ("/api/icon".equals(path))
             {
-                var raw = exchange.getRequestURI().getRawQuery();
-                if (raw == null || !raw.matches("id=[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:&v=[0-9a-f]{64})?"))
+                Map<String, String> iconParams;
+                try
+                {
+                    iconParams = query(exchange.getRequestURI().getRawQuery());
+                }
+                catch (IllegalArgumentException malformed)
+                {
+                    iconParams = Map.of();
+                }
+                var view = iconParams.getOrDefault("view", "ole");
+                if (iconParams.containsKey("view") && !validView(view) || !iconParams.keySet().stream().allMatch(k -> k.equals("id") || k.equals("v") || k.equals("view"))
+                                || !iconParams.containsKey("id") || !iconParams.get("id").matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+                                || (iconParams.containsKey("v") && !iconParams.get("v").matches("[0-9a-f]{64}")))
                     json(exchange, 400, Map.of("message", "A single icon UUID is required."));
                 else
                 {
-                    var image = portfolios.snapshot().service().icon(raw.substring(3, 39).toLowerCase(java.util.Locale.ROOT));
+                    var id = iconParams.get("id").toLowerCase(java.util.Locale.ROOT);
+                    var image = view.equals("combined") ? portfolios.snapshot().service().icon(id) : null;
+                    if (image == null)
+                        image = snapshot(view).service().icon(id);
+                    if (image == null && view.equals("combined"))
+                        image = yingPortfolios.snapshot().service().icon(id);
                     if (image == null)
                         json(exchange, 404, Map.of("message", "Icon unavailable."));
                     else
@@ -138,7 +168,10 @@ final class WebServer implements AutoCloseable
                 try
                 {
                     var params = query(exchange.getRequestURI().getRawQuery());
-                    var snapshot = portfolios.snapshot();
+                    var view = params.getOrDefault("view", "ole");
+                    if (!validView(view))
+                        throw new IllegalArgumentException("Unknown portfolio view");
+                    var snapshot = snapshot(view);
                     var service = snapshot.service().excluding(params.get("exclude"));
                     var to = params.containsKey("to") ? LocalDate.parse(params.get("to")) : service.defaultClosingDate();
                     var from = params.containsKey("from") ? LocalDate.parse(params.get("from")) : to.minusYears(1);
@@ -149,8 +182,11 @@ final class WebServer implements AutoCloseable
                     }
                     var dashboard = gson.toJsonTree(service.dashboard(from, to, params.get("benchmark"), params.get("instrument"),
                                     Boolean.parseBoolean(params.getOrDefault("rankings", "false")), params.get("waterfall"), "day".equals(params.get("rankings")))).getAsJsonObject();
+                    if (yingPortfolios != null && !view.equals("combined"))
+                        dashboard.add("quoteKeys", gson.toJsonTree(quoteKeysForView(service)));
                     dashboard.add("refresh", gson.toJsonTree(snapshot.status()));
                     dashboard.add("market", gson.toJsonTree(market.status()));
+                    dashboard.add("views", gson.toJsonTree(yingPortfolios == null ? java.util.List.of("ole") : java.util.List.of("ole", "ying", "combined")));
                     json(exchange, 200, dashboard);
                 }
                 catch (IllegalArgumentException | DateTimeParseException e)
@@ -188,7 +224,7 @@ final class WebServer implements AutoCloseable
         {
             var parts = pair.split("=", 2);
             var key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
-            if (!(key.equals("exclude") || key.equals("frames") || key.equals("from") || key.equals("to") || key.equals("benchmark") || key.equals("instrument") || key.equals("rankings") || key.equals("waterfall")) || parts.length != 2
+            if (!(key.equals("exclude") || key.equals("frames") || key.equals("from") || key.equals("to") || key.equals("benchmark") || key.equals("instrument") || key.equals("rankings") || key.equals("waterfall") || key.equals("view") || key.equals("id") || key.equals("v")) || parts.length != 2
                             || params.putIfAbsent(key, URLDecoder.decode(parts[1], StandardCharsets.UTF_8)) != null)
                 throw new IllegalArgumentException("Unknown or duplicate parameter");
         }
@@ -200,6 +236,49 @@ final class WebServer implements AutoCloseable
                         .matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
             throw new IllegalArgumentException("Invalid instrument UUID");
         return params;
+    }
+
+    private boolean validView(String view)
+    {
+        return view.equals("ole") || (yingPortfolios != null && (view.equals("ying") || view.equals("combined")));
+    }
+
+    private Map<String, java.util.List<String>> quoteKeysForView(DashboardService service)
+    {
+        var aliases = new HashMap<String, java.util.List<String>>();
+        snapshot("combined").service().quoteKeys().values().forEach(keys -> keys.forEach(uuid -> aliases.put(uuid, keys)));
+        var selected = new HashMap<String, java.util.List<String>>();
+        service.quoteKeys().keySet().forEach(uuid -> selected.put(uuid, aliases.getOrDefault(uuid, java.util.List.of(uuid))));
+        return Map.copyOf(selected);
+    }
+
+    private PortfolioRefresh.Snapshot snapshot(String view)
+    {
+        if (view.equals("ole") || yingPortfolios == null)
+            return portfolios.snapshot();
+        if (view.equals("ying"))
+            return yingPortfolios.snapshot();
+        var ole = portfolios.snapshot();
+        var ying = yingPortfolios.snapshot();
+        var cached = combinedCache;
+        if (cached != null && cached.ole() == ole.service() && cached.ying() == ying.service()
+                        && java.util.Objects.equals(cached.oleRevision(), ole.revision())
+                        && java.util.Objects.equals(cached.yingRevision(), ying.revision()))
+            return new PortfolioRefresh.Snapshot(cached.snapshot().service(), cached.snapshot().revision(), ole.status());
+        synchronized (this)
+        {
+            cached = combinedCache;
+            if (cached == null || cached.ole() != ole.service() || cached.ying() != ying.service()
+                            || !java.util.Objects.equals(cached.oleRevision(), ole.revision())
+                            || !java.util.Objects.equals(cached.yingRevision(), ying.revision()))
+            {
+                var combined = new PortfolioRefresh.Snapshot(DashboardService.combined(ole.service(), ying.service()),
+                                ole.revision() + ":" + ying.revision(), ole.status());
+                combinedCache = new CombinedCache(ole.service(), ying.service(), ole.revision(), ying.revision(), combined);
+                cached = combinedCache;
+            }
+            return new PortfolioRefresh.Snapshot(cached.snapshot().service(), cached.snapshot().revision(), ole.status());
+        }
     }
 
     private void json(HttpExchange exchange, int status, Object value) throws IOException
