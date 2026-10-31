@@ -34,8 +34,13 @@ For an encrypted second file, use `PP_WEB_SECOND_PASSWORD` in the same way.
 With `--second-file`, the Portfolio selector offers Ole, Ying and Combined. Each file refreshes
 independently and keeps its own recovery snapshot. Combined sums holdings of securities with an
 unambiguous matching ISIN and quote currency, or an unambiguous matching ticker and quote currency
-when no matching ISIN is available. Other holdings remain separate. Combined calculations use the
-first file's reporting currency; neither source file is modified. The same single IBKR collector
+when no matching ISIN is available. Other holdings remain separate. Combined valuations and
+performance use each file's saved prices and exchange rates before aggregation. Shared instrument
+details show both source price histories, combined booked activity and a flow-aware total-return
+series. Contribution waterfalls merge securities before applying the household top-20 limit.
+The reporting-currency selector offers CHF, DKK, THB and USD on every view; its choice persists
+in the URL. Missing historical rates make the selected conversion unavailable rather than assuming
+a 1:1 rate. Neither source file is modified. The same single IBKR collector
 feeds all three views. A live quote appears for a holding only when its source security UUID is
 mapped in the collector's private watchlist.
 

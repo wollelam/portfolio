@@ -1055,6 +1055,14 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .topbar-actions { display:flex; align-items:center; gap:8px; }
 .view-selector { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; font-weight:650; }
 .view-selector select { min-height:36px; max-width:155px; padding:0 28px 0 10px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--ink); font:inherit; }
+.currency-selector select { min-width:82px; }
+.instrument-source-legend { display:flex; gap:18px; align-items:center; color:var(--muted); font-size:12px; padding:8px 0 0; }
+.instrument-source-legend span { display:inline-flex; align-items:center; gap:7px; }
+.instrument-source-legend i { display:inline-block; width:18px; border-top:3px solid; border-radius:2px; }
+.instrument-source-legend .source-ole { border-color:#168565; }
+.instrument-source-legend .source-ying { border-color:#416bb8; border-top-style:dashed; }
+.instrument-source-ole { fill:none; stroke:#168565; stroke-width:2.5; stroke-linecap:round; stroke-linejoin:round; }
+.instrument-source-ying { fill:none; stroke:#416bb8; stroke-width:2.5; stroke-dasharray:7 4; stroke-linecap:round; stroke-linejoin:round; }
 .topbar-menu { position:relative; letter-spacing:normal; color:#1c293b; }
 .icon-button { position:relative; display:grid; place-items:center; width:36px; height:36px; border:1px solid var(--border); border-radius:8px; background:#fff; cursor:pointer; list-style:none; }
 .icon-button::-webkit-details-marker { display:none; }

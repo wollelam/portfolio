@@ -89,8 +89,54 @@ public class DashboardServiceTest
         assertEquals(1, combined.holdings().stream().filter(h -> "security".equals(h.type())).count());
         var securityUuid = olePortfolio.client().getSecurities().getFirst().getUUID();
         var detail = combinedService.dashboard(today.minusYears(1), today, null, securityUuid).instrument();
-        assertTrue(detail.message().contains("separate saved prices"));
+        assertTrue(detail.message().contains("shown separately by source"));
         assertEquals(sourceHoldingValue, detail.value().longValue());
+        assertEquals(oleDashboardValue(olePortfolio, today.minusYears(1), today)
+                        + oleDashboardValue(yingPortfolio, today.minusYears(1), today), detail.value().longValue());
+        assertEquals(2, detail.sourcePrices().size());
+        assertTrue(detail.sourcePrices().containsKey("Ole"));
+        assertTrue(detail.sourcePrices().containsKey("Ying"));
+        assertTrue(detail.sourcePrices().values().stream().allMatch(prices -> !prices.isEmpty()));
+        assertFalse(detail.totalReturn().isEmpty());
+        var oleSource = new DashboardService(olePortfolio, clock, List.of());
+        var yingSource = new DashboardService(yingPortfolio, clock, List.of());
+        var oleDetail = oleSource.dashboard(today.minusYears(1), today, null,
+                        olePortfolio.client().getSecurities().getFirst().getUUID()).instrument();
+        var yingDetail = yingSource.dashboard(today.minusYears(1), today, null,
+                        yingPortfolio.client().getSecurities().getFirst().getUUID()).instrument();
+        var oleConverter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(olePortfolio.client()), "EUR");
+        var yingConverter = new CurrencyConverterImpl(new ExchangeRateProviderFactory(yingPortfolio.client()), "EUR");
+        var oleIndex = PerformanceIndex.forInvestment(olePortfolio.client(), oleConverter,
+                        olePortfolio.client().getSecurities().getFirst(), Interval.of(today.minusYears(1), today),
+                        new ArrayList<>());
+        var yingIndex = PerformanceIndex.forInvestment(yingPortfolio.client(), yingConverter,
+                        yingPortfolio.client().getSecurities().getFirst(), Interval.of(today.minusYears(1), today),
+                        new ArrayList<>());
+        assertEquals(combinedRate(oleIndex, yingIndex), detail.twror(), 0.0000001);
+        assertEquals(oleDetail.gain() + yingDetail.gain(), detail.gain().longValue());
+        assertEquals(oleDetail.dividends() + yingDetail.dividends(), detail.dividends());
+        assertFalse(detail.activity().dividends().isEmpty());
+        assertFalse(detail.activity().transactions().isEmpty());
+        assertTrue(detail.events().stream().anyMatch(event -> event.kind().equals("dividend")));
+
+        var waterfall = combinedService.dashboard(today.minusYears(1), today, null, null, false,
+                        "contributions").waterfall();
+        assertNull(waterfall.message());
+        assertEquals("START", waterfall.entries().getFirst().kind());
+        assertEquals("TOTAL", waterfall.entries().getLast().kind());
+        assertTrue(waterfall.entries().stream().filter(entry -> entry.type().equals("SECURITY")).count() <= 20);
+        assertTrue(waterfall.entries().stream().anyMatch(entry -> entry.type().equals("SECURITY")
+                        && entry.uuid().equals(securityUuid)));
+        assertEquals(waterfall.entries().getLast().amount(), waterfall.entries().stream()
+                        .filter(entry -> entry.kind().equals("CHANGE")).mapToLong(DashboardService.WaterfallEntry::amount).sum());
+    }
+
+    private long oleDashboardValue(PortfolioSource.LoadedPortfolio loaded, LocalDate from, LocalDate to)
+    {
+        var service = new DashboardService(loaded, Clock.fixed(to.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC),
+                        List.of());
+        return service.dashboard(from, to).holdings().stream().filter(h -> h.type().equals("security"))
+                        .mapToLong(DashboardService.Holding::value).sum();
     }
 
     @Test

@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -26,6 +27,10 @@ final class WebServer implements AutoCloseable
     {
     }
 
+    private record CurrencyCacheKey(String view, String revision, String fxVersion, String currency)
+    {
+    }
+
     private static final Map<String, String> ASSETS = Map.of("/", "index.html", "/app.js", "app.js", "/app.css", "app.css",
                     "/favicon.svg", "favicon.svg");
     private final HttpServer server;
@@ -34,6 +39,7 @@ final class WebServer implements AutoCloseable
     private final PortfolioRefresh yingPortfolios;
     private final MarketUpdates market;
     private volatile CombinedCache combinedCache;
+    private final Map<CurrencyCacheKey, DashboardService> currencyCache = new LinkedHashMap<>();
     private final Gson gson = new GsonBuilder().serializeNulls().create();
 
     WebServer(InetSocketAddress address, DashboardService service) throws IOException
@@ -172,7 +178,8 @@ final class WebServer implements AutoCloseable
                     if (!validView(view))
                         throw new IllegalArgumentException("Unknown portfolio view");
                     var snapshot = snapshot(view);
-                    var service = snapshot.service().excluding(params.get("exclude"));
+                    var reportingService = reportingCurrencyService(snapshot, view, params.get("currency"));
+                    var service = reportingService.excluding(params.get("exclude"));
                     var to = params.containsKey("to") ? LocalDate.parse(params.get("to")) : service.defaultClosingDate();
                     var from = params.containsKey("from") ? LocalDate.parse(params.get("from")) : to.minusYears(1);
                     if ("true".equals(params.get("frames")))
@@ -189,9 +196,17 @@ final class WebServer implements AutoCloseable
                     dashboard.add("views", gson.toJsonTree(yingPortfolios == null ? java.util.List.of("ole") : java.util.List.of("ole", "ying", "combined")));
                     json(exchange, 200, dashboard);
                 }
+                catch (DashboardService.MissingReportingRateException e)
+                {
+                    json(exchange, 400, Map.of("message", e.getMessage()));
+                }
                 catch (IllegalArgumentException | DateTimeParseException e)
                 {
                     json(exchange, 400, Map.of("message", "Invalid portfolio request. Check ISO dates, excluded group IDs and selected instruments. Use a recorded range with no future dates; allocation batches support at most 93 days."));
+                }
+                catch (IOException e)
+                {
+                    json(exchange, 500, Map.of("message", "The requested reporting currency could not be initialized."));
                 }
                 catch (RuntimeException e)
                 {
@@ -224,7 +239,7 @@ final class WebServer implements AutoCloseable
         {
             var parts = pair.split("=", 2);
             var key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
-            if (!(key.equals("exclude") || key.equals("frames") || key.equals("from") || key.equals("to") || key.equals("benchmark") || key.equals("instrument") || key.equals("rankings") || key.equals("waterfall") || key.equals("view") || key.equals("id") || key.equals("v")) || parts.length != 2
+            if (!(key.equals("exclude") || key.equals("frames") || key.equals("from") || key.equals("to") || key.equals("benchmark") || key.equals("instrument") || key.equals("rankings") || key.equals("waterfall") || key.equals("view") || key.equals("currency") || key.equals("id") || key.equals("v")) || parts.length != 2
                             || params.putIfAbsent(key, URLDecoder.decode(parts[1], StandardCharsets.UTF_8)) != null)
                 throw new IllegalArgumentException("Unknown or duplicate parameter");
         }
@@ -235,7 +250,35 @@ final class WebServer implements AutoCloseable
         if (params.containsKey("instrument") && !params.get("instrument")
                         .matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
             throw new IllegalArgumentException("Invalid instrument UUID");
+        if (params.containsKey("currency") && !validReportingCurrency(params.get("currency")))
+            throw new IllegalArgumentException("Unsupported reporting currency");
         return params;
+    }
+
+    private boolean validReportingCurrency(String currency)
+    {
+        return currency.equals("CHF") || currency.equals("DKK") || currency.equals("THB") || currency.equals("USD");
+    }
+
+    private synchronized DashboardService reportingCurrencyService(PortfolioRefresh.Snapshot snapshot, String view,
+                    String requestedCurrency) throws IOException
+    {
+        var base = snapshot.service();
+        if (requestedCurrency == null && !view.equals("combined"))
+            return base;
+        var currency = requestedCurrency == null ? base.reportingCurrency() : requestedCurrency;
+        var key = new CurrencyCacheKey(view, snapshot.revision(), base.fxVersion(), currency);
+        var cached = currencyCache.get(key);
+        if (cached != null)
+            return cached;
+        var service = base.withCurrency(currency);
+        currencyCache.entrySet().removeIf(entry -> entry.getKey().view().equals(view)
+                        && (!java.util.Objects.equals(entry.getKey().revision(), snapshot.revision())
+                                        || !java.util.Objects.equals(entry.getKey().fxVersion(), base.fxVersion())));
+        if (currencyCache.size() >= 12)
+            currencyCache.remove(currencyCache.keySet().iterator().next());
+        currencyCache.put(key, service);
+        return service;
     }
 
     private boolean validView(String view)

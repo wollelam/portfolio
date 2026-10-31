@@ -3,6 +3,7 @@ package name.abuchen.portfolio.web;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.math.BigDecimal;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -22,6 +23,13 @@ import org.junit.rules.TemporaryFolder;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParser;
+
+import name.abuchen.portfolio.model.Client;
+import name.abuchen.portfolio.model.Security;
+import name.abuchen.portfolio.money.ExchangeRate;
+import name.abuchen.portfolio.money.ExchangeRateProvider;
+import name.abuchen.portfolio.money.ExchangeRateTimeSeries;
+import name.abuchen.portfolio.money.impl.ExchangeRateTimeSeriesImpl;
 
 @SuppressWarnings("nls")
 public class WebServerTest
@@ -184,7 +192,8 @@ public class WebServerTest
             assertEquals(200, get(client, base + "/app.css").statusCode());
             assertEquals(400, get(client, base + "/api/dashboard?to=bad").statusCode());
             assertEquals(400, get(client, base + "/api/dashboard?from=2025-01-01&from=2025-02-01").statusCode());
-            assertEquals(400, get(client, base + "/api/dashboard?currency=USD").statusCode());
+            assertEquals(200, get(client, base + "/api/dashboard?currency=USD").statusCode());
+            assertEquals(400, get(client, base + "/api/dashboard?currency=EUR").statusCode());
             assertEquals(400, get(client, base + "/api/dashboard?instrument=malformed").statusCode());
             assertEquals(400, get(client, base + "/api/dashboard?instrument=" + instrumentId + "&instrument=" + instrumentId).statusCode());
             assertEquals(404, get(client, base + "/META-INF/MANIFEST.MF").statusCode());
@@ -221,6 +230,7 @@ public class WebServerTest
             server.start();
             var base = "http://127.0.0.1:" + server.port();
             var defaultView = JsonParser.parseString(get(client, base + "/api/dashboard").body()).getAsJsonObject();
+            assertEquals("EUR", defaultView.get("currency").getAsString());
             assertEquals("[\"ole\",\"ying\",\"combined\"]", defaultView.getAsJsonArray("views").toString());
             var yingView = JsonParser.parseString(get(client, base + "/api/dashboard?view=ying").body()).getAsJsonObject();
             assertEquals(yingView.get("totalValue"), defaultView.get("totalValue"));
@@ -242,6 +252,157 @@ public class WebServerTest
                             + olePortfolio.client().getAccounts().getFirst().getUUID()).body()).getAsJsonObject();
             assertEquals(combined.getAsJsonObject("quoteKeys"), excluded.getAsJsonObject("quoteKeys"));
             assertEquals(400, get(client, base + "/api/dashboard?view=unknown").statusCode());
+        }
+    }
+
+    @Test
+    public void selectedReportingCurrenciesConvertEachViewAndPreserveCombinedSums() throws Exception
+    {
+        var today = LocalDate.of(2025, 6, 12);
+        var from = today.minusYears(1);
+        var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+        var olePortfolio = DemoPortfolio.create(today);
+        var yingPortfolio = DemoPortfolio.create(today);
+        for (int ii = 0; ii < olePortfolio.client().getSecurities().size(); ii++)
+        {
+            olePortfolio.client().getSecurities().get(ii).setIsin("CURRENCY-" + ii);
+            yingPortfolio.client().getSecurities().get(ii).setIsin("CURRENCY-" + ii);
+        }
+        var rates = reportingCurrencyRates(today);
+        var ole = new DashboardService(olePortfolio, clock, List.of(), rates);
+        var ying = new DashboardService(yingPortfolio, clock, List.of(), rates);
+        var instrument = olePortfolio.client().getSecurities().getFirst().getUUID();
+        var yingInstrument = yingPortfolio.client().getSecurities().getFirst().getUUID();
+        try (var oleRefresh = PortfolioRefresh.fixed(ole); var yingRefresh = PortfolioRefresh.fixed(ying);
+                        var server = new WebServer(new InetSocketAddress("127.0.0.1", 0), oleRefresh, yingRefresh,
+                                        MarketUpdates.disabled());
+                        var client = HttpClient.newHttpClient())
+        {
+            server.start();
+            var base = "http://127.0.0.1:" + server.port() + "/api/dashboard";
+            for (var currency : List.of("CHF", "DKK", "THB", "USD"))
+            {
+                var common = "&from=" + from + "&to=" + today + "&rankings=true&waterfall=contributions";
+                var oleReport = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=ole&instrument="
+                                + instrument + common).body())
+                                .getAsJsonObject();
+                var yingReport = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=ying&instrument="
+                                + yingInstrument + common).body())
+                                .getAsJsonObject();
+                var combined = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=combined&instrument="
+                                + instrument + common).body())
+                                .getAsJsonObject();
+
+                assertEquals(currency, combined.get("currency").getAsString());
+                assertEquals(oleReport.get("totalValue").getAsLong() + yingReport.get("totalValue").getAsLong(),
+                                combined.get("totalValue").getAsLong());
+                assertEquals(oleReport.getAsJsonArray("holdings").asList().stream()
+                                .mapToLong(row -> row.getAsJsonObject().get("value").getAsLong()).sum()
+                                + yingReport.getAsJsonArray("holdings").asList().stream()
+                                                .mapToLong(row -> row.getAsJsonObject().get("value").getAsLong()).sum(),
+                                combined.getAsJsonArray("holdings").asList().stream()
+                                                .mapToLong(row -> row.getAsJsonObject().get("value").getAsLong()).sum());
+                for (var field : List.of("valueChange", "netFlows", "gain"))
+                    assertEquals(oleReport.getAsJsonObject("period").get(field).getAsLong()
+                                    + yingReport.getAsJsonObject("period").get(field).getAsLong(),
+                                    combined.getAsJsonObject("period").get(field).getAsLong());
+                assertEquals(oleReport.getAsJsonObject("instrument").get("gain").getAsLong()
+                                + yingReport.getAsJsonObject("instrument").get("gain").getAsLong(),
+                                combined.getAsJsonObject("instrument").get("gain").getAsLong());
+                assertEquals(oleReport.getAsJsonObject("instrument").get("dividends").getAsLong()
+                                + yingReport.getAsJsonObject("instrument").get("dividends").getAsLong(),
+                                combined.getAsJsonObject("instrument").get("dividends").getAsLong());
+                var oleRank = oleReport.getAsJsonObject("rankings").getAsJsonArray("securities").asList().stream()
+                                .map(element -> element.getAsJsonObject()).filter(entry -> entry.get("uuid").getAsString().equals(instrument))
+                                .findFirst().orElseThrow();
+                var yingRank = yingReport.getAsJsonObject("rankings").getAsJsonArray("securities").asList().stream()
+                                .map(element -> element.getAsJsonObject()).filter(entry -> entry.get("uuid").getAsString().equals(yingInstrument))
+                                .findFirst().orElseThrow();
+                var combinedRank = combined.getAsJsonObject("rankings").getAsJsonArray("securities").asList().stream()
+                                .map(element -> element.getAsJsonObject()).filter(entry -> entry.get("uuid").getAsString().equals(instrument))
+                                .findFirst().orElseThrow();
+                assertEquals(oleRank.get("gain").getAsLong() + yingRank.get("gain").getAsLong(),
+                                combinedRank.get("gain").getAsLong());
+                var oleWaterfallTotal = oleReport.getAsJsonObject("waterfall").getAsJsonArray("entries").get(oleReport
+                                .getAsJsonObject("waterfall").getAsJsonArray("entries").size() - 1).getAsJsonObject()
+                                .get("amount").getAsLong();
+                var yingWaterfallTotal = yingReport.getAsJsonObject("waterfall").getAsJsonArray("entries").get(yingReport
+                                .getAsJsonObject("waterfall").getAsJsonArray("entries").size() - 1).getAsJsonObject()
+                                .get("amount").getAsLong();
+                var combinedEntries = combined.getAsJsonObject("waterfall").getAsJsonArray("entries");
+                assertEquals(oleWaterfallTotal + yingWaterfallTotal,
+                                combinedEntries.get(combinedEntries.size() - 1).getAsJsonObject().get("amount").getAsLong());
+                var combinedChanges = combinedEntries.asList().stream().map(element -> element.getAsJsonObject())
+                                .filter(entry -> entry.get("kind").getAsString().equals("CHANGE"))
+                                .mapToLong(entry -> entry.get("amount").getAsLong()).sum();
+                assertEquals(oleWaterfallTotal + yingWaterfallTotal, combinedChanges);
+
+                var frameQuery = "&frames=true&from=" + today.minusDays(3) + "&to=" + today.minusDays(1);
+                var oleFrames = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=ole" + frameQuery).body())
+                                .getAsJsonObject().getAsJsonArray("frames");
+                var yingFrames = JsonParser.parseString(get(client, base + "?currency=" + currency + "&view=ying" + frameQuery).body())
+                                .getAsJsonObject().getAsJsonArray("frames");
+                var combinedFrames = JsonParser.parseString(get(client,
+                                base + "?currency=" + currency + "&view=combined" + frameQuery).body())
+                                .getAsJsonObject().getAsJsonArray("frames");
+                assertEquals(oleFrames.size(), combinedFrames.size());
+                for (int ii = 0; ii < oleFrames.size(); ii++)
+                    assertEquals(oleFrames.get(ii).getAsJsonObject().get("totalValue").getAsLong()
+                                    + yingFrames.get(ii).getAsJsonObject().get("totalValue").getAsLong(),
+                                    combinedFrames.get(ii).getAsJsonObject().get("totalValue").getAsLong());
+            }
+        }
+    }
+
+    private FxRates.View reportingCurrencyRates(LocalDate date)
+    {
+        ExchangeRateProvider provider = new ExchangeRateProvider()
+        {
+            private final List<ExchangeRateTimeSeries> series = List.of("CHF", "DKK", "THB", "USD").stream()
+                            .map(currency -> {
+                                var result = new ExchangeRateTimeSeriesImpl(this, "EUR", currency);
+                                var rate = switch (currency)
+                                {
+                                    case "CHF" -> "0.94";
+                                    case "DKK" -> "6.90";
+                                    case "THB" -> "36.20";
+                                    default -> "1.10";
+                                };
+                                result.addRate(new ExchangeRate(LocalDate.of(2020, 1, 1), new BigDecimal(rate)));
+                                return (ExchangeRateTimeSeries) result;
+                            }).toList();
+
+            @Override
+            public String getName()
+            {
+                return "test reporting currencies";
+            }
+
+            @Override
+            public List<ExchangeRateTimeSeries> getAvailableTimeSeries(Client client)
+            {
+                return series;
+            }
+        };
+        return new FxRates.View("reporting-currency-test-" + date, provider.getAvailableTimeSeries(new Client()));
+    }
+
+    @Test
+    public void selectedReportingCurrencyRejectsMissingExchangeRates() throws Exception
+    {
+        var today = LocalDate.of(2025, 6, 12);
+        var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+        var loaded = DemoPortfolio.create(today);
+        loaded.client().addSecurity(new Security("Unquoted currency", "ZZZ"));
+        var service = new DashboardService(loaded, clock, List.of());
+        try (var portfolios = PortfolioRefresh.fixed(service);
+                        var server = new WebServer(new InetSocketAddress("127.0.0.1", 0), portfolios);
+                        var client = HttpClient.newHttpClient())
+        {
+            server.start();
+            var response = get(client, "http://127.0.0.1:" + server.port() + "/api/dashboard?currency=USD");
+            assertEquals(400, response.statusCode());
+            assertTrue(response.body().contains("Missing exchange rate"));
         }
     }
 

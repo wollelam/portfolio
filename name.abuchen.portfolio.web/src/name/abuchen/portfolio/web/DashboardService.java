@@ -22,6 +22,7 @@ import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.money.CurrencyConverterImpl;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Quote;
+import name.abuchen.portfolio.money.StrictCurrencyConverter;
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.snapshot.ClientPerformanceSnapshot;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
@@ -61,7 +62,8 @@ final class DashboardService
     }
 
     record Instrument(String uuid, String name, String currency, double quoteScale, long shares, Long value, String quoteDate,
-                    Double twror, Double irr, Long gain, long dividends, List<InstrumentPoint> prices, String message,
+                    Double twror, Double irr, Long gain, long dividends, List<InstrumentPoint> prices,
+                    Map<String, List<InstrumentPoint>> sourcePrices, String message,
                     SecurityActivityService.Activity activity, List<ReturnPoint> totalReturn, List<ChartEvent> events)
     {
     }
@@ -102,13 +104,14 @@ final class DashboardService
     }
 
     private final PortfolioSource.LoadedPortfolio portfolio;
-    private final CurrencyConverterImpl converter;
+    private final CurrencyConverter converter;
     private final Clock clock;
     private final LocalDate inceptionDate;
     private final PortfolioIcons icons;
     private final PortfolioScope scope;
     private final List<String> exclusions;
     private final Map<String, DashboardService> filtered = new LinkedHashMap<>();
+    private final Set<String> validatedRateRanges = new java.util.HashSet<>();
     private final List<String> startupWarnings;
     private final FxRates.View rates;
     private Map<String, List<String>> quoteKeys;
@@ -131,7 +134,7 @@ final class DashboardService
     }
 
     private DashboardService(PortfolioSource.LoadedPortfolio portfolio, Clock clock, List<String> startupWarnings,
-                    FxRates.View rates, PortfolioScope scope, List<String> exclusions, CurrencyConverterImpl inheritedConverter)
+                    FxRates.View rates, PortfolioScope scope, List<String> exclusions, CurrencyConverter inheritedConverter)
     {
         this.portfolio = portfolio;
         this.scope = scope;
@@ -352,7 +355,7 @@ final class DashboardService
     {
     }
 
-    record AllocationFrames(String revision, String fxVersion, PortfolioScope.Selection scope, List<AllocationFrame> frames)
+    record AllocationFrames(String revision, String fxVersion, String currency, PortfolioScope.Selection scope, List<AllocationFrame> frames)
     {
     }
 
@@ -361,6 +364,7 @@ final class DashboardService
         if (from.isBefore(inceptionDate) || to.isAfter(defaultClosingDate()) || to.isBefore(from)
                         || java.time.temporal.ChronoUnit.DAYS.between(from, to) > 92)
             throw new IllegalArgumentException("Choose at most 93 recorded allocation dates");
+        validateReportingRates(from, to);
         if (combinedOle != null)
         {
             var oleFrames = sourceAllocationFrames(combinedOle, from, to);
@@ -377,7 +381,7 @@ final class DashboardService
                 frames.add(new AllocationFrame(oleFrame.date(), oleFrame.totalValue() + yingFrame.totalValue(),
                                 combinedHoldings(oleFrame.holdings(), yingFrame.holdings())));
             }
-            return new AllocationFrames(portfolio.revision(), fxVersion(), scope.selection(exclusions), List.copyOf(frames));
+            return new AllocationFrames(portfolio.revision(), fxVersion(), converter.getTermCurrency(), scope.selection(exclusions), List.copyOf(frames));
         }
         var frames = new ArrayList<AllocationFrame>();
         for (var date = from; !date.isAfter(to); date = date.plusDays(1))
@@ -386,7 +390,7 @@ final class DashboardService
             frames.add(new AllocationFrame(date.toString(), snapshot.getMonetaryAssets().getAmount(),
                             holdings(snapshot, date, new LinkedHashSet<>())));
         }
-        return new AllocationFrames(portfolio.revision(), fxVersion(), scope.selection(exclusions), List.copyOf(frames));
+        return new AllocationFrames(portfolio.revision(), fxVersion(), converter.getTermCurrency(), scope.selection(exclusions), List.copyOf(frames));
     }
 
     private List<AllocationFrame> sourceAllocationFrames(DashboardService service, LocalDate from, LocalDate to)
@@ -416,6 +420,11 @@ final class DashboardService
     String fxVersion()
     {
         return rates == null ? null : rates.version();
+    }
+
+    String reportingCurrency()
+    {
+        return converter.getTermCurrency();
     }
 
     DashboardService withRates(FxRates.View view) throws IOException
@@ -470,6 +479,14 @@ final class DashboardService
     synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate, String benchmark, String instrumentId,
                     boolean includeRankings, String waterfallMode, boolean includeDailyRankings)
     {
+        return dashboard(openingDate, closingDate, benchmark, instrumentId, includeRankings, waterfallMode,
+                        includeDailyRankings, true);
+    }
+
+    private synchronized Dashboard dashboard(LocalDate openingDate, LocalDate closingDate, String benchmark,
+                    String instrumentId, boolean includeRankings, String waterfallMode, boolean includeDailyRankings,
+                    boolean limitWaterfallContributions)
+    {
         if (waterfallMode != null && !waterfallMode.equals("calculation") && !waterfallMode.equals("contributions"))
             throw new IllegalArgumentException("Invalid waterfall mode");
         if (combinedOle != null)
@@ -480,6 +497,7 @@ final class DashboardService
             earliest = inceptionDate;
         if (!openingDate.isBefore(closingDate) || closingDate.isAfter(LocalDate.now(clock)) || openingDate.isBefore(earliest))
             throw new IllegalArgumentException("Choose an opening date before the closing date, no future dates, and a range within 10 years or the portfolio's recorded history.");
+        validateReportingRates(reportingRateStart(openingDate, closingDate), closingDate);
 
         var warnings = new LinkedHashSet<>(startupWarnings);
         var index = index(openingDate, closingDate, warnings);
@@ -558,7 +576,8 @@ final class DashboardService
                         holdings, List.copyOf(dividends), List.copyOf(warnings), BenchmarkService.options(scope.client),
                         BenchmarkService.calculate(scope.client, converter, openingDate, closingDate, benchmark),
                         coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate), rankings, dailyRankings,
-                        waterfallMode == null ? null : waterfall(openingDate, closingDate, waterfallMode), drawdown(index), inceptionDate.toString(), defaultClosingDate().toString(), iconUrls, scope.selection(exclusions), quoteKeys);
+                        waterfallMode == null ? null : waterfall(openingDate, closingDate, waterfallMode,
+                                        limitWaterfallContributions), drawdown(index), inceptionDate.toString(), defaultClosingDate().toString(), iconUrls, scope.selection(exclusions), quoteKeys);
     }
 
     private List<Holding> holdings(ClientSnapshot snapshot, LocalDate closingDate, Set<String> warnings)
@@ -637,13 +656,15 @@ final class DashboardService
                         drawdown.getMaxDrawdownDuration().getDays(), List.copyOf(points));
     }
 
-    private Waterfall waterfall(LocalDate from, LocalDate to, String mode)
+    private Waterfall waterfall(LocalDate from, LocalDate to, String mode, boolean limitContributions)
     {
         try
         {
             var snapshot = new ClientPerformanceSnapshot(portfolio.client(), converter, Interval.of(from, to), true);
             var breakdown = mode.equals("calculation") ? PerformanceBreakdown.createCalculation(snapshot)
-                            : PerformanceBreakdown.createContributions(snapshot).limitContributions(20);
+                            : PerformanceBreakdown.createContributions(snapshot);
+            if (limitContributions && mode.equals("contributions"))
+                breakdown = breakdown.limitContributions(20);
             if (!breakdown.isReconciled())
                 return new Waterfall(List.of(), "The breakdown could not be reconciled for this period.");
             return new Waterfall(breakdown.getEntries().stream().map(entry -> new WaterfallEntry(
@@ -662,7 +683,7 @@ final class DashboardService
         var instrumentUuid = uuid;
         var security = scope.client.getSecurities().stream().filter(s -> instrumentUuid.equals(s.getUUID())).findFirst().orElse(null);
         if (security == null)
-            return new Instrument(uuid, null, null, Values.Quote.divider(), 0, null, null, null, null, null, 0, List.of(),
+            return new Instrument(uuid, null, null, Values.Quote.divider(), 0, null, null, null, null, null, 0, List.of(), Map.of(),
                             "This instrument is no longer available in the loaded portfolio.", SecurityActivityService.empty(),
                             List.of(), List.of());
 
@@ -675,8 +696,8 @@ final class DashboardService
             long shares = positions.stream().mapToLong(p -> p.getPosition().getShares()).sum();
             Long value = positions.isEmpty() ? null : positions.stream().mapToLong(p -> p.getValuation().getAmount()).sum();
             return new Instrument(uuid, security.getName(), security.getCurrencyCode(), Values.Quote.divider(), shares,
-                            value, null, null, null, null, 0, List.of(),
-                            "This combined holding uses separate saved prices in Ole and Ying. Performance charts are available by selecting either source view.",
+                            value, null, null, null, null, 0, List.of(), Map.of(),
+                            "This combined holding uses source-specific saved prices.",
                             SecurityActivityService.empty(), List.of(), List.of());
         }
 
@@ -707,7 +728,7 @@ final class DashboardService
                         record == null || !validPeriod ? null : finite(record.getTrueTimeWeightedRateOfReturn()),
                         record == null || !validPeriod ? null : finite(record.getIrr()),
                         record == null || !validPeriod ? null : record.getDelta().getAmount(),
-                        record == null ? 0 : record.getSumOfDividends().getAmount() - nonCashDividends, points,
+                        record == null ? 0 : record.getSumOfDividends().getAmount() - nonCashDividends, points, Map.of(),
                         !validPeriod ? (hasClosingQuote ? "The opening quote is missing or invalid; period performance is unavailable."
                                         : "No stored quote on or before the selected closing date is usable; valuation and period performance are unavailable.") :
                                         points.isEmpty() ? "No stored quotes in the selected period." : null,
@@ -770,6 +791,7 @@ final class DashboardService
             earliest = inceptionDate;
         if (!openingDate.isBefore(closingDate) || closingDate.isAfter(LocalDate.now(clock)) || openingDate.isBefore(earliest))
             throw new IllegalArgumentException("Choose an opening date before the closing date, no future dates, and a range within 10 years or the portfolio's recorded history.");
+        validateReportingRates(reportingRateStart(openingDate, closingDate), closingDate);
         var group = instrumentId == null ? List.<String>of() : combinedSecurityGroups.getOrDefault(
                         canonicalSecurityIds.getOrDefault(instrumentId, instrumentId), List.of(instrumentId));
         var oleInstrumentId = sourceSecurity(combinedOle, group);
@@ -798,12 +820,13 @@ final class DashboardService
         dividends.addAll(yingDashboard.dividends());
         dividends.sort(Comparator.comparing(Dividend::date));
         var instrument = instrumentId == null ? null : combinedInstrument(instrumentId, group, oleDashboard, yingDashboard,
-                        oleDashboard.instrument(), yingDashboard.instrument());
+                        oleDashboard.instrument(), yingDashboard.instrument(), openingDate, closingDate);
         var inception = combinedOle.inceptionDate.isBefore(combinedYing.inceptionDate)
                         ? combinedOle.inceptionDate : combinedYing.inceptionDate;
         var benchmarks = java.util.stream.Stream.concat(oleDashboard.benchmarks().stream(), yingDashboard.benchmarks().stream()).distinct().toList();
         var benchmarkResult = oleDashboard.benchmark() != null ? oleDashboard.benchmark() : yingDashboard.benchmark();
-        var combinedWaterfall = waterfallMode == null ? null : combinedWaterfall(oleDashboard.waterfall(), yingDashboard.waterfall());
+        var combinedWaterfall = waterfallMode == null ? null
+                        : combinedWaterfall(oleDashboard.waterfall(), yingDashboard.waterfall(), waterfallMode);
         var combinedFxVersion = oleDashboard.fxVersion() == null && yingDashboard.fxVersion() == null ? null
                         : String.valueOf(oleDashboard.fxVersion()) + ":" + String.valueOf(yingDashboard.fxVersion());
         var rankings = includeRankings ? combinedRankings(openingDate, closingDate) : null;
@@ -831,7 +854,8 @@ final class DashboardService
         var effectiveOpening = openingDate.isBefore(earliest) ? earliest : openingDate;
         if (!effectiveOpening.isBefore(closingDate))
             effectiveOpening = closingDate.minusDays(1);
-        return service.dashboard(effectiveOpening, closingDate, benchmark, instrumentId, false, waterfallMode, false);
+        return service.dashboard(effectiveOpening, closingDate, benchmark, instrumentId, false, waterfallMode, false,
+                        false);
     }
 
     private SecurityRankingService.Rankings combinedRankings(LocalDate from, LocalDate to)
@@ -897,7 +921,7 @@ final class DashboardService
                         Interval.of(from, to), new ArrayList<>());
     }
 
-    private Waterfall combinedWaterfall(Waterfall ole, Waterfall ying)
+    private Waterfall combinedWaterfall(Waterfall ole, Waterfall ying, String mode)
     {
         if (ole == null || ying == null || ole.message() != null || ying.message() != null)
             return new Waterfall(List.of(), "Waterfall details are unavailable for the combined view.");
@@ -913,7 +937,125 @@ final class DashboardService
                             : new WaterfallEntry(previous.kind(), previous.type(), previous.label(),
                                             previous.amount() + entry.amount(), previous.uuid()));
         });
-        return new Waterfall(List.copyOf(entries.values()), null);
+        var result = new ArrayList<>(entries.values());
+        if (mode.equals("contributions"))
+        {
+            var securities = result.stream().filter(entry -> entry.type().equals("SECURITY")).toList();
+            var included = new java.util.HashSet<>(securities.stream()
+                            .sorted(Comparator.comparingLong((WaterfallEntry entry) -> absolute(entry.amount())).reversed()
+                                            .thenComparing(WaterfallEntry::label, String.CASE_INSENSITIVE_ORDER))
+                            .limit(20).toList());
+            long otherAmount = 0;
+            for (var entry : securities)
+            {
+                if (!included.contains(entry))
+                    otherAmount += entry.amount();
+            }
+            if (!included.containsAll(securities))
+            {
+                result.removeIf(entry -> entry.type().equals("SECURITY") && !included.contains(entry));
+                int otherIndex = -1;
+                for (int index = 0; index < result.size(); index++)
+                {
+                    if (result.get(index).type().equals("OTHER") && result.get(index).kind().equals("CHANGE"))
+                    {
+                        otherIndex = index;
+                        break;
+                    }
+                }
+                if (otherIndex >= 0)
+                {
+                    var previous = result.get(otherIndex);
+                    result.set(otherIndex, new WaterfallEntry(previous.kind(), previous.type(), previous.label(),
+                                    previous.amount() + otherAmount, null));
+                }
+                else if (otherAmount != 0)
+                {
+                    result.add(new WaterfallEntry("CHANGE", "OTHER", "Other", otherAmount, null));
+                }
+            }
+        }
+        result.sort(Comparator.comparingInt(entry -> switch (entry.kind())
+        {
+            case "START" -> 0;
+            case "CHANGE" -> 1;
+            case "TOTAL" -> 2;
+            default -> 3;
+        }));
+        return new Waterfall(List.copyOf(result), null);
+    }
+
+    private long absolute(long value)
+    {
+        return value == Long.MIN_VALUE ? Long.MAX_VALUE : Math.abs(value);
+    }
+
+    static final class MissingReportingRateException extends IllegalArgumentException
+    {
+        private static final long serialVersionUID = 1L;
+
+        MissingReportingRateException(String currency, String reportingCurrency, LocalDate date)
+        {
+            super("Missing exchange rate for " + currency + " to " + reportingCurrency + " on " + date + ".");
+        }
+    }
+
+    private void validateReportingRates(LocalDate from, LocalDate to)
+    {
+        if (!(converter instanceof StrictCurrencyConverter))
+            return;
+        var cacheKey = from + ":" + to + ":" + converter.getTermCurrency();
+        if (validatedRateRanges.contains(cacheKey))
+            return;
+        var currencies = new LinkedHashSet<String>();
+        scope.client.getAccounts().forEach(account -> {
+            currencies.add(account.getCurrencyCode());
+            account.getTransactions().forEach(transaction -> currencies.add(transaction.getCurrencyCode()));
+        });
+        scope.client.getPortfolios().forEach(portfolio -> portfolio.getTransactions()
+                        .forEach(transaction -> currencies.add(transaction.getCurrencyCode())));
+        scope.client.getSecurities().forEach(security -> currencies.add(security.getCurrencyCode()));
+        currencies.remove(null);
+        currencies.remove(converter.getTermCurrency());
+        for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1))
+        {
+            for (var currency : currencies)
+            {
+                if (converter.getRateIfAvailable(date, currency).isEmpty())
+                    throw new MissingReportingRateException(currency, converter.getTermCurrency(), date);
+            }
+        }
+        validatedRateRanges.add(cacheKey);
+    }
+
+    private LocalDate reportingRateStart(LocalDate openingDate, LocalDate closingDate)
+    {
+        var start = openingDate.isBefore(closingDate.minusWeeks(1)) ? openingDate : closingDate.minusWeeks(1);
+        var priorTradingDay = previousTradingDay(closingDate);
+        return priorTradingDay.isBefore(start) ? priorTradingDay : start;
+    }
+
+    DashboardService withCurrency(String currency) throws IOException
+    {
+        if (converter.getTermCurrency().equals(currency) && converter instanceof StrictCurrencyConverter)
+            return this;
+        var loaded = new PortfolioSource.LoadedPortfolio(ClientFactory.duplicate(portfolio.client()), portfolio.label(),
+                        portfolio.revision(), portfolio.loadedAt(), portfolio.demo());
+        var factory = rates == null ? new ExchangeRateProviderFactory(loaded.client()) : rates.factory(loaded.client());
+        var reportingConverter = new StrictCurrencyConverter(new CurrencyConverterImpl(factory, currency));
+        var result = new DashboardService(loaded, clock, startupWarnings, rates, new PortfolioScope(loaded.client()),
+                        List.of(), reportingConverter);
+        result.quoteKeys = quoteKeys;
+        result.iconUrls = iconUrls;
+        result.iconImages = iconImages;
+        result.combinedSecurityGroups = combinedSecurityGroups;
+        result.canonicalSecurityIds = canonicalSecurityIds;
+        if (combinedOle != null)
+        {
+            result.combinedOle = combinedOle.withCurrency(currency);
+            result.combinedYing = combinedYing.withCurrency(currency);
+        }
+        return result;
     }
 
     private CombinedIndex combinedIndex(LocalDate from, LocalDate to, Set<String> warnings)
@@ -1013,12 +1155,13 @@ final class DashboardService
     }
 
     private Instrument combinedInstrument(String uuid, List<String> ids,
-                    Dashboard oleDashboard, Dashboard yingDashboard, Instrument oleInstrument, Instrument yingInstrument)
+                    Dashboard oleDashboard, Dashboard yingDashboard, Instrument oleInstrument, Instrument yingInstrument,
+                    LocalDate openingDate, LocalDate closingDate)
     {
         if (ids.size() < 2)
             return oleInstrument != null ? oleInstrument : yingInstrument != null ? yingInstrument
                             : new Instrument(uuid, null, null, Values.Quote.divider(), 0, null, null, null, null, null, 0,
-                                            List.of(), "This instrument is no longer available in the loaded portfolio.",
+                                            List.of(), Map.of(), "This instrument is no longer available in the loaded portfolio.",
                                             SecurityActivityService.empty(), List.of(), List.of());
         var name = oleInstrument != null ? oleInstrument.name() : yingInstrument == null ? null : yingInstrument.name();
         var currency = oleInstrument != null ? oleInstrument.currency() : yingInstrument == null ? null : yingInstrument.currency();
@@ -1026,10 +1169,103 @@ final class DashboardService
         var holdingRows = java.util.stream.Stream.concat(oleDashboard.holdings().stream(), yingDashboard.holdings().stream())
                         .filter(h -> h.uuid() != null && ids.contains(h.uuid())).toList();
         Long value = holdingRows.isEmpty() ? null : holdingRows.stream().mapToLong(Holding::value).sum();
-        return new Instrument(uuid, name, currency, Values.Quote.divider(), shares, value, null, null, null, null,
-                        (oleInstrument == null ? 0 : oleInstrument.dividends()) + (yingInstrument == null ? 0 : yingInstrument.dividends()),
-                        List.of(), "This combined holding uses separate saved prices in Ole and Ying. Performance charts are available by selecting either source view.",
-                        SecurityActivityService.empty(), List.of(), List.of());
+        var quoteDate = holdingRows.stream().map(Holding::quoteDate).filter(java.util.Objects::nonNull)
+                        .max(Comparator.naturalOrder()).orElse(null);
+        var sourcePrices = new LinkedHashMap<String, List<InstrumentPoint>>();
+        var oleSecurity = sourceSecurity(combinedOle, ids);
+        var yingSecurity = sourceSecurity(combinedYing, ids);
+        if (oleSecurity != null)
+            sourcePrices.put("Ole", sourcePrices(combinedOle, oleSecurity, openingDate, closingDate));
+        if (yingSecurity != null)
+            sourcePrices.put("Ying", sourcePrices(combinedYing, yingSecurity, openingDate, closingDate));
+
+        var combinedReturn = new ArrayList<ReturnPoint>();
+        Double twror = null;
+        try
+        {
+            var oleIndex = oleSecurity == null ? null : investmentIndex(combinedOle, oleSecurity, openingDate, closingDate);
+            var yingIndex = yingSecurity == null ? null : investmentIndex(combinedYing, yingSecurity, openingDate, closingDate);
+            if (oleIndex != null && yingIndex != null)
+            {
+                var index = combinedIndex(oleIndex, yingIndex);
+                for (int ii = 0; ii < index.dates().length; ii++)
+                    combinedReturn.add(new ReturnPoint(index.dates()[ii].toString(), finite(index.accumulated()[ii])));
+                twror = finite(index.accumulated()[index.accumulated().length - 1]);
+            }
+            else
+            {
+                var index = oleIndex == null ? yingIndex : oleIndex;
+                for (int ii = 0; ii < index.getDates().length; ii++)
+                    combinedReturn.add(new ReturnPoint(index.getDates()[ii].toString(),
+                                    finite(index.getAccumulatedPercentage()[ii])));
+                twror = finite(index.getFinalAccumulatedPercentage());
+            }
+        }
+        catch (RuntimeException unavailable)
+        {
+            combinedReturn.clear();
+        }
+
+        var activity = combineActivity(oleInstrument == null ? null : oleInstrument.activity(),
+                        yingInstrument == null ? null : yingInstrument.activity());
+        var events = Stream.concat(oleInstrument == null ? Stream.empty() : oleInstrument.events().stream(),
+                        yingInstrument == null ? Stream.empty() : yingInstrument.events().stream())
+                        .sorted(Comparator.comparing(ChartEvent::date)).toList();
+        long dividends = reportedDividends(oleInstrument) + reportedDividends(yingInstrument);
+        Long gain = combineGain(oleInstrument, yingInstrument);
+        String message = combinedReturn.isEmpty() ? "Combined performance is unavailable for this period; source price histories remain available."
+                        : "Performance and activity combine both source holdings; price histories are shown separately by source.";
+        return new Instrument(uuid, name, currency, Values.Quote.divider(), shares, value, quoteDate, twror, null,
+                        gain, dividends, List.of(), Map.copyOf(sourcePrices), message, activity,
+                        List.copyOf(combinedReturn), events);
+    }
+
+    private List<InstrumentPoint> sourcePrices(DashboardService service, String uuid, LocalDate from, LocalDate to)
+    {
+        var security = service.portfolio.client().getSecurities().stream().filter(s -> uuid.equals(s.getUUID())).findFirst()
+                        .orElseThrow();
+        return security.getPricesIncludingLatest().stream().filter(price -> !price.getDate().isAfter(to))
+                        .filter(price -> !price.getDate().isBefore(from))
+                        .sorted(Comparator.comparing(SecurityPrice::getDate))
+                        .map(price -> instrumentPoint(price, security.getCurrencyCode(), service.converter)).toList();
+    }
+
+    private Long combineGain(Instrument ole, Instrument ying)
+    {
+        if (ole == null && ying == null)
+            return null;
+        if (hasUnavailableGain(ole) || hasUnavailableGain(ying))
+            return null;
+        return (ole == null || ole.gain() == null ? 0 : ole.gain())
+                        + (ying == null || ying.gain() == null ? 0 : ying.gain());
+    }
+
+    private boolean hasUnavailableGain(Instrument instrument)
+    {
+        return instrument != null && instrument.gain() == null
+                        && (instrument.shares() != 0 || !instrument.activity().transactions().isEmpty());
+    }
+
+    private long reportedDividends(Instrument instrument)
+    {
+        if (instrument == null || instrument.dividends() != 0 || instrument.activity().dividends().isEmpty())
+            return instrument == null ? 0 : instrument.dividends();
+        var payments = instrument.activity().dividends();
+        if (payments.stream().anyMatch(payment -> payment.reportingNet() == null))
+            return instrument.dividends();
+        return payments.stream().mapToLong(SecurityActivityService.Payment::reportingNet).sum();
+    }
+
+    private SecurityActivityService.Activity combineActivity(SecurityActivityService.Activity ole,
+                    SecurityActivityService.Activity ying)
+    {
+        var dividends = Stream.concat(ole == null ? Stream.empty() : ole.dividends().stream(),
+                        ying == null ? Stream.empty() : ying.dividends().stream())
+                        .sorted(Comparator.comparing(SecurityActivityService.Payment::date).reversed()).toList();
+        var transactions = Stream.concat(ole == null ? Stream.empty() : ole.transactions().stream(),
+                        ying == null ? Stream.empty() : ying.transactions().stream())
+                        .sorted(Comparator.comparing(SecurityActivityService.Entry::date).reversed()).toList();
+        return new SecurityActivityService.Activity(dividends, transactions);
     }
 
     private Drawdown combinedDrawdown(List<Point> points)

@@ -24,6 +24,8 @@ const dateLabel = value => new Date(value + 'T12:00:00Z').toLocaleDateString(und
 const iso = date => date.toISOString().slice(0, 10);
 let report;
 let portfolioView = 'ole';
+const reportingCurrencies = ['CHF', 'DKK', 'THB', 'USD'];
+let reportingCurrency = null;
 const viewTitles = { ole: 'Ole', ying: 'Ying', combined: 'Combined' };
 function iconUrl(url) {
   const params = new URLSearchParams(url.split('?')[1] || '');
@@ -38,6 +40,11 @@ function updateViewOptions(views) {
   selector.disabled = available.length < 2;
   if (!available.includes(portfolioView)) portfolioView = available[0] || 'ole';
   selector.value = portfolioView;
+}
+function updateCurrencyOptions() {
+  const supported = reportingCurrencies.includes(reportingCurrency);
+  byId('currency-selector-label').hidden = !supported;
+  if (supported) byId('currency-selector').value = reportingCurrency;
 }
 const discreetPreferenceKey = 'portfolio.discreetMode';
 let discreetMode = false;
@@ -201,6 +208,7 @@ const routeMeta = {
 function routeUrl() {
   const params = new URLSearchParams();
   params.set('view', portfolioView);
+  if (reportingCurrencies.includes(reportingCurrency)) params.set('currency', reportingCurrency);
   if (byId('from').value) params.set('from', byId('from').value);
   if (byId('to').value) params.set('to', byId('to').value);
   if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
@@ -302,6 +310,8 @@ async function enterRoute() {
   const route = parseRoute();
   portfolioView = ['ole', 'ying', 'combined'].includes(route.params.get('view')) ? route.params.get('view') : 'ole';
   byId('view-selector').value = portfolioView;
+  reportingCurrency = reportingCurrencies.includes(route.params.get('currency')) ? route.params.get('currency') : null;
+  updateCurrencyOptions();
   currentRoute = route.page; selectedInstrument = route.instrument;
   allocationColor = route.params.get('allocationColor') === 'performance' ? 'performance' : 'allocation';
   instrumentChartMode = route.params.get('instrumentChart') === 'return' ? 'return' : 'price';
@@ -996,7 +1006,7 @@ function selectAllocationDate(date, immediate = false, playback = false) {
   if (immediate) return refresh(); else allocationTimer = setTimeout(refresh, 250);
 }
 function allocationCacheIdentity() {
-  return JSON.stringify([report.revision, report.fxVersion, [...excludedGroups].sort()]);
+  return JSON.stringify([report.revision, report.fxVersion, report.currency, [...excludedGroups].sort()]);
 }
 async function fetchAllocationFrames(date) {
   const key = allocationCacheIdentity();
@@ -1011,13 +1021,14 @@ async function fetchAllocationFrames(date) {
   const end = iso(new Date(Math.min(Date.parse(report.today + 'T12:00:00Z'), Date.parse(date + 'T12:00:00Z') + 30 * 86400000)));
   const params = new URLSearchParams({ frames: 'true', from: date, to: end });
   params.set('view', portfolioView);
+  if (reportingCurrencies.includes(reportingCurrency)) params.set('currency', reportingCurrency);
   if (excludedGroups.size) params.set('exclude', [...excludedGroups].sort().join(','));
   const pending = (async () => {
     const response = await fetch(`/api/dashboard?${params}`, { cache: 'no-store', signal: controller.signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Allocation history unavailable.');
     if (controller.signal.aborted || key !== allocationCacheIdentity()
-        || data.revision !== report.revision || data.fxVersion !== report.fxVersion
+        || data.revision !== report.revision || data.fxVersion !== report.fxVersion || data.currency !== report.currency
         || JSON.stringify(data.scope?.excluded || []) !== JSON.stringify([...excludedGroups].sort())) throw new Error('Portfolio changed during playback; refresh before playing again.');
     for (const frame of data.frames) allocationFrames.set(frame.date, frame);
     // Bound memory for long histories and stop retaining frames from earlier windows.
@@ -1532,7 +1543,9 @@ function renderInstrument(instrument) {
     button.textContent = button.dataset.instrumentCurrency === 'native' ? `Instrument · ${instrument.currency}` : `Portfolio · ${report.currency}`;
     button.setAttribute('aria-pressed', String(button.dataset.instrumentCurrency === (converted ? 'portfolio' : 'native')));
   }
-  const missingFx = converted ? (instrument.prices || []).filter(p => !Number.isFinite(p.reportingPrice)).length : 0;
+  const sourcePrices = instrument.sourcePrices && typeof instrument.sourcePrices === 'object' ? instrument.sourcePrices : null;
+  const sharedHistory = Array.isArray(sourcePrices?.Ole) || Array.isArray(sourcePrices?.Ying);
+  const missingFx = converted ? (sharedHistory ? ['Ole', 'Ying'].flatMap(name => sourcePrices[name] || []).filter(p => !Number.isFinite(p.reportingPrice)).length : (instrument.prices || []).filter(p => !Number.isFinite(p.reportingPrice)).length) : 0;
   const fxNote = byId('instrument-fx-note'); fxNote.hidden = !converted;
   fxNote.textContent = `Stored prices use the exchange rate on each quote date; the latest broker price uses a live exchange rate when available.${missingFx ? ` ${missingFx} quote${missingFx === 1 ? '' : 's'} unavailable because exchange rates are missing; gaps are shown.` : ''}`;
   const focusedEvent = document.activeElement?.dataset?.eventKey;
@@ -1544,15 +1557,29 @@ function renderInstrument(instrument) {
     return new Intl.NumberFormat(undefined, { ...(currency ? { style: 'currency', currency } : {}),
       minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
   };
-  const points = (instrument.prices || []).map(p => ({ date: p.date, value: converted ? (Number.isFinite(p.reportingPrice) ? p.reportingPrice / instrument.quoteScale : null) : p.price / instrument.quoteScale }));
+  const toChartPoints = prices => (prices || []).map(p => ({ date: p.date, value: converted ? (Number.isFinite(p.reportingPrice) ? p.reportingPrice / instrument.quoteScale : null) : p.price / instrument.quoteScale }));
+  const primarySource = sharedHistory ? (Array.isArray(sourcePrices.Ole) && sourcePrices.Ole.length ? 'Ole'
+    : Array.isArray(sourcePrices.Ying) && sourcePrices.Ying.length ? 'Ying'
+      : Array.isArray(sourcePrices.Ole) ? 'Ole' : 'Ying') : null;
+  const points = sharedHistory ? toChartPoints(primarySource ? sourcePrices[primarySource] : []) : toChartPoints(instrument.prices);
+  const sourceSeries = sharedHistory ? ['Ole', 'Ying'].filter(name => name !== primarySource && Array.isArray(sourcePrices[name])).map(name => ({
+    name, className: name === 'Ying' ? 'instrument-source-ying' : 'instrument-source-ole', points: toChartPoints(sourcePrices[name])
+  })) : [];
+  const primaryClass = sharedHistory ? (primarySource === 'Ying' ? 'instrument-source-ying' : 'instrument-source-ole') : 'chart-line';
+  const sourceLegend = byId('instrument-source-legend');
+  sourceLegend.hidden = !sharedHistory || totalReturn;
+  if (sharedHistory) {
+    sourceLegend.querySelector('.source-ole').parentElement.hidden = !Array.isArray(sourcePrices.Ole);
+    sourceLegend.querySelector('.source-ying').parentElement.hidden = !Array.isArray(sourcePrices.Ying);
+  }
   const broker = instrumentBrokerQuote(instrument);
   const fx = converted ? liveFxRate(instrument.currency) : { rate: 1 };
-  if (!totalReturn && broker.quote && broker.quote.receivedAt.slice(0, 10) === report.today && fx && report.today >= report.period.openingDate && report.today <= report.period.closingDate) {
+  if (!sharedHistory && !totalReturn && broker.quote && broker.quote.receivedAt.slice(0, 10) === report.today && fx && report.today >= report.period.openingDate && report.today <= report.period.closingDate) {
     const point = { date: report.today, value: broker.quote.last * fx.rate };
     const index = points.findIndex(p => p.date === report.today);
     if (index >= 0) points[index] = point; else points.push(point);
   }
-  instrumentChart.draw({ points: totalReturn ? (instrument.totalReturn || []) : points,
+  instrumentChart.draw({ points: totalReturn ? (instrument.totalReturn || []) : points, primaryClass: totalReturn ? 'chart-line' : primaryClass, series: totalReturn ? [] : sourceSeries,
     format: totalReturn ? percent : format, formatAxis: totalReturn ? percent : formatAxis, niceAxis: true, output: byId('instrument-chart-detail'), selected: instrumentSelected,
     empty: totalReturn ? 'Total return unavailable for this period; check holdings and saved prices.' : converted && missingFx ? 'No converted prices available; exchange rates are missing.' : 'No stored quotes in the selected period.',
     title: totalReturn ? `Holding total return in ${report.currency}` : `Price history in ${currency || 'instrument units'}`,
@@ -1829,7 +1856,7 @@ class TimeSeriesChart {
       svg.append(svgElement('text', { x: this.left - 8, y: this.y(value) + 4, 'text-anchor': 'end', class: 'axis-label' }, (config.formatAxis || config.format)(value, step)));
     }
     if (low < 0 && high > 0) svg.append(svgElement('line', { x1: this.left, x2: this.right, y1: this.y(0), y2: this.y(0), class: 'zero-line' }));
-    this.drawPath(this.points, 'chart-line');
+    this.drawPath(this.points, config.primaryClass || 'chart-line');
     for (const item of series) this.drawPath(item.points, item.className || 'benchmark-line', item.step);
     const ticks = mobile ? 3 : 5;
     for (let i = 0; i < ticks; i++) {
@@ -1940,6 +1967,7 @@ async function load(from, to, silent = false) {
   try {
     const params = new URLSearchParams();
     params.set('view', portfolioView);
+    if (reportingCurrencies.includes(reportingCurrency)) params.set('currency', reportingCurrency);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
     if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
@@ -1957,15 +1985,19 @@ async function load(from, to, silent = false) {
     const unchanged = silent && report && report.revision === data.revision && report.loadedAt === data.loadedAt
       && report.period.openingDate === data.period.openingDate && report.period.closingDate === data.period.closingDate
       && report.benchmark?.uuid === data.benchmark?.uuid && report.fxVersion === data.fxVersion
+      && report.currency === data.currency
       && report.instrument?.uuid === data.instrument?.uuid
       && JSON.stringify(report.scope?.excluded) === JSON.stringify(data.scope?.excluded);
 
     refreshConnectionError = null;
     if (currentRoute === 'overview' && requestedClosingDate && requestedClosingDate !== data.today) activePreset = null;
     report = data;
+    const inferredCurrency = !reportingCurrency && reportingCurrencies.includes(data.currency);
+    if (!reportingCurrency) reportingCurrency = inferredCurrency ? data.currency : null;
+    updateCurrencyOptions();
     if (unchanged) { renderNotifications(); renderFreshness(); setMarket(data.market); }
     else render();
-    if (currentRoute === 'overview') syncRouteUrl();
+    if (currentRoute === 'overview' || inferredCurrency) syncRouteUrl();
     if (!silent) text('status', '');
     return data;
   } catch (error) {
@@ -2080,12 +2112,21 @@ byId('view-selector').addEventListener('change', event => {
   allocationFrames.clear(); allocationFrameKey = ''; allocationFrameController?.abort(); allocationFramePromise = null;
   const route = currentRoute === 'instrument' ? 'holdings' : currentRoute;
   const params = new URLSearchParams({ view: portfolioView });
+  if (reportingCurrencies.includes(reportingCurrency)) params.set('currency', reportingCurrency);
   if (from) params.set('from', from);
   if (to) params.set('to', to);
   const hash = `#/${route}?${params}`;
   history.pushState({ appEntry: true, canAppBack: false, routeKey: hash, scrollY: 0, selected: 0, instrumentSelected: 0, drawdownSelected: 0 }, '', hash);
   currentRouteKey = '';
   enterRoute();
+});
+byId('currency-selector').addEventListener('change', event => {
+  const nextCurrency = event.target.value;
+  if (!reportingCurrencies.includes(nextCurrency) || nextCurrency === reportingCurrency) return;
+  reportingCurrency = nextCurrency;
+  allocationFrames.clear(); allocationFrameKey = ''; allocationFrameController?.abort(); allocationFramePromise = null;
+  syncRouteUrl();
+  load(byId('from').value, byId('to').value);
 });
 for (const button of document.querySelectorAll('[data-waterfall-mode]')) button.addEventListener('click', () => {
   if (waterfallMode === button.dataset.waterfallMode) return;
