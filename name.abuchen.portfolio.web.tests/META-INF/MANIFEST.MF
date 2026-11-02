@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: Portfolio Performance Web Tests
 Bundle-SymbolicName: name.abuchen.portfolio.web.tests
-Bundle-Version: 0.89.1.qualifier
+Bundle-Version: 0.90.1.qualifier
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Fragment-Host: name.abuchen.portfolio.web
 Require-Bundle: name.abuchen.portfolio,
