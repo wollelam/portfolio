@@ -466,7 +466,10 @@ public class FindQuoteProviderDialog extends TitleAreaDialog
 
     private void setupDirtyListener(TableViewer tableViewer)
     {
-        PropertyChangeListener listener = e -> Display.getDefault().asyncExec(() -> tableViewer.refresh(true));
+        PropertyChangeListener listener = e -> Display.getDefault().asyncExec(() -> {
+            if (!tableViewer.getTable().isDisposed())
+                tableViewer.refresh(true);
+        });
         client.addPropertyChangeListener("dirty", listener); //$NON-NLS-1$
         tableViewer.getTable().addDisposeListener(e -> client.removePropertyChangeListener("dirty", listener)); //$NON-NLS-1$
     }
@@ -483,10 +486,14 @@ public class FindQuoteProviderDialog extends TitleAreaDialog
             {
                 ModalContext.run(job, true, progressMonitor, Display.getDefault());
             }
-            catch (InvocationTargetException | InterruptedException e)
+            catch (InvocationTargetException e)
             {
                 PortfolioPlugin.log(e);
                 MessageDialog.openError(Display.getDefault().getActiveShell(), Messages.LabelError, e.getMessage());
+            }
+            catch (InterruptedException e)
+            {
+                Thread.currentThread().interrupt();
             }
         });
 
