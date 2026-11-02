@@ -282,9 +282,13 @@ import name.abuchen.portfolio.util.TextUtil;
                 {
                     new ProgressMonitorDialog(chart.getShell()).run(false, false, saveOperation);
                 }
-                catch (InvocationTargetException | InterruptedException e)
+                catch (InvocationTargetException e)
                 {
                     PortfolioPlugin.log(e);
+                }
+                catch (InterruptedException e)
+                {
+                    Thread.currentThread().interrupt();
                 }
 
             }
