@@ -174,6 +174,12 @@ public class DashboardServiceTest
                         .filter(h -> "security".equals(h.type())).mapToLong(DashboardService.Holding::value).sum();
         assertEquals(individualHoldingValue, combined.holdings().stream().filter(h -> "security".equals(h.type()))
                         .mapToLong(DashboardService.Holding::value).sum());
+        var mergedSecurity = combined.holdings().stream().filter(h -> "security".equals(h.type())).findFirst().orElseThrow();
+        assertEquals(2, mergedSecurity.valuationParts().size());
+        assertEquals(List.of(0.9, 1.1), mergedSecurity.valuationParts().stream()
+                        .map(DashboardService.ValuationPart::valuationFxRate).toList());
+        assertEquals(individualHoldingValue, mergedSecurity.valuationParts().stream()
+                        .mapToLong(DashboardService.ValuationPart::value).sum());
         var individualCashValue = java.util.stream.Stream.concat(primaryDashboard.holdings().stream(), secondaryDashboard.holdings().stream())
                         .filter(h -> "cash".equals(h.type())).mapToLong(DashboardService.Holding::value).sum();
         assertEquals(individualCashValue, combined.holdings().stream().filter(h -> "cash".equals(h.type()))

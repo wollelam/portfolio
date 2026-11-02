@@ -716,15 +716,24 @@ function renderOverviewLive() {
   let total = report.totalValue, covered = 0, delayed = 0, fxCovered = 0, delayedFx = 0, staleCount = 0, oldest = null;
   const dailyAdjustments = new Map();
   for (const holding of report.holdings) {
-    const broker = holding.type === 'security' ? holdingBrokerQuote(holding) : {};
-    const savedRate = holding.valuationFxRate;
     const fx = report.asOf === report.today && holding.quoteCurrency !== report.currency ? liveFxRate(holding.quoteCurrency) : null;
-    const rate = fx?.rate ?? savedRate;
-    if (!Number.isFinite(rate) || rate <= 0) continue;
-    let value;
-    if (broker.quote) value = Math.round(broker.quote.last * holding.shares / 1e8 * rate * 100);
-    else if (fx && Number.isFinite(savedRate) && savedRate > 0) value = Math.round(holding.value / savedRate * rate);
-    else continue;
+    const parts = holding.valuationParts?.length ? holding.valuationParts : [holding];
+    let value = holding.value, broker = {}, adjusted = false;
+    for (const part of parts) {
+      const partBroker = holding.type === 'security' ? holdingBrokerQuote({ ...holding, ...part }) : {};
+      const rate = fx?.rate ?? part.valuationFxRate;
+      if (!Number.isFinite(rate) || rate <= 0) continue;
+      let partValue;
+      if (partBroker.quote) partValue = Math.round(partBroker.quote.last * part.shares / 1e8 * rate * 100);
+      else if (fx && Number.isFinite(part.valuationFxRate) && part.valuationFxRate > 0)
+        partValue = Math.round(part.value / part.valuationFxRate * rate);
+      else continue;
+      if (!Number.isSafeInteger(partValue)) continue;
+      value += partValue - part.value;
+      adjusted = true;
+      if (partBroker.quote) broker = partBroker;
+    }
+    if (!adjusted) continue;
     if (!Number.isSafeInteger(value) || !Number.isSafeInteger(total + value - holding.value)) continue;
     total += value - holding.value;
     if (holding.type === 'security' && holding.uuid) dailyAdjustments.set(holding.uuid, (dailyAdjustments.get(holding.uuid) || 0) + value - holding.value);

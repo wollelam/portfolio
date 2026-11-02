@@ -76,6 +76,26 @@ async function main() {
       return { actual: document.querySelector('#total-value').textContent, expected: money(335606044) };
     });
     assert.equal(penceTotal.actual, penceTotal.expected, 'PSH adds a CHF 21k position, not a CHF 2.1m position');
+    const combined = await page.evaluate(() => {
+      const now = new Date().toISOString();
+      report.asOf = report.today; report.currency = 'CHF'; report.totalValue = 20000;
+      report.holdings = [{ type: 'security', uuid: 'stock', quoteCurrency: 'USD', shares: 2e8,
+        value: 20000, valuationFxRate: .9, valuationParts: [
+          { value: 9000, shares: 1e8, valuationFxRate: .9, quoteDate: report.today },
+          { value: 11000, shares: 1e8, valuationFxRate: 1.1, quoteDate: report.today }
+        ] }];
+      const quote = (key, secType, fields) => ({ stale: false, quote: {
+        key, secType, conId: 123, status: 'active', marketDataType: 'real_time', receivedAt: now, ...fields } });
+      const fx = quote('fx:USD:CHF', 'CASH', { symbol: 'USD', currency: 'CHF', bid: 1, ask: 1 });
+      market = { liveQuotes: { available: true, connected: true, mode: 'ibkr', generatedAt: now, quotes: [fx] } };
+      renderOverviewLive();
+      const fxOnly = document.querySelector('#total-value').textContent;
+      market.liveQuotes.quotes.push(quote('stock', 'STK', { symbol: 'TEST', currency: 'USD', last: 120 }));
+      renderOverviewLive();
+      return { fxOnly, withPrice: document.querySelector('#total-value').textContent };
+    });
+    assert.equal(combined.fxOnly, await page.evaluate(() => money(20000)), 'each source uses its own saved FX basis');
+    assert.equal(combined.withPrice, await page.evaluate(() => money(24000)), 'both source shares use the IBKR price and FX');
     assert.deepEqual(errors, []);
     console.log('Live FX: midpoint, inverses, USD cross, GBX, cash, FX-only moves, safe fallbacks and historical isolation passed.');
   } finally { await browser.close(); }

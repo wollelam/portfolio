@@ -44,7 +44,11 @@ final class DashboardService
     {
     }
 
-    record Holding(String name, String uuid, long value, Double weight, String quoteDate, String type, String icon, String id, long shares, String quoteCurrency, String symbol, Double valuationFxRate)
+    record ValuationPart(long value, long shares, String quoteDate, Double valuationFxRate)
+    {
+    }
+
+    record Holding(String name, String uuid, long value, Double weight, String quoteDate, String type, String icon, String id, long shares, String quoteCurrency, String symbol, Double valuationFxRate, List<ValuationPart> valuationParts)
     {
     }
 
@@ -609,7 +613,7 @@ final class DashboardService
                             position.getInvestmentVehicle().getCurrencyCode(),
                             position.getInvestmentVehicle() instanceof Security security ? security.getTickerSymbol() : null,
                             vehicle.getCurrencyCode() == null ? null : converter.getRateIfAvailable(closingDate, vehicle.getCurrencyCode())
-                                            .map(rate -> rate.getValue().doubleValue()).orElse(null));
+                                            .map(rate -> rate.getValue().doubleValue()).orElse(null), List.of());
         }).toList();
         if (combinedSecurityGroups.isEmpty())
             return calculated.stream().sorted(Comparator.comparingLong(Holding::value).reversed()).toList();
@@ -639,7 +643,7 @@ final class DashboardService
                                 .map(Holding::quoteDate).max(Comparator.naturalOrder()).orElse(quoteDate);
             result.add(new Holding(holding.name(), canonical == null ? holding.uuid() : canonical, totals[0],
                             total == 0 ? null : totals[0] / (double) total, quoteDate, holding.type(), holding.icon(),
-                            canonical == null ? holding.id() : canonical, totals[1], holding.quoteCurrency(), holding.symbol(), holding.valuationFxRate()));
+                            canonical == null ? holding.id() : canonical, totals[1], holding.quoteCurrency(), holding.symbol(), holding.valuationFxRate(), holding.valuationParts()));
         }
         return result.stream().sorted(Comparator.comparingLong(Holding::value).reversed()).toList();
     }
@@ -1148,9 +1152,12 @@ final class DashboardService
             var quoteDate = canonical == null ? row.quoteDate()
                             : all.stream().filter(h -> h.uuid() != null && canonical.equals(canonicalSecurityIds.get(h.uuid())) && h.quoteDate() != null)
                                             .map(Holding::quoteDate).max(Comparator.naturalOrder()).orElse(row.quoteDate());
+            var parts = all.stream().filter(h -> key.equals(h.uuid() == null ? "other:" + h.id()
+                            : "security:" + canonicalSecurityIds.get(h.uuid())))
+                            .map(h -> new ValuationPart(h.value(), h.shares(), h.quoteDate(), h.valuationFxRate())).toList();
             result.add(new Holding(row.name(), canonical == null ? row.uuid() : canonical, pair[0],
                             total == 0 ? null : pair[0] / (double) total, quoteDate, row.type(), row.icon(),
-                            canonical == null ? row.id() : canonical, pair[1], row.quoteCurrency(), row.symbol(), row.valuationFxRate()));
+                            canonical == null ? row.id() : canonical, pair[1], row.quoteCurrency(), row.symbol(), row.valuationFxRate(), parts));
         });
         return result.stream().sorted(Comparator.comparingLong(Holding::value).reversed()).toList();
     }
