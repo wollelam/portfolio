@@ -175,6 +175,10 @@ public class UpdatePricesJob extends AbstractClientJob
         var jobs = groups.stream().map(group -> new RunTaskGroupJob(group.getKey(), group.getValue(), request))
                         .toList();
 
+        // Recalculate live views at most once per adaptive throttle interval.
+        // The pending modification remains unannounced until then.
+        var throttle = new RecalculationThrottle(currentMillis());
+
         // start periodic UI updates
         var scheduler = Executors.newSingleThreadScheduledExecutor();
         ScheduledFuture<?> periodicUpdate = null;
@@ -185,12 +189,25 @@ public class UpdatePricesJob extends AbstractClientJob
         {
             periodicUpdate = scheduler.scheduleAtFixedRate(() -> {
                 fireProgress(request);
-                if (request.getAndResetUnannouncedModification())
+                if (mode != PriceUpdateMode.LIVE)
                 {
-                    if (mode == PriceUpdateMode.LIVE)
-                        request.getClient().markDirty();
-                    else
+                    if (request.getAndResetUnannouncedModification())
                         request.getClient().touch();
+                }
+                else if (throttle.isDue(currentMillis()) && request.getAndResetUnannouncedModification())
+                {
+                    throttle.recalculationScheduled();
+                    Display.getDefault().asyncExec(() -> {
+                        long started = currentMillis();
+                        try
+                        {
+                            request.getClient().markDirty();
+                        }
+                        finally
+                        {
+                            throttle.recalculationFinished(started, currentMillis());
+                        }
+                    });
                 }
             }, 0, UI_PROGRESS_UPDATE_INTERVAL, TimeUnit.MILLISECONDS);
 
@@ -252,6 +269,11 @@ public class UpdatePricesJob extends AbstractClientJob
                 interrupted = true;
             }
         }
+    }
+
+    private static long currentMillis()
+    {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
     }
 
     private List<Task> prepareHistoricalTasks(PriceUpdateRequest request, List<Security> securities)
