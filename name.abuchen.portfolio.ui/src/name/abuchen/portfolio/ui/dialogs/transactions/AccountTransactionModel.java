@@ -281,7 +281,7 @@ public class AccountTransactionModel extends AbstractModel
         this.taxRate = calculateTaxRate();
 
         // in case units have to forex gross value
-        if (exchangeRate.equals(BigDecimal.ONE))
+        if (exchangeRate.compareTo(BigDecimal.ONE) == 0)
             this.fxGrossAmount = grossAmount;
 
         this.dividendAmount = calculateDividendAmount();
