@@ -48,7 +48,7 @@ async function main() {
     });
     for (const tile of areas) assert(Math.abs(tile.share - Math.abs(tile.value) / 120000) < 1e-9, 'area represents absolute exposure');
     const negative = page.locator('.allocation-tile[data-allocation-value="-10000"]');
-    assert.match(await negative.locator('rect').getAttribute('fill'), /allocation-negative/);
+    assert.match(await negative.locator(':scope > rect').getAttribute('fill'), /allocation-negative/);
     await negative.focus(); assert.match(await page.locator('#allocation-detail').innerText(), /Short.*8[.,]3% of gross.*-10% net/);
     await page.locator('.allocation-tile[data-allocation-value="60000"]').focus();
     await page.keyboard.press('Enter');

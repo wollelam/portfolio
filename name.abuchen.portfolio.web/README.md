@@ -309,6 +309,16 @@ the service is active; retire them only after confirming no outstanding updates.
 heartbeat disables the button. The visible page checks status every ten seconds. Saved quotes
 appear after Drive synchronization and the usual validated portfolio reload.
 
+For the Fundsmith Equity Fund T Inc share class (ISIN `GB00B4M93C53`), the web app fetches
+the dated pence NAV from Fundsmith's public factsheet in a background Java task every 30
+minutes on weekdays from 12:00 to 19:59 Europe/Zurich time. It validates the share class, date and
+price, and atomically retains the last successful snapshot in `fundsmith/latest.json` under
+the web runtime state. Holdings and instrument details show the published NAV in Primary,
+Secondary and Combined, labeled with its source and date. A 403 or changed table retains
+the last validated record; the `/api/price-updates` status includes fetch attempt and 403
+counts. This read-only quote does not edit the portfolio's saved prices, valuations or
+performance. `scripts/fundsmith_nav.py` remains available as a manual diagnostic probe.
+
 `GET /api/price-updates` only reads status. `POST /api/price-updates` accepts no body or query and
 requires the accepted same-origin `Origin` and `X-Portfolio-Action: refresh-prices`. For remote
 access, authenticate the entire hostname, explicitly allow this route, and validate the public
@@ -333,7 +343,7 @@ linkable same-origin hash pages (`#/overview`, `#/performance`, `#/waterfall`, `
 `#/instrument/SECURITY_UUID`) and retains date, benchmark, chart-mode, scroll, and chart-selection
 state in browser history. Instrument links are normal anchors, so direct links and opening a detail
 in a new tab work without server routes. The Back control returns to Holdings in a direct-open tab.
-The instrument heading shows the latest validated broker price and its freshness, or the latest
+The instrument heading shows the latest validated broker price, dated Fundsmith NAV, or latest
 saved price in the selected period. The price chart replaces today’s saved point only with a broker quote received today; older
 quotes stay in the header with their stale status and timestamp. Portfolio-currency charts require a usable live exchange rate for that point. Historical
 views continue to use saved prices.

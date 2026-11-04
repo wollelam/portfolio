@@ -6,7 +6,8 @@ import java.time.Clock;
 @SuppressWarnings("nls")
 final class MarketUpdates implements AutoCloseable
 {
-    record Status(String observedAt, QuoteJobs.Status quotes, FxRates.Status fx, LiveQuotes.Status liveQuotes)
+    record Status(String observedAt, QuoteJobs.Status quotes, FxRates.Status fx, LiveQuotes.Status liveQuotes,
+                    FundsmithNav.Price fundsmith, FundsmithNav.FetchStatus fundsmithFetch)
     {
     }
 
@@ -14,6 +15,7 @@ final class MarketUpdates implements AutoCloseable
     private final FxRates fx;
     private final Clock clock;
     private final LiveQuotes liveQuotes;
+    private final FundsmithNav fundsmith;
 
     MarketUpdates(QuoteJobs quotes, FxRates fx, Clock clock)
     {
@@ -22,10 +24,16 @@ final class MarketUpdates implements AutoCloseable
 
     MarketUpdates(QuoteJobs quotes, FxRates fx, Clock clock, LiveQuotes liveQuotes)
     {
+        this(quotes, fx, clock, liveQuotes, null);
+    }
+
+    MarketUpdates(QuoteJobs quotes, FxRates fx, Clock clock, LiveQuotes liveQuotes, FundsmithNav fundsmith)
+    {
         this.quotes = quotes;
         this.fx = fx;
         this.clock = clock;
         this.liveQuotes = liveQuotes;
+        this.fundsmith = fundsmith;
     }
 
     static MarketUpdates disabled()
@@ -40,7 +48,8 @@ final class MarketUpdates implements AutoCloseable
 
     Status status()
     {
-        return new Status(clock.instant().toString(), quotes.status(), fx == null ? null : fx.status(), liveQuotes.status());
+        return new Status(clock.instant().toString(), quotes.status(), fx == null ? null : fx.status(), liveQuotes.status(),
+                        fundsmith == null ? null : fundsmith.price(), fundsmith == null ? null : fundsmith.fetchStatus());
     }
 
     int request() throws IOException
@@ -55,6 +64,8 @@ final class MarketUpdates implements AutoCloseable
     {
         if (fx != null)
             fx.start();
+        if (fundsmith != null)
+            fundsmith.start();
     }
 
     @Override
@@ -62,5 +73,7 @@ final class MarketUpdates implements AutoCloseable
     {
         if (fx != null)
             fx.close();
+        if (fundsmith != null)
+            fundsmith.close();
     }
 }

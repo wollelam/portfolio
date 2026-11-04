@@ -679,6 +679,17 @@ function holdingBrokerQuote(holding) {
   return { quote, stale, message: `${quote.marketDataType.replaceAll('_', ' ')} · ${quote.currency} · received ${new Date(received).toLocaleString()}${stale ? ' · stale' : ''}` };
 }
 
+function holdingFundsmithNav(holding) {
+  const nav = market?.fundsmith;
+  if (report.asOf !== report.today || !nav || nav.currency !== holding.quoteCurrency
+      || !Number.isFinite(Number(nav.price)) || Number(nav.price) <= 0 || nav.date > report.today
+      || holding.quoteDate && nav.date < holding.quoteDate) return null;
+  const aliases = report.quoteKeys?.[holding.uuid] || [holding.uuid];
+  if (!aliases.some(id => report.fundsmithIds?.includes(id))) return null;
+  return { price: Number(nav.price), date: nav.date,
+    message: `Fundsmith published NAV · ${nav.currency} · dated ${dateLabel(nav.date)}` };
+}
+
 function liveFxPair(from, to) {
   if (from === to) return { rate: 1, delayed: false };
   const feed = market?.liveQuotes;
@@ -693,8 +704,10 @@ function liveFxPair(from, to) {
       || !Number.isFinite(q.ask) || q.ask < q.bid) return null;
   const midpoint = q.bid / 2 + q.ask / 2;
   const rate = q.symbol === from ? midpoint : 1 / midpoint;
+  const previousClose = Number.isFinite(q.previousClose) && q.previousClose > 0
+    ? (q.symbol === from ? q.previousClose : 1 / q.previousClose) : null;
   const stale = entry.stale || liveConnectionError || !feed.connected || !feed.available || Date.now() - Date.parse(q.receivedAt) > 60000 || Date.now() - Date.parse(feed.generatedAt) > 8000;
-  return Number.isFinite(rate) && rate > 0 ? { rate, delayed: q.marketDataType === 'delayed', stale, receivedAt: q.receivedAt } : null;
+  return Number.isFinite(rate) && rate > 0 ? { rate, previousClose, delayed: q.marketDataType === 'delayed', stale, receivedAt: q.receivedAt } : null;
 }
 
 function liveFxRate(currency) {
@@ -704,11 +717,25 @@ function liveFxRate(currency) {
   let result = liveFxPair(from, to);
   if (!result) {
     const source = liveFxPair(from, 'USD'), target = liveFxPair(to, 'USD');
-    if (source && target) result = { rate: source.rate / target.rate, delayed: source.delayed || target.delayed, stale: source.stale || target.stale, receivedAt: source.receivedAt < target.receivedAt ? source.receivedAt : target.receivedAt };
+    if (source && target) result = { rate: source.rate / target.rate,
+      previousClose: source.previousClose && target.previousClose ? source.previousClose / target.previousClose : null,
+      delayed: source.delayed || target.delayed, stale: source.stale || target.stale,
+      receivedAt: source.receivedAt < target.receivedAt ? source.receivedAt : target.receivedAt };
   }
   if (!result) return null;
   const rate = result.rate * (report.currency === 'GBX' ? 100 : 1) / (currency === 'GBX' ? 100 : 1);
-  return Number.isFinite(rate) && rate > 0 ? { ...result, rate } : null;
+  const previousClose = result.previousClose * (report.currency === 'GBX' ? 100 : 1) / (currency === 'GBX' ? 100 : 1);
+  return Number.isFinite(rate) && rate > 0 ? { ...result, rate, previousClose: Number.isFinite(previousClose) && previousClose > 0 ? previousClose : null } : null;
+}
+
+function brokerDayPerformance(holding) {
+  const broker = holdingBrokerQuote(holding);
+  if (!broker.quote || !Number.isFinite(broker.quote.previousClose) || broker.quote.previousClose <= 0) return null;
+  const fx = holding.quoteCurrency === report.currency ? { rate: 1, previousClose: 1 } : liveFxRate(holding.quoteCurrency);
+  if (!fx || !Number.isFinite(fx.previousClose) || fx.previousClose <= 0) return null;
+  const current = broker.quote.last * fx.rate, previous = broker.quote.previousClose * fx.previousClose;
+  if (!Number.isFinite(current) || !Number.isFinite(previous) || previous <= 0) return null;
+  return { rate: current / previous - 1, gain: Math.round((current - previous) * holding.shares / 1e8 * 100) };
 }
 
 function renderOverviewLive() {
@@ -795,6 +822,9 @@ function renderDailyPerformers(adjustments) {
   }
   dailyPerformersError = '';
   const valid = data.securities.filter(row => Number.isSafeInteger(row.gain)).map(row => {
+    const holding = report.asOf === report.today ? report.holdings.find(item => item.uuid === row.uuid) : null;
+    const brokerDay = holding ? brokerDayPerformance(holding) : null;
+    if (brokerDay && Number.isSafeInteger(brokerDay.gain)) return { ...row, gain: brokerDay.gain, rate: brokerDay.rate };
     const adjustment = report.asOf === report.today ? adjustments.get(row.uuid) || 0 : 0;
     const rate = adjustment === 0 ? row.rate : Number.isFinite(row.rate) && Number.isFinite(row.closingValueReturnFactor)
       ? row.rate + adjustment * row.closingValueReturnFactor : null;
@@ -807,7 +837,7 @@ function renderDailyPerformers(adjustments) {
   const filters = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '';
   const key = JSON.stringify([report.asOf, report.currency, report.scope?.excluded, gainers, losers, unavailable, filters]);
   const panel = byId('daily-performers-panel');
-  const message = `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)} · Five largest gains and losses in ${report.currency}, including currency moves. Daily change is time-weighted return. ${report.asOf === report.today ? 'Uses the same IBKR quotes and FX as today’s performance, including stale quotes; saved prices where newer or unavailable. See today’s performance for quote age.' : 'Uses saved historical prices.'}${unavailable ? ` ${unavailable} securities unavailable.` : ''}`;
+  const message = `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)} · Five largest gains and losses in ${report.currency}, including currency moves. ${report.asOf === report.today ? 'Mapped IBKR holdings use the broker’s previous closes and current quotes for price and FX; saved time-weighted returns are used where broker data is unavailable. See today’s performance for quote age.' : 'Uses saved historical prices and time-weighted returns.'}${unavailable ? ` ${unavailable} securities unavailable.` : ''}`;
   if (byId('daily-performers-status').textContent !== message) text('daily-performers-status', message);
   if (panel.dataset.renderKey === key) return;
   panel.dataset.renderKey = key;
@@ -855,19 +885,21 @@ function renderHoldingsLive() {
     const value = cell.parentElement.querySelector('.holding-live-value');
     if (!holding) { cell.textContent = '—'; value.textContent = '—'; continue; }
     const broker = holdingBrokerQuote(holding);
-    if (!broker.quote) { cell.textContent = broker.message; cell.classList.remove('quote-up', 'quote-down'); cell.dataset.value = ''; value.textContent = '—'; continue; }
+    const fundsmith = broker.quote ? null : holdingFundsmithNav(holding);
+    if (!broker.quote && !fundsmith) { cell.textContent = broker.message; cell.classList.remove('quote-up', 'quote-down'); cell.dataset.value = ''; value.textContent = '—'; continue; }
     covered++;
     let tick = cell.querySelector('.holding-live-tick'), meta = cell.querySelector('small');
     if (!tick) {
       tick = document.createElement('span'); tick.className = 'holding-live-tick'; meta = document.createElement('small');
       cell.replaceChildren(tick, meta);
     }
-    renderLivePrice(tick, broker.quote.last, broker.quote.currency, 'IBKR price');
-    meta.textContent = broker.message;
-    const amount = broker.quote.last * holding.shares / 1e8;
-    value.textContent = Number.isFinite(amount) ? new Intl.NumberFormat(undefined, { style: 'currency', currency: broker.quote.currency }).format(amount) : 'Unavailable';
+    const price = broker.quote?.last ?? fundsmith.price;
+    renderLivePrice(tick, price, holding.quoteCurrency, broker.quote ? 'IBKR price' : 'Fundsmith NAV');
+    meta.textContent = broker.quote ? broker.message : fundsmith.message;
+    const amount = price * holding.shares / 1e8;
+    value.textContent = Number.isFinite(amount) ? new Intl.NumberFormat(undefined, { style: 'currency', currency: holding.quoteCurrency }).format(amount) : 'Unavailable';
   }
-  text('holdings-live-status', `${covered} of ${holdings.size} securities have a valid, explicitly mapped IBKR quote. Receipt times and stale quotes are shown below. Broker position values use stored quantities and instrument currencies. Saved portfolio performance is unchanged.`);
+  text('holdings-live-status', `${covered} of ${holdings.size} securities have a validated source price. IBKR receipt times and Fundsmith NAV dates are shown below. Position values use stored quantities and instrument currencies. Saved portfolio performance is unchanged.`);
 }
 
 function liveDailyChange(quote) {
@@ -1217,7 +1249,11 @@ function renderAllocation() {
   byId('allocation-performance-legend').hidden = !performanceMode;
   const rates = new Map((report.dailyRankings?.securities || []).map(row => [row.uuid, row.rate]));
   const positions = (report.holdings || []).filter(item => Number.isFinite(item.value) && item.value !== 0)
-    .map(item => ({ ...item, dailyRate: item.type === 'security' ? rates.get(item.uuid) : null })).sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name));
+    .map(item => {
+      const brokerDay = item.type === 'security' ? brokerDayPerformance(item) : null;
+      return { ...item, dailyRate: item.type === 'security' ? brokerDay?.rate ?? rates.get(item.uuid) : null,
+        dailySource: brokerDay ? 'IBKR previous close' : 'saved prices' };
+    }).sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name));
   const gross = positions.reduce((sum, item) => sum + Math.abs(item.value), 0);
   const cash = positions.filter(item => item.type === 'cash').reduce((sum, item) => sum + item.value, 0);
   const largest = positions[0];
@@ -1255,7 +1291,7 @@ function renderAllocation() {
   const palette = ['#286e62', '#3c6382', '#56618d', '#695b83', '#2b7581'];
   allocationTiles(items, 0, 0, width, height).forEach((tile, index) => {
     const item = tile.item, share = Math.abs(item.value) / gross, netWeight = report.totalValue === 0 ? null : item.value / report.totalValue;
-    const description = `${item.name}: ${money(item.value)} · ${weight(share)} of gross exposure · ${netWeight == null ? 'net weight unavailable' : `${weight(netWeight)} net portfolio weight`}${item.count ? ` · ${item.count} grouped positions` : ''}${performanceMode ? ` · Daily return: ${allocationPerformanceLabel(item.dailyRate)} (saved prices)` : ''}`;
+    const description = `${item.name}: ${money(item.value)} · ${weight(share)} of gross exposure · ${netWeight == null ? 'net weight unavailable' : `${weight(netWeight)} net portfolio weight`}${item.count ? ` · ${item.count} grouped positions` : ''}${performanceMode ? ` · Daily return: ${allocationPerformanceLabel(item.dailyRate)} (${item.dailySource})` : ''}`;
     const group = svgElement('g', { tabindex: 0, role: item.uuid ? 'link' : 'img', class: 'allocation-tile', 'aria-label': `${description}${item.uuid ? '. Open security details' : ''}`, 'data-allocation-value': item.value });
     group.dataset.key = item.uuid || item.id || item.name;
     const fill = performanceMode ? allocationPerformanceColor(item.dailyRate) : item.value < 0 ? 'url(#allocation-negative)' : item.type === 'cash' ? '#526479' : palette[index % palette.length];
@@ -1544,7 +1580,7 @@ function renderInstrument(instrument) {
   const totalReturn = instrumentChartMode === 'return';
   const converted = !totalReturn && canConvert && instrumentCurrency === 'portfolio';
   for (const button of document.querySelectorAll('[data-instrument-chart]')) button.setAttribute('aria-pressed', String(button.dataset.instrumentChart === instrumentChartMode));
-  text('instrument-chart-explanation', totalReturn ? `Your holding’s cumulative time-weighted total return in ${report.currency}, including distributions, taxes and fees, with trades adjusted as flows. Uses saved prices; this is not a hypothetical buy-and-hold return.` : 'Price history is not investment return. Today’s broker quote is included only when received today; older quotes remain visible in the header with their actual timestamp.');
+  text('instrument-chart-explanation', totalReturn ? `Your holding’s cumulative time-weighted total return in ${report.currency}, including distributions, taxes and fees, with trades adjusted as flows. Uses saved prices; this is not a hypothetical buy-and-hold return.` : 'Price history is not investment return. Today’s broker previous close and current quote align both source lines when available; older quotes remain visible in the header with their actual timestamp.');
   const currency = converted ? report.currency : instrument.currency;
   text('instrument-currency', totalReturn ? `Total return · ${report.currency}` : currency || 'currency unavailable');
   byId('instrument-currency-choice').hidden = !canConvert || totalReturn;
@@ -1583,10 +1619,20 @@ function renderInstrument(instrument) {
   }
   const broker = instrumentBrokerQuote(instrument);
   const fx = converted ? liveFxRate(instrument.currency) : { rate: 1 };
-  if (!sharedHistory && !totalReturn && broker.quote && broker.quote.receivedAt.slice(0, 10) === report.today && fx && report.today >= report.period.openingDate && report.today <= report.period.closingDate) {
+  if (!totalReturn && broker.quote && broker.quote.receivedAt.slice(0, 10) === report.today && fx && report.today >= report.period.openingDate && report.today <= report.period.closingDate) {
     const point = { date: report.today, value: broker.quote.last * fx.rate };
-    const index = points.findIndex(p => p.date === report.today);
-    if (index >= 0) points[index] = point; else points.push(point);
+    for (const line of [points, ...sourceSeries.map(series => series.points)]) {
+      const previousFx = converted ? fx.previousClose : 1;
+      if (Number.isFinite(broker.quote.previousClose) && broker.quote.previousClose > 0 && Number.isFinite(previousFx) && previousFx > 0
+          && report.day.openingDate >= report.period.openingDate && report.day.openingDate < report.today) {
+        const previous = { date: report.day.openingDate, value: broker.quote.previousClose * previousFx };
+        const priorIndex = line.findIndex(p => p.date === previous.date);
+        if (priorIndex >= 0) line[priorIndex] = previous; else line.push(previous);
+      }
+      const index = line.findIndex(p => p.date === report.today);
+      if (index >= 0) line[index] = point; else line.push(point);
+      line.sort((a, b) => a.date.localeCompare(b.date));
+    }
   }
   instrumentChart.draw({ points: totalReturn ? (instrument.totalReturn || []) : points, primaryClass: totalReturn ? 'chart-line' : primaryClass, series: totalReturn ? [] : sourceSeries,
     format: totalReturn ? percent : format, formatAxis: totalReturn ? percent : formatAxis, niceAxis: true, output: byId('instrument-chart-detail'), selected: instrumentSelected,
@@ -1640,13 +1686,25 @@ function instrumentBrokerQuote(instrument) {
     quoteDate: instrument.quoteDate, shares: instrument.shares });
 }
 
+function latestStoredInstrumentPrice(instrument) {
+  const sources = instrument.sourcePrices || {};
+  const points = [instrument.prices || [], sources.Primary || [], sources.Secondary || []];
+  let latest = null;
+  for (const series of points) for (const point of series) {
+    if (!latest || point.date > latest.date) latest = point;
+  }
+  return latest;
+}
+
 function renderInstrumentPriceStatus() {
   if (currentRoute !== 'instrument' || !report) return;
   const instrument = report.instrument, status = byId('instrument-price-status');
   if (!instrument) { byId('instrument-current').hidden = true; return; }
   const broker = instrumentBrokerQuote(instrument);
-  const saved = (instrument.prices || []).at(-1);
-  const price = broker.quote?.last ?? (saved ? saved.price / instrument.quoteScale : null);
+  const fundsmith = broker.quote ? null : holdingFundsmithNav({ uuid: instrument.uuid,
+    quoteCurrency: instrument.currency, quoteDate: instrument.quoteDate });
+  const saved = latestStoredInstrumentPrice(instrument);
+  const price = broker.quote?.last ?? fundsmith?.price ?? (saved ? saved.price / instrument.quoteScale : null);
   text('instrument-current-price', Number.isFinite(price) ? new Intl.NumberFormat(undefined, { ...(instrument.currency ? { style: 'currency', currency: instrument.currency } : {}), maximumFractionDigits: 6 }).format(price) : 'Price unavailable');
   const change = broker.quote ? liveDailyChange(broker.quote) : null;
   const dayChange = byId('instrument-day-change');
@@ -1659,6 +1717,9 @@ function renderInstrumentPriceStatus() {
     label = broker.stale ? 'Stale' : broker.quote.marketDataType === 'real_time' ? 'Live'
       : broker.quote.marketDataType === 'delayed' ? 'Delayed' : 'Frozen';
     detail = `IBKR ${broker.message}`;
+  } else if (fundsmith) {
+    label = 'Published';
+    detail = fundsmith.message;
   }
   byId('instrument-current').hidden = false; status.dataset.state = label.toLowerCase(); status.textContent = label;
   status.title = detail;
@@ -1680,6 +1741,7 @@ function setMarket(data) {
   if (currentRoute === 'live-quotes') renderLiveQuotes();
   renderHoldingsLive();
   renderOverviewLive();
+  if (currentRoute === 'allocation' && allocationPerformanceMode()) renderAllocation();
   if (currentRoute === 'instrument' && report) renderInstrument(report.instrument);
 }
 

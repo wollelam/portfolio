@@ -191,6 +191,7 @@ final class WebServer implements AutoCloseable
                                     Boolean.parseBoolean(params.getOrDefault("rankings", "false")), params.get("waterfall"), "day".equals(params.get("rankings")))).getAsJsonObject();
                     if (secondaryPortfolios != null && !view.equals("combined"))
                         dashboard.add("quoteKeys", gson.toJsonTree(quoteKeysForView(service)));
+                    dashboard.add("fundsmithIds", gson.toJsonTree(service.securityIdsForIsin(FundsmithNav.ISIN)));
                     dashboard.add("refresh", gson.toJsonTree(snapshot.status()));
                     dashboard.add("market", gson.toJsonTree(market.status()));
                     dashboard.add("views", gson.toJsonTree(secondaryPortfolios == null ? java.util.List.of("primary") : java.util.List.of("primary", "secondary", "combined")));

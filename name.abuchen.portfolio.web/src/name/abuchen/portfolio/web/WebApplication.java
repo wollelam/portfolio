@@ -76,7 +76,8 @@ public final class WebApplication implements IApplication
                             return value == null ? null : value.toCharArray();
                         }, snapshots);
         var liveQuotes = new LiveQuotes(liveQuotesFile, clock);
-        MarketUpdates updates = new MarketUpdates(new QuoteJobs(null, clock), null, clock, liveQuotes);
+        var fundsmith = demo ? null : new FundsmithNav(Path.of(System.getProperty("user.home"), "fundsmith", "latest.json"), clock);
+        MarketUpdates updates = new MarketUpdates(new QuoteJobs(null, clock), null, clock, liveQuotes, fundsmith);
         if (!demo && priceDirectory != null)
         {
             PrivateFiles.directory(priceDirectory);
@@ -84,7 +85,8 @@ public final class WebApplication implements IApplication
             var seed = Platform.getStateLocation(bundle).toFile().toPath().resolve("ecb_exchange_rates.pb");
             var fx = new FxRates(priceDirectory.resolve("fx"), seed, clock,
                             provider -> provider.update(new NullProgressMonitor()));
-            updates = new MarketUpdates(new QuoteJobs(priceDirectory, clock, file.toAbsolutePath().normalize().toString()), fx, clock, liveQuotes);
+            updates = new MarketUpdates(new QuoteJobs(priceDirectory, clock, file.toAbsolutePath().normalize().toString()), fx, clock,
+                            liveQuotes, fundsmith);
         }
         var secondarySource = secondFile == null ? null : PortfolioSource.file(secondFile, () -> {
             var value = System.getenv("PP_WEB_SECOND_PASSWORD");

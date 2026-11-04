@@ -326,6 +326,12 @@ final class DashboardService
         return "isin:" + security.getIsin().trim().toUpperCase(java.util.Locale.ROOT) + ":" + security.getCurrencyCode();
     }
 
+    List<String> securityIdsForIsin(String isin)
+    {
+        return scope.client.getSecurities().stream().filter(security -> isin.equals(normalizedIsin(security)))
+                        .map(Security::getUUID).toList();
+    }
+
     synchronized DashboardService excluding(String value)
     {
         var selected = scope.parse(value);
