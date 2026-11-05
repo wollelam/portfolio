@@ -45,7 +45,44 @@ async function main() {
     assert.match(result.instrument.price, /668[.,]27/);
     assert.equal(result.instrument.status, 'Published');
     assert.equal(result.fallback, 'Saved', 'an older published NAV cannot replace a newer saved quote');
-    console.log('Fundsmith published NAV is shown for mapped holdings and instruments, with dated fallback.');
+    const performance = await page.evaluate(() => {
+      const uuid = report.fundsmithIds[0];
+      report.currency = 'GBX'; report.asOf = report.today;
+      report.totalValue = 100000;
+      report.day = { ...report.day, gain: 200, rate: .002, closingValueReturnFactor: .00001 };
+      report.holdings = [{ type: 'security', uuid, quoteCurrency: 'GBX', quoteDate: '2026-11-04',
+        shares: 2e8, value: 100000, valuationFxRate: 1 }];
+      market.fundsmith.date = report.today;
+      market.fundsmith.price = '687.42';
+      const snapshot = () => {
+        renderOverviewLive();
+        return { total: document.querySelector('#total-value').textContent,
+          gain: document.querySelector('#day-gain').textContent,
+          rate: document.querySelector('#day-return').textContent,
+          status: document.querySelector('#day-live-status').textContent };
+      };
+      const current = snapshot();
+      market.fundsmith.date = '2026-11-03';
+      const older = snapshot();
+      market.fundsmith.date = report.today;
+      report.asOf = '2026-11-04';
+      const historical = snapshot();
+      report.asOf = report.today;
+      market.liveQuotes = { mode: 'ibkr', available: true, connected: true, generatedAt: new Date().toISOString(),
+        quotes: [{ stale: false, quote: { key: uuid, currency: 'GBX', conId: 123, status: 'active',
+          marketDataType: 'real_time', last: 700, receivedAt: new Date().toISOString() } }] };
+      const broker = snapshot();
+      return { current, older, historical, broker,
+        expectedCurrent: money(137484), expectedGain: money(37684, true),
+        expectedSaved: money(100000), expectedBroker: money(140000) };
+    });
+    assert.equal(performance.current.total, performance.expectedCurrent);
+    assert.equal(performance.current.gain, performance.expectedGain);
+    assert.match(performance.current.status, /Fundsmith NAV dated/);
+    assert.equal(performance.older.total, performance.expectedSaved, 'older NAV cannot reprice the position');
+    assert.equal(performance.historical.total, performance.expectedSaved, 'historical valuation stays saved');
+    assert.equal(performance.broker.total, performance.expectedBroker, 'mapped IBKR quote takes precedence');
+    console.log('Fundsmith NAV affects today’s indicative total and gain, with dated, historical and IBKR fallbacks.');
   } finally { await browser.close(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -740,18 +740,21 @@ function brokerDayPerformance(holding) {
 
 function renderOverviewLive() {
   if (!report) return;
-  let total = report.totalValue, covered = 0, delayed = 0, fxCovered = 0, delayedFx = 0, staleCount = 0, oldest = null;
+  let total = report.totalValue, covered = 0, fundsmithCovered = 0, delayed = 0, fxCovered = 0, delayedFx = 0, staleCount = 0, oldest = null;
+  let fundsmithDate = null;
   const dailyAdjustments = new Map();
   for (const holding of report.holdings) {
     const fx = report.asOf === report.today && holding.quoteCurrency !== report.currency ? liveFxRate(holding.quoteCurrency) : null;
     const parts = holding.valuationParts?.length ? holding.valuationParts : [holding];
-    let value = holding.value, broker = {}, adjusted = false;
+    let value = holding.value, broker = {}, fundsmith = null, adjusted = false;
     for (const part of parts) {
-      const partBroker = holding.type === 'security' ? holdingBrokerQuote({ ...holding, ...part }) : {};
+      const source = { ...holding, ...part };
+      const partBroker = holding.type === 'security' ? holdingBrokerQuote(source) : {};
+      const partFundsmith = holding.type === 'security' && !partBroker.quote ? holdingFundsmithNav(source) : null;
       const rate = fx?.rate ?? part.valuationFxRate;
       if (!Number.isFinite(rate) || rate <= 0) continue;
       let partValue;
-      if (partBroker.quote) partValue = Math.round(partBroker.quote.last * part.shares / 1e8 * rate * 100);
+      if (partBroker.quote || partFundsmith) partValue = Math.round((partBroker.quote?.last ?? partFundsmith.price) * part.shares / 1e8 * rate * 100);
       else if (fx && Number.isFinite(part.valuationFxRate) && part.valuationFxRate > 0)
         partValue = Math.round(part.value / part.valuationFxRate * rate);
       else continue;
@@ -759,6 +762,7 @@ function renderOverviewLive() {
       value += partValue - part.value;
       adjusted = true;
       if (partBroker.quote) broker = partBroker;
+      if (partFundsmith) fundsmith = partFundsmith;
     }
     if (!adjusted) continue;
     if (!Number.isSafeInteger(value) || !Number.isSafeInteger(total + value - holding.value)) continue;
@@ -769,6 +773,10 @@ function renderOverviewLive() {
       if (broker.stale) staleCount++;
       if (!oldest || broker.quote.receivedAt < oldest) oldest = broker.quote.receivedAt;
       if (broker.quote.marketDataType !== 'real_time') delayed++;
+    }
+    if (fundsmith) {
+      fundsmithCovered++;
+      if (!fundsmithDate || fundsmith.date < fundsmithDate) fundsmithDate = fundsmith.date;
     }
     if (fx) { fxCovered++; if (fx.delayed) delayedFx++; if (fx.stale) staleCount++; if (!oldest || fx.receivedAt < oldest) oldest = fx.receivedAt; }
   }
@@ -781,7 +789,7 @@ function renderOverviewLive() {
     totalCell.classList.remove('quote-up', 'quote-down');
   }
 
-  const intraday = report.asOf === report.today && (covered > 0 || fxCovered > 0);
+  const intraday = report.asOf === report.today && (covered > 0 || fundsmithCovered > 0 || fxCovered > 0);
   const delta = intraday ? total - report.totalValue : 0;
   const gain = report.day.gain + delta;
   const factor = report.day.closingValueReturnFactor;
@@ -799,14 +807,14 @@ function renderOverviewLive() {
     renderQuotePulse(cell, value, Number.isFinite(value));
   }
   text('day-live-status', intraday
-    ? `Oldest quote received ${new Date(oldest).toLocaleString()}${delayed || delayedFx ? ' · includes delayed data' : ''}${staleCount ? ' · includes stale data' : ''}`
+    ? `${oldest ? `Oldest quote received ${new Date(oldest).toLocaleString()}` : ''}${fundsmithDate ? `${oldest ? ' · ' : ''}Fundsmith NAV dated ${dateLabel(fundsmithDate)}` : ''}${delayed || delayedFx ? ' · includes delayed data' : ''}${staleCount ? ' · includes stale data' : ''}`
     : report.asOf !== report.today ? 'Historical view · saved prices' : 'Live quotes unavailable · using saved prices');
-  text('day-label', report.asOf === report.today ? (intraday ? 'Today’s performance · IBKR' : 'Today’s performance') : 'Daily performance');
+  text('day-label', report.asOf === report.today ? (intraday ? `Today’s performance · ${covered || fxCovered ? 'IBKR' : 'Fundsmith NAV'}` : 'Today’s performance') : 'Daily performance');
   text('day-dates', `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)}${intraday ? ' · intraday estimate' : ''}`);
   renderTotalValue(total, true);
-  text('total-value-label', covered || fxCovered ? 'Portfolio value with IBKR quotes' : 'Total portfolio value');
-  text('total-date', covered || fxCovered
-    ? `${covered} position${covered === 1 ? '' : 's'} repriced · ${delayed ? `${delayed} delayed / frozen · ` : ''}${fxCovered ? `${fxCovered} positions with IBKR FX midpoint${delayedFx ? ' (includes delayed)' : ''}; saved FX elsewhere` : 'saved FX'}; stored prices for remaining positions. Charts and longer-period performance use saved prices.`
+  text('total-value-label', covered || fxCovered ? 'Portfolio value with IBKR quotes' : fundsmithCovered ? 'Portfolio value with Fundsmith NAV' : 'Total portfolio value');
+  text('total-date', covered || fundsmithCovered || fxCovered
+    ? `${covered} IBKR position${covered === 1 ? '' : 's'} and ${fundsmithCovered} Fundsmith position${fundsmithCovered === 1 ? '' : 's'} repriced · ${delayed ? `${delayed} delayed / frozen · ` : ''}${fxCovered ? `${fxCovered} positions with IBKR FX midpoint${delayedFx ? ' (includes delayed)' : ''}; saved FX elsewhere` : 'saved FX'}; stored prices for remaining positions. Charts and longer-period performance use saved prices.`
     : `As of ${dateLabel(report.asOf)} · stored prices`);
   renderDailyPerformers(dailyAdjustments);
 }
@@ -837,7 +845,7 @@ function renderDailyPerformers(adjustments) {
   const filters = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '';
   const key = JSON.stringify([report.asOf, report.currency, report.scope?.excluded, gainers, losers, unavailable, filters]);
   const panel = byId('daily-performers-panel');
-  const message = `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)} · Five largest gains and losses in ${report.currency}, including currency moves. ${report.asOf === report.today ? 'Mapped IBKR holdings use the broker’s previous closes and current quotes for price and FX; saved time-weighted returns are used where broker data is unavailable. See today’s performance for quote age.' : 'Uses saved historical prices and time-weighted returns.'}${unavailable ? ` ${unavailable} securities unavailable.` : ''}`;
+  const message = `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)} · Five largest gains and losses in ${report.currency}, including currency moves. ${report.asOf === report.today ? 'Mapped IBKR holdings use the broker’s previous closes and current quotes for price and FX; the Fundsmith holding uses its dated published NAV when newer than the saved price. Saved time-weighted returns are used where source prices are unavailable. See today’s performance for quote age.' : 'Uses saved historical prices and time-weighted returns.'}${unavailable ? ` ${unavailable} securities unavailable.` : ''}`;
   if (byId('daily-performers-status').textContent !== message) text('daily-performers-status', message);
   if (panel.dataset.renderKey === key) return;
   panel.dataset.renderKey = key;
@@ -899,7 +907,7 @@ function renderHoldingsLive() {
     const amount = price * holding.shares / 1e8;
     value.textContent = Number.isFinite(amount) ? new Intl.NumberFormat(undefined, { style: 'currency', currency: holding.quoteCurrency }).format(amount) : 'Unavailable';
   }
-  text('holdings-live-status', `${covered} of ${holdings.size} securities have a validated source price. IBKR receipt times and Fundsmith NAV dates are shown below. Position values use stored quantities and instrument currencies. Saved portfolio performance is unchanged.`);
+  text('holdings-live-status', `${covered} of ${holdings.size} securities have a validated source price. IBKR receipt times and Fundsmith NAV dates are shown below. Position values use stored quantities and instrument currencies. Today’s indicative performance includes eligible source prices.`);
 }
 
 function liveDailyChange(quote) {

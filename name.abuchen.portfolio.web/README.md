@@ -316,7 +316,9 @@ price, and atomically retains the last successful snapshot in `fundsmith/latest.
 the web runtime state. Holdings and instrument details show the published NAV in Primary,
 Secondary and Combined, labeled with its source and date. A 403 or changed table retains
 the last validated record; the `/api/price-updates` status includes fetch attempt and 403
-counts. This read-only quote does not edit the portfolio's saved prices, valuations or
+counts. When the NAV is at least as recent as the saved quote, it reprices the mapped holding
+in today's indicative portfolio value, daily gain and daily performers using the available
+reporting-currency FX rate. It does not edit the portfolio's saved prices or historical
 performance. `scripts/fundsmith_nav.py` remains available as a manual diagnostic probe.
 
 `GET /api/price-updates` only reads status. `POST /api/price-updates` accepts no body or query and
@@ -478,12 +480,14 @@ The Live quotes table shows sortable Day high and Day low from IBKR's daily high
 fields. These use broker session data, rather than the collector's short observed history;
 missing values remain unavailable. GBX highs/lows use the same verified price units as last prices.
 
-Today's performance follows the same intraday total: the change from the saved closing valuation
+Today's performance follows the same indicative total: the change from the saved closing valuation
 is added to the core daily gain. Its time-weighted return uses the native index's prior-day
 accumulated factor and closing-day opening capital plus inflows; deposits and withdrawals keep
 their native timing treatment. The card is labelled as an intraday estimate. Missing quotes fall
 back with the total; historical views, charts and longer-period performance retain saved values.
 When the native return denominator is zero, an adjusted return is unavailable rather than guessed.
+The dated Fundsmith NAV is eligible for the same adjustment when it is at least as recent as the
+saved quote; a mapped IBKR quote takes precedence when available.
 
 Waterfall hover/focus uses one custom tooltip with the bar's amount. The cumulative connector
 value is not included in the tooltip. Accessible labels are preserved without SVG title elements

@@ -12,7 +12,10 @@ async function main() {
     let security, mode = 'valid', price = 100;
     await page.route('**/api/dashboard*', async route => {
       const response = await route.fetch(), data = await response.json();
-      security = data.holdings.find(h => h.type === 'security');
+      security = data.holdings.find(h => h.type === 'security' && !data.fundsmithIds?.includes(h.uuid)
+        && !h.valuationParts?.length && h.shares >= 100e8);
+      data.fundsmithIds = [];
+      data.market = null;
       if (security) security.valuationFxRate = 2;
       await route.fulfill({ response, json: data });
     });
@@ -27,7 +30,7 @@ async function main() {
         mode: mode === 'demo' ? 'demo' : 'ibkr', generatedAt: now, quotes: mode === 'duplicate' ? [entry, entry] : [entry] } } });
     });
     await page.goto(`${base}/#/overview`, { waitUntil: 'networkidle' });
-    await page.waitForFunction(() => document.querySelector('#total-value-label').textContent.includes('IBKR'));
+    await page.waitForFunction(key => market?.liveQuotes?.quotes?.some(entry => entry.quote.key === key && entry.quote.last === 100), security.uuid);
     const saved = await page.evaluate(() => ({ total: report.totalValue, gain: report.day.gain, series: JSON.stringify(report.series) }));
     const expected = p => page.evaluate(({ p, key }) => {
       const h = report.holdings.find(h => h.uuid === key);
