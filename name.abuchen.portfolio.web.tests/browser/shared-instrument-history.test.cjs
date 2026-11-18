@@ -18,8 +18,9 @@ async function main() {
     await page.route(`${base}/app.css`, route => route.fulfill({ status: 200, contentType: 'text/css', body: readFileSync(resolve(assets, 'app.css')) }));
     await page.route('**/api/dashboard**', async route => {
       const url = new URL(route.request().url());
-      const fixtureUrl = new URL(url); fixtureUrl.searchParams.delete('view');
+      const fixtureUrl = new URL(url); fixtureUrl.searchParams.delete('view'); fixtureUrl.searchParams.delete('currency');
       const response = await route.fetch({ url: fixtureUrl.toString() }), data = await response.json();
+      data.currency = url.searchParams.get('currency') ?? data.currency;
       data.views = ['primary', 'secondary', 'combined'];
       if (url.searchParams.has('instrument') && data.instrument) {
         const start = data.period.openingDate, end = data.period.closingDate;
