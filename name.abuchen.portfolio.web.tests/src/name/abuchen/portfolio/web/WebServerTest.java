@@ -69,6 +69,14 @@ public class WebServerTest
             assertEquals(200, dailyResponse.statusCode());
             assertTrue(JsonParser.parseString(dailyResponse.body()).getAsJsonObject()
                             .getAsJsonObject("dailyRankings").getAsJsonArray("securities").size() > 0);
+            assertFalse(before.has("dailyAttribution"));
+            assertEquals(400, get(client, base + "/api/dashboard?attribution=no").statusCode());
+            var attributionResponse = get(client, base + "/api/dashboard?attribution=true");
+            assertEquals(200, attributionResponse.statusCode());
+            var attribution = JsonParser.parseString(attributionResponse.body()).getAsJsonObject()
+                            .getAsJsonObject("dailyAttribution");
+            assertEquals(2, attribution.get("positions").getAsInt());
+            assertEquals(2, attribution.getAsJsonArray("eligible").size());
             var breakdownResponse = get(client, base + "/api/dashboard?waterfall=calculation");
             assertEquals(200, breakdownResponse.statusCode());
             var breakdown = JsonParser.parseString(breakdownResponse.body()).getAsJsonObject().getAsJsonObject("waterfall");

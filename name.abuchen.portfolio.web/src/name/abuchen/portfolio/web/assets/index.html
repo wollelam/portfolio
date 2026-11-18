@@ -63,6 +63,17 @@
       <section data-page="overview" id="daily-performers-panel" class="panel" aria-labelledby="daily-performers-heading" hidden>
         <div class="panel-heading"><h2 id="daily-performers-heading">What moved today</h2></div>
         <p id="daily-performers-status" class="panel-note" role="status"></p>
+        <section class="daily-breakdown" aria-labelledby="day-breakdown-heading">
+          <h3 id="day-breakdown-heading">Price and currency impact</h3>
+          <dl>
+            <div><dt>Price moves</dt><dd id="day-breakdown-price">—</dd></div>
+            <div><dt>Currency moves</dt><dd id="day-breakdown-fx">—</dd></div>
+            <div><dt>Other / unallocated</dt><dd id="day-breakdown-other">—</dd></div>
+            <div><dt>Daily gain / loss</dt><dd id="day-breakdown-total">—</dd></div>
+          </dl>
+          <p id="day-breakdown-coverage" class="subtle"></p>
+          <details><summary>How this is calculated</summary><p>Estimates use unchanged quantities and cash balances with usable values at both ends of the day. Price moves are valued at the opening exchange rate. Currency moves use closing prices, so they include the interaction between price and exchange-rate changes. Other / unallocated includes trading, dividends, fees, rounding and holdings with missing inputs.</p></details>
+        </section>
         <div class="ranking-grid">
           <div><h3>Largest gains</h3><div class="table-scroll"><table><thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Daily change</th><th scope="col" class="numeric">Daily gain / loss</th></tr></thead><tbody id="daily-gainers-body"></tbody></table></div></div>
           <div><h3>Largest losses</h3><div class="table-scroll"><table><thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Daily change</th><th scope="col" class="numeric">Daily gain / loss</th></tr></thead><tbody id="daily-losers-body"></tbody></table></div></div>

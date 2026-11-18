@@ -42,6 +42,28 @@ import name.abuchen.portfolio.util.Interval;
 public class DashboardServiceTest
 {
     @Test
+    public void dailyAttributionLeavesChangedCashBalancesUnallocated()
+    {
+        var today = LocalDate.of(2026, 10, 23);
+        var clock = Clock.fixed(today.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
+        var loaded = DemoPortfolio.create(today);
+        loaded.client().getAccounts().getFirst().addTransaction(new AccountTransaction(today.atTime(12, 0), "EUR",
+                        850, null, AccountTransaction.Type.INTEREST));
+        var service = new DashboardService(loaded, clock, List.of());
+        var day = service.dashboard(today.minusDays(1), today).day();
+        var attribution = service.dailyAttribution(day);
+
+        assertEquals(2, attribution.positions());
+        assertEquals(1, attribution.eligible().size());
+        var security = attribution.eligible().getFirst();
+        assertEquals(loaded.client().getSecurities().getFirst().getUUID(), security.uuid());
+        assertEquals(1, security.openingFxRate(), 0);
+        assertEquals(1, security.closingFxRate(), 0);
+        assertTrue(security.openingPrice() > 0);
+        assertTrue(security.closingPrice() > 0);
+    }
+
+    @Test
     public void tickerFallbackDoesNotMergeConflictingIsins()
     {
         var today = LocalDate.of(2025, 6, 12);

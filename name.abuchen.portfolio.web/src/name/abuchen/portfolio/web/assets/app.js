@@ -898,6 +898,35 @@ function brokerDayPerformance(holding) {
   return { rate: current / previous - 1, gain: Math.round((current - previous) * holding.shares / 1e8 * 100) };
 }
 
+function renderDailyBreakdown(gain) {
+  if (currentRoute !== 'overview') return;
+  const inputs = report.dailyAttribution;
+  let price = 0, currency = 0, covered = 0;
+  for (const position of inputs?.eligible || []) {
+    const broker = position.uuid ? holdingBrokerQuote(position).quote : null;
+    const nav = position.uuid && !broker ? holdingFundsmithNav(position) : null;
+    const closingPrice = broker?.last ?? nav?.price ?? position.closingPrice;
+    const closingFx = liveFxRate(position.quoteCurrency)?.rate ?? position.closingFxRate;
+    if (!Number.isFinite(closingPrice) || !Number.isFinite(closingFx)) continue;
+    const units = position.shares / 1e8;
+    const opening = Math.round(position.openingPrice * units * position.openingFxRate * 100);
+    const atOpeningFx = Math.round(closingPrice * units * position.openingFxRate * 100);
+    const closing = Math.round(closingPrice * units * closingFx * 100);
+    if (![opening, atOpeningFx, closing].every(Number.isSafeInteger)) continue;
+    price += atOpeningFx - opening;
+    currency += closing - atOpeningFx;
+    covered++;
+  }
+  for (const [id, value] of [['price', covered ? price : null], ['fx', covered ? currency : null],
+    ['other', gain - price - currency], ['total', gain]]) {
+    text('day-breakdown-' + id, value == null ? '—' : money(value, true));
+    tone('day-breakdown-' + id, value);
+  }
+  text('day-breakdown-coverage', inputs
+    ? `${covered} of ${inputs.positions} closing positions and cash balances covered · saved opening values, live closing inputs where available`
+    : 'Price and currency inputs unavailable for this period.');
+}
+
 function renderOverviewLive() {
   if (!report) return;
   let total = report.totalValue, covered = 0, fundsmithCovered = 0, delayed = 0, fxCovered = 0, delayedFx = 0, staleCount = 0, oldest = null;
@@ -952,6 +981,7 @@ function renderOverviewLive() {
   const intraday = report.asOf === report.today && (covered > 0 || fundsmithCovered > 0 || fxCovered > 0);
   const delta = intraday ? total - report.totalValue : 0;
   const gain = report.day.gain + delta;
+  renderDailyBreakdown(gain);
   const factor = report.day.closingValueReturnFactor;
   const rate = delta === 0 ? report.day.rate : Number.isFinite(report.day.rate) && Number.isFinite(factor)
     ? report.day.rate + delta * factor : null;
@@ -2351,6 +2381,7 @@ async function load(from, to, silent = false) {
     if (selectedInstrument) params.set('instrument', selectedInstrument);
     if (currentRoute === 'performers') params.set('rankings', 'true');
     if (currentRoute === 'overview' || currentRoute === 'allocation' && allocationPerformanceMode()) params.set('rankings', 'day');
+    if (currentRoute === 'overview') params.set('attribution', 'true');
     if (currentRoute === 'waterfall') params.set('waterfall', waterfallMode);
     if (currentRoute === 'allocation' && allocationGrouping !== 'position') params.set('exposure', allocationGrouping);
     if (currentRoute === 'dividends') params.set('income', 'true');

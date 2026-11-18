@@ -414,6 +414,26 @@ final class DashboardService
         return new AllocationFrames(portfolio.revision(), fxVersion(), converter.getTermCurrency(), scope.selection(exclusions), List.copyOf(frames));
     }
 
+    synchronized DailyAttribution.Inputs dailyAttribution(Period day)
+    {
+        if (combinedPrimary != null)
+        {
+            var primary = combinedPrimary.dailyAttribution(day);
+            var secondary = combinedSecondary.dailyAttribution(day);
+            var positions = Stream.concat(primary.eligible().stream(), secondary.eligible().stream()).map(position -> {
+                if (position.uuid() == null)
+                    return position;
+                return new DailyAttribution.Position(canonicalSecurityIds.getOrDefault(position.uuid(), position.uuid()),
+                                position.quoteCurrency(), position.shares(), position.openingPrice(), position.closingPrice(),
+                                position.openingFxRate(), position.closingFxRate(), position.quoteDate());
+            }).toList();
+            return new DailyAttribution.Inputs(primary.positions() + secondary.positions(), positions);
+        }
+        var opening = ClientSnapshot.create(portfolio.client(), converter, LocalDate.parse(day.openingDate()));
+        var closing = ClientSnapshot.create(portfolio.client(), converter, LocalDate.parse(day.closingDate()));
+        return DailyAttribution.compare(opening, closing);
+    }
+
     synchronized List<AllocationExposure.Slice> exposure(LocalDate date, String grouping)
     {
         if (combinedPrimary != null)
