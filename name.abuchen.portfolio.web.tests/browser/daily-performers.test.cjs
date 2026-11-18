@@ -37,8 +37,8 @@ async function main() {
     await page.locator('#daily-gainers-body tr').first().getByRole('link', { name: 'Alpha' }).waitFor();
     assert(await panel.isVisible());
     assert.equal(dailyRequests, 1, 'the first overview request includes daily rankings');
-    assert.equal(await page.locator('#daily-gainers-body tr').count(), 3);
-    assert.equal(await page.locator('#daily-losers-body tr').count(), 3);
+    assert.equal(await page.locator('#daily-gainers-body tr').count(), 5);
+    assert.equal(await page.locator('#daily-losers-body tr').count(), 5);
     assert.equal(await panel.locator('.daily-move-bar').first().evaluate(bar => bar.style.width), '100%');
     assert.equal(await page.locator('#daily-gainers-body tr').first().locator('td').last().innerText(),
       await page.evaluate(() => money(1300, true)));
@@ -70,7 +70,7 @@ async function main() {
     assert.match(await page.locator('#daily-gainers-body').innerText(), /No gains/);
     assert.match(await page.locator('#daily-losers-body').innerText(), /No losses/);
     assert.deepEqual(errors, []);
-    console.log('Overview drivers: top/bottom three, bar scale, live reordering, stale quote retention, historical fallback, empty states, drilldown and mobile passed.');
+    console.log('Overview drivers: top/bottom five, bar scale, live reordering, stale quote retention, historical fallback, empty states, drilldown and mobile passed.');
   } finally { if (page) await page.unrouteAll({ behavior: 'ignoreErrors' }); await browser.close(); }
 }
 main().catch(e => { console.error(e); process.exitCode = 1; });

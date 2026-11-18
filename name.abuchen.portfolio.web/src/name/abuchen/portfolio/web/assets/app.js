@@ -50,6 +50,9 @@ const discreetPreferenceKey = 'portfolio.discreetMode';
 let discreetMode = false;
 try { discreetMode = localStorage.getItem(discreetPreferenceKey) === 'true'; } catch { /* Storage can be disabled. */ }
 let mode = 'return';
+const chartModes = ['return', 'value', 'relative'];
+const percentagePointNumber = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2, signDisplay: 'exceptZero' });
+const percentagePoints = value => Number.isFinite(value) ? `${percentagePointNumber.format(value * 100)} pp` : 'Unavailable';
 let selected = 0;
 let instrumentSelected = 0;
 let instrumentCurrency = 'native';
@@ -345,7 +348,8 @@ async function enterRoute() {
   if (currentRoute === 'allocation') allocationDate = route.params.get('asof') || allocationDate || route.params.get('to') || report?.today || '';
   selectedLiveQuote = route.params.get('quote') || selectedLiveQuote;
   selectedBenchmark = route.params.get('benchmark') || '';
-  mode = route.params.get('mode') === 'value' ? 'value' : 'return';
+  const requestedMode = route.params.get('mode');
+  mode = chartModes.includes(requestedMode) ? requestedMode : 'return';
   activePreset = route.params.get('preset') || null;
   rankingBasis = route.params.get('basis') === 'gain' ? 'gain' : 'rate';
   updateChoiceButtons();
@@ -456,9 +460,6 @@ function render() {
   const dividends = report.dividends.reduce((sum, dividend) => sum + dividend.net, 0);
   text('dividend-total', money(dividends));
   text('dividend-count', `${report.dividends.length} received payment${report.dividends.length === 1 ? '' : 's'}`);
-  text('period-rate', percent(report.period.rate));
-  tone('period-rate', report.period.rate);
-  text('period-gain', `${money(report.period.gain, true)} investment gain / loss`);
   text('period-dates', `${dateLabel(report.period.openingDate)} — ${dateLabel(report.period.closingDate)}`);
   text('value-change', money(report.period.valueChange, true));
   text('net-flows', money(report.period.netFlows, true));
@@ -872,8 +873,8 @@ function renderDailyPerformers(adjustments) {
   }).filter(row => Number.isSafeInteger(row.gain));
   const unavailable = data.securities.length - valid.length;
   const compare = direction => (a, b) => direction * (a.gain - b.gain) || a.name.localeCompare(b.name) || a.uuid.localeCompare(b.uuid);
-  const gainers = valid.filter(row => row.gain > 0).sort(compare(-1)).slice(0, 3);
-  const losers = valid.filter(row => row.gain < 0).sort(compare(1)).slice(0, 3);
+  const gainers = valid.filter(row => row.gain > 0).sort(compare(-1)).slice(0, 5);
+  const losers = valid.filter(row => row.gain < 0).sort(compare(1)).slice(0, 5);
   const filters = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '';
   const key = JSON.stringify([report.asOf, report.currency, report.scope?.excluded, gainers, losers, unavailable, filters]);
   const panel = byId('daily-performers-panel');
@@ -1878,7 +1879,7 @@ function renderBenchmarkDetails() {
       : 'in native index units; currency unspecified, no FX adjustment';
     description = `Stored price-series return ${basis}. Distributions are not added separately; a total-return index may already include them.`;
     if (benchmark.closingQuoteDate) description += ` Last quote: ${dateLabel(benchmark.closingQuoteDate)}.`;
-    if (mode === 'value') description = 'The benchmark overlay is shown in Return view. ' + description;
+    if (mode === 'value') description = 'Benchmark comparisons are available in Return and Relative return. ' + description;
   }
   text('benchmark-description', description);
   const warning = benchmark ? [benchmark.error, ...(benchmark.warnings || [])].filter(Boolean).join(' ') : '';
@@ -1927,6 +1928,7 @@ class TimeSeriesChart {
 
   draw(config) {
     this.config = config; this.points = config.points || [];
+    this.timeMap = [];
     this.index = Math.max(0, Math.min(this.points.length - 1, config.selected || 0));
     const svg = this.svg; svg.replaceChildren();
     svg.setAttribute('aria-labelledby', `${svg.id}-title ${svg.id}-description`);
@@ -1949,6 +1951,10 @@ class TimeSeriesChart {
     }
     let low = Math.min(...values), high = Math.max(...values);
     if (config.includeZero) { low = Math.min(low, 0); high = Math.max(high, 0); }
+    if (config.symmetricZero) {
+      high = Math.max(Math.abs(low), Math.abs(high)) || 0.01;
+      low = -high;
+    }
     let yTicks;
     if (config.niceAxis) {
       const span = high - low || Math.abs(high) * 0.1 || 1;
@@ -2034,21 +2040,42 @@ function drawChart() {
   renderBenchmarkDetails();
   if (!hasChartSelection) { selected = report.series.length - 1; hasChartSelection = true; }
   selected = Math.max(0, Math.min(report.series.length - 1, selected));
-  const points = report.series.map(point => ({ date: point.date, value: mode === 'return' ? point.rate : point.value }));
-  const series = mode === 'return' && report.benchmark && !report.benchmark.error ? [{
-    name: report.benchmark.name, className: 'benchmark-line', points: report.benchmark.series.map(point => ({ date: point.date, value: point.rate }))
+  const relative = mode === 'relative';
+  const valueMode = mode === 'value';
+  const benchmark = report.benchmark;
+  const benchmarkSeries = benchmark && !benchmark.error ? benchmark.series : [];
+  const benchmarkRates = relative ? new Map(benchmarkSeries.map(point => [point.date, point.rate])) : null;
+  const relativeRate = (portfolio, comparison) => Number.isFinite(portfolio) && Number.isFinite(comparison) ? portfolio - comparison : null;
+  const points = report.series.map(point => ({
+    date: point.date,
+    value: relative ? relativeRate(point.rate, benchmarkRates.get(point.date)) : valueMode ? point.value : point.rate
+  }));
+  const series = mode === 'return' && benchmarkSeries.length ? [{
+    name: benchmark.name, className: 'benchmark-line', points: benchmarkSeries.map(point => ({ date: point.date, value: point.rate }))
   }] : mode === 'value' ? [{ name: 'Opening value + net contributions', className: 'capital-line', step: true, points: report.series.map(point => ({ date: point.date, value: point.investedCapital })) }] : [];
-  byId('value-legend').hidden = mode !== 'value';
-  const formatter = mode === 'return' ? percent : value => money(value);
+  byId('value-legend').hidden = !valueMode;
+  const closingRate = relative ? relativeRate(report.period.rate, benchmarkRates.get(report.period.closingDate)) : report.period.rate;
+  text('period-rate', relative ? percentagePoints(closingRate) : percent(closingRate));
+  tone('period-rate', closingRate);
+  text('period-gain', relative ? (benchmark ? `vs ${benchmark.name}` : '') : `${money(report.period.gain, true)} investment gain / loss`);
+  const formatter = relative ? percentagePoints : valueMode ? value => money(value) : percent;
+  const title = relative ? 'Return relative to benchmark' : valueMode ? 'Portfolio value' : 'Portfolio time-weighted return';
   portfolioChart = new TimeSeriesChart(byId('chart'));
-  portfolioChart.draw({ points, series, format: formatter, includeZero: mode === 'return', area: true, selected,
-    extraDetail: index => mode === 'value' && Number.isFinite(report.series[index]?.investedCapital) ? `Investment gain / loss: ${money(report.series[index].value - report.series[index].investedCapital, true)}` : '',
-    output: byId('chart-detail'), title: mode === 'return' ? 'Portfolio time-weighted return' : 'Portfolio value',
-    description: `Daily ${mode === 'return' ? 'cumulative return' : 'value'} from ${report.period.openingDate} to ${report.period.closingDate}.`,
+  portfolioChart.draw({ points, series, format: formatter, includeZero: !valueMode, symmetricZero: relative,
+    area: true, areaBaseline: relative ? 0 : undefined, selected,
+    empty: relative ? (selectedBenchmark ? 'Relative return is unavailable for this period.' : 'Choose a benchmark to see relative return.') : undefined,
+    extraDetail: index => {
+      const point = report.series[index];
+      if (relative) return `Portfolio: ${percent(point.rate ?? null)} · ${benchmark.name}: ${percent(benchmarkRates.get(point.date) ?? null)}`;
+      return valueMode && Number.isFinite(point.investedCapital) ? `Investment gain / loss: ${money(point.value - point.investedCapital, true)}` : '';
+    },
+    output: byId('chart-detail'), title,
+    description: `${title} from ${report.period.openingDate} to ${report.period.closingDate}.`,
     onSelect: index => { selected = index; saveEntryState(); } });
-  byId('mode-return').setAttribute('aria-pressed', String(mode === 'return'));
-  byId('mode-value').setAttribute('aria-pressed', String(mode === 'value'));
-  text('chart-explanation', mode === 'return'
+  for (const measure of chartModes) byId('mode-' + measure).setAttribute('aria-pressed', String(mode === measure));
+  text('chart-explanation', relative
+    ? 'Portfolio time-weighted return minus the benchmark’s cumulative return, in percentage points. Above zero means ahead of the benchmark. Gaps mark dates with missing returns.'
+    : mode === 'return'
     ? 'Time-weighted return (TTWROR) adjusts for deposits and withdrawals. Currency gains exclude net external flows.'
     : `Portfolio value in ${report.currency}, including cash. The dashed line starts at the opening value and adds external deposits minus withdrawals, including securities delivered in or out at their recorded value. The gap is investment gain / loss for this period; trades and dividends are not new contributions.`);
 }
@@ -2151,7 +2178,7 @@ byId('dates').addEventListener('submit', event => {
 byId('refresh').addEventListener('click', () => currentRoute === 'live-quotes' ? checkLiveQuotes() : load(report?.period.openingDate, report?.period.closingDate));
 byId('benchmark').addEventListener('change', event => {
   selectedBenchmark = event.target.value;
-  if (selectedBenchmark) mode = 'return';
+  if (selectedBenchmark && mode !== 'relative') mode = 'return';
   syncRouteUrl();
   load(report?.period.openingDate, report?.period.closingDate);
 });
@@ -2204,7 +2231,7 @@ for (const button of document.querySelectorAll('[data-period]')) {
   });
 }
 for (const button of document.querySelectorAll('[data-ranking-basis]')) button.addEventListener('click', () => { rankingBasis = button.dataset.rankingBasis; updateChoiceButtons(); syncRouteUrl(); renderRankings(report?.rankings); });
-for (const measure of ['return', 'value']) byId('mode-' + measure).addEventListener('click', () => { mode = measure; syncRouteUrl(); drawChart(); });
+for (const measure of chartModes) byId('mode-' + measure).addEventListener('click', () => { mode = measure; syncRouteUrl(); drawChart(); });
 window.matchMedia('(max-width:760px)').addEventListener('change', () => { drawChart(); if (currentRoute === 'live-quotes') renderLiveQuotes(); if (currentRoute === 'allocation') renderAllocation(); });
 function checkForUpdates() {
   if (allocationPlaying) return;
