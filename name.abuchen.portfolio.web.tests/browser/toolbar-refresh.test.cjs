@@ -52,6 +52,10 @@ async function main() {
 
     for (const width of [320, 390, 900]) {
       await page.setViewportSize({ width, height: 850 });
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+        `The overview fits at ${width}px`);
+      assert(await page.locator('#total-value').evaluate(value => value.scrollWidth <= value.clientWidth),
+        `The total fits in its card at ${width}px`);
       for (const selector of ['#instrument-date-menu', '#market-menu', '#portfolio-scope', '#warnings']) {
         const summary = page.locator(selector + ' summary');
         await summary.click();

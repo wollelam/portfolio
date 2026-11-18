@@ -95,16 +95,24 @@ async function main() {
     const fixture = await installSyntheticFixture(page);
     await page.goto(baseUrl, { waitUntil: 'networkidle' });
     await page.getByRole('heading', { name: 'Portfolio overview' }).waitFor();
-    assert.equal(await page.locator('[data-page="overview"]:visible').count(), 1, 'overview summary is visible');
-    assert.equal(await page.locator('#daily-performers-panel').isVisible(), false, 'daily performers start collapsed');
-    assert.equal(await page.locator('#daily-performers-toggle').getAttribute('aria-expanded'), 'false');
-    await page.locator('#daily-performers-toggle').click();
-    await page.locator('#daily-performers-panel').waitFor({ state: 'visible' });
-    await page.waitForFunction(() => document.querySelector('#daily-performers-status').textContent !== 'Loading daily performers…');
-    assert.equal(await page.locator('#daily-performers-toggle').getAttribute('aria-expanded'), 'true');
-    assert(await page.locator('#daily-performers-panel').isVisible(), 'expanded daily performers panel is visible');
-    await page.locator('#daily-performers-toggle').click();
-    assert.equal(await page.locator('#daily-performers-panel').isVisible(), false, 'daily performers can be collapsed');
+    assert(await page.locator('#summary-view').isVisible(), 'overview summary is visible');
+    assert(await page.locator('#daily-performers-panel').isVisible(), 'daily drivers are visible');
+    const week = await page.evaluate(() => report.week);
+    await page.locator('#week-link').click();
+    await waitForRoute(page, 'performance', fixture);
+    const weekParams = new URLSearchParams(page.url().split('?')[1]);
+    assert.equal(weekParams.get('from'), week.openingDate);
+    assert.equal(weekParams.get('to'), week.closingDate);
+    assert.match(await page.locator('#period-context').innerText(), / – /);
+    await page.goBack();
+    await waitForRoute(page, 'overview', fixture);
+    const overviewRange = await page.evaluate(() => report.period);
+    await page.getByRole('link', { name: 'Net dividends · selected period' }).click();
+    await waitForRoute(page, 'dividends', fixture);
+    await page.waitForFunction(range => report.period.openingDate === range.openingDate
+      && report.period.closingDate === range.closingDate, overviewRange);
+    await page.goBack();
+    await waitForRoute(page, 'overview', fixture);
 
     await page.locator('[data-route="holdings"]').click();
     await waitForRoute(page, 'holdings', fixture);
@@ -182,7 +190,6 @@ async function main() {
 
     await page.locator('[data-route="performance"]').click();
     await waitForRoute(page, 'performance', fixture);
-    await openDateMenu(page);
     await page.locator('#mode-value').click();
     assert.equal(await page.locator('#chart .capital-line').count(), 1, 'value mode overlays native invested capital');
     assert(await page.locator('#value-legend').isVisible());
@@ -277,12 +284,30 @@ async function main() {
     assert(Math.abs((await page.evaluate(() => window.scrollY)) - beforeY) < 4, 'automatic refresh does not jump scroll');
 
     await page.setViewportSize({ width: 390, height: 844 });
+    const sections = page.locator('#section-toggle');
+    assert(await sections.isVisible(), 'the section name stays visible on mobile');
+    assert(await page.locator('#section-nav').isHidden(), 'mobile navigation starts collapsed');
+    await sections.click();
+    await page.keyboard.press('Escape');
+    assert(await page.locator('#section-nav').isHidden());
+    assert(await sections.evaluate(element => document.activeElement === element));
+    await sections.click();
     await page.locator('[data-route="performers"]').click(); await waitForRoute(page, 'performers', fixture);
     const performersOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert(performersOverflow <= 1, `mobile performers layout should not overflow horizontally (overflow=${performersOverflow}px)`);
+    assert.match(await sections.innerText(), /Top gainers/);
+    assert(await page.locator('#section-nav').isHidden(), 'navigation closes after selecting a route');
+    await sections.click();
     await page.locator('[data-route="performance"]').click(); await waitForRoute(page, 'performance', fixture);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert(overflow <= 1, `mobile layout should not overflow horizontally (overflow=${overflow}px)`);
+
+    const day = await page.evaluate(() => report.day);
+    await page.goto(`${baseUrl}/#/dividends?from=${day.openingDate}&to=${day.closingDate}`);
+    await page.locator('#dividend-year-link').click();
+    await page.waitForFunction(() => new URLSearchParams(location.hash.split('?')[1]).get('preset') === '1Y' && !busy);
+    assert.equal(await page.evaluate(() => report.period.closingDate), await page.evaluate(() => report.today));
+    assert(await page.locator('#dividend-year-link').isHidden());
 
     assert.deepEqual(pageErrors, [], `browser should not report uncaught errors: ${pageErrors.join('; ')}`);
 

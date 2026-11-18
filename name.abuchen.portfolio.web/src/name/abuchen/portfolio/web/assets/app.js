@@ -97,8 +97,6 @@ let liveMode;
 let liveFrozenHistory;
 let liveHoveredTime;
 let livePollBusy = false;
-let dailyPerformersOpen = false;
-let dailyPerformersError = '';
 let liveConnectionError = false;
 let market;
 let priceRequestPending = false;
@@ -192,17 +190,17 @@ for (const [id, columns] of Object.entries(sortColumns)) {
 }
 
 const routeMeta = {
-  overview: ['THE BIG PICTURE', 'Portfolio overview'],
-  performance: ['GROWTH OVER TIME', 'Portfolio performance'],
-  drawdown: ['THE PATH BETWEEN THE HIGHS', 'Portfolio drawdown'],
-  returns: ['THE RHYTHM OF YOUR RETURNS', 'Returns calendar'],
-  waterfall: ['EXPLAIN THE CHANGE', 'Performance waterfall'],
-  allocation: ['THE SHAPE OF YOUR PORTFOLIO', 'Allocation & concentration'],
-  holdings: ['WHERE YOU’RE INVESTED', 'Holdings & cash'],
-  dividends: ['INCOME FROM YOUR INVESTMENTS', 'Received dividends'],
-  performers: ['SECURITY PERFORMANCE', 'Top gainers & decliners'],
-  'live-quotes': ['QUOTE STREAM PILOT', 'Live quotes'],
-  instrument: ['INSTRUMENT DETAIL', 'Instrument detail']
+  overview: 'Portfolio overview',
+  performance: 'Portfolio performance',
+  drawdown: 'Portfolio drawdown',
+  returns: 'Returns calendar',
+  waterfall: 'Performance waterfall',
+  allocation: 'Allocation & concentration',
+  holdings: 'Holdings & cash',
+  dividends: 'Received dividends',
+  performers: 'Top gainers & decliners',
+  'live-quotes': 'Live quotes',
+  instrument: 'Instrument detail'
 };
 
 function routeUrl() {
@@ -245,8 +243,30 @@ function syncRouteUrl() {
     scrollY: restoringScroll ? (history.state?.scrollY || 0) : window.scrollY, selected, instrumentSelected, drawdownSelected }, '', url);
   const filters = url.includes('?') ? url.slice(url.indexOf('?')) : '';
   for (const anchor of document.querySelectorAll('a[href^="#/"]')) anchor.setAttribute('href', anchor.hash.split('?')[0] + filters);
-  if (currentRoute === 'allocation' && report) byId('allocation-holdings').setAttribute('href', allocationTarget('holdings'));
+  if (report) {
+    periodLink('week-link', 'performance', report.week.openingDate, report.week.closingDate);
+    const yearStart = iso(monthsBefore(report.today, 12));
+    periodLink('dividend-year-link', 'dividends', yearStart, report.today, '1Y');
+    byId('dividend-empty-action').hidden = report.dividends.length > 0
+      || report.period.openingDate <= yearStart && report.period.closingDate === report.today;
+    if (currentRoute === 'allocation') byId('allocation-holdings').href = allocationTarget('holdings');
+  }
 }
+
+function periodLink(id, route, from, to, preset) {
+  const params = new URLSearchParams(routeUrl().split('?')[1] || '');
+  params.set('from', from); params.set('to', to);
+  params.delete('asof');
+  if (preset) params.set('preset', preset); else params.delete('preset');
+  byId(id).href = `#/${route}?${params}`;
+}
+
+function setSectionMenu(open, focusToggle = false) {
+  const toggle = byId('section-toggle');
+  toggle.setAttribute('aria-expanded', String(open));
+  if (focusToggle) toggle.focus();
+}
+byId('section-toggle').addEventListener('click', event => setSectionMenu(event.currentTarget.getAttribute('aria-expanded') !== 'true'));
 
 function showRoute() {
   hideWaterfallTooltip();
@@ -261,6 +281,13 @@ function showRoute() {
   const dateMenu = byId('instrument-date-menu'), dateControls = byId('date-controls');
   const hasPeriod = !['live-quotes', 'allocation'].includes(currentRoute);
   dateMenu.hidden = !hasPeriod;
+  byId('allocation-context').hidden = currentRoute !== 'allocation';
+  if (currentRoute === 'allocation' && report) text('allocation-context', `As of ${dateLabel(report.asOf)}`);
+  if (report && hasPeriod) {
+    const range = `${dateLabel(report.period.openingDate)} – ${dateLabel(report.period.closingDate)}`;
+    text('period-context', range);
+    dateMenu.querySelector('summary').setAttribute('aria-label', `Select date range · ${range}`);
+  }
   if (hasPeriod) byId('instrument-date-popover').append(dateControls);
   else dateMenu.open = false;
   byId('market-menu').hidden = currentRoute !== 'overview';
@@ -271,12 +298,11 @@ function showRoute() {
   text('portfolio-label', quotePage ? 'Independent, read-only quote watchlist' : report?.label || 'Loading portfolio…');
   const refreshLabel = quotePage ? 'Refresh quotes' : 'Refresh dashboard';
   byId('refresh').setAttribute('aria-label', refreshLabel); byId('refresh').title = refreshLabel;
-  document.querySelector('.snapshot-badge').textContent = quotePage ? 'QUOTE PILOT' : 'LOCAL SNAPSHOT';
-  const meta = routeMeta[currentRoute] || routeMeta.overview;
-  text('page-eyebrow', meta[0]); text('page-title', currentRoute === 'instrument' && report?.instrument?.name ? report.instrument.name : meta[1]);
+  const title = routeMeta[currentRoute] || routeMeta.overview;
+  text('page-title', currentRoute === 'instrument' && report?.instrument?.name ? report.instrument.name : title);
+  text('current-section', currentRoute === 'instrument' ? 'Holdings' : title);
   for (const section of document.querySelectorAll('[data-page]')) {
-    section.hidden = section.dataset.page !== currentRoute || section.id === 'warnings' && !report?.warnings?.length
-      || section.id === 'daily-performers-panel' && !dailyPerformersOpen;
+    section.hidden = section.dataset.page !== currentRoute || section.id === 'warnings' && !report?.warnings?.length;
   }
   byId('security-filter').hidden = !['holdings', 'performers'].includes(currentRoute);
   byId('date-controls').hidden = !hasPeriod;
@@ -347,6 +373,7 @@ async function enterRoute() {
   if (Number.isInteger(saved.selected)) { selected = saved.selected; hasChartSelection = true; }
   instrumentSelected = Number.isInteger(saved.instrumentSelected) ? saved.instrumentSelected : instrumentSelected;
   drawdownSelected = Number.isInteger(saved.drawdownSelected) ? saved.drawdownSelected : drawdownSelected;
+  setSectionMenu(false);
   showRoute();
   const data = await load(from || byId('from').value, to || byId('to').value);
   if (generation !== routeGeneration) return;
@@ -400,6 +427,7 @@ document.addEventListener('click', event => {
   if (!anchor || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
   if (anchor.id === 'instrument-back' && history.state?.canAppBack) { saveEntryState(); history.back(); return; }
+  if (anchor.closest('#section-nav') && byId('section-toggle').getAttribute('aria-expanded') === 'true') setSectionMenu(false, true);
   navigate(anchor.href);
 });
 window.addEventListener('popstate', enterRoute);
@@ -581,7 +609,7 @@ function renderPortfolioScope() {
   const description = excludedGroups.size ? `Portfolio filters · ${excludedGroups.size} excluded` : 'Portfolio filters · all groups included';
   byId('scope-summary').setAttribute('aria-label', description);
   byId('scope-summary').title = description;
-  byId('scope-indicator').hidden = !excludedGroups.size;
+  text('scope-context', excludedGroups.size ? `${excludedGroups.size} excluded` : 'All groups');
   const holder = byId('scope-options');
   const key = JSON.stringify([options, [...excludedGroups].sort()]);
   if (holder.dataset.key === key) return;
@@ -646,6 +674,7 @@ document.addEventListener('click', event => {
 });
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
+  if (byId('section-toggle').getAttribute('aria-expanded') === 'true') setSectionMenu(false, true);
   for (const menu of document.querySelectorAll('.topbar-menu[open]')) { menu.open = false; menu.querySelector('summary').focus(); }
 });
 byId('scope-reset').addEventListener('click', () => {
@@ -820,17 +849,20 @@ function renderOverviewLive() {
 }
 
 function renderDailyPerformers(adjustments) {
-  if (!dailyPerformersOpen || currentRoute !== 'overview' || !report) return;
+  if (currentRoute !== 'overview' || !report) return;
   const data = report.dailyRankings;
   if (!data) {
-    text('daily-performers-status', dailyPerformersError || 'Loading daily performers…');
+    text('daily-performers-status', 'Daily performers are unavailable. Use Refresh dashboard to try again.');
     for (const id of ['daily-gainers-body', 'daily-losers-body']) byId(id).replaceChildren();
     byId('daily-performers-panel').dataset.renderKey = '';
     return;
   }
-  dailyPerformersError = '';
+  const currentHoldings = new Map();
+  if (report.asOf === report.today) {
+    for (const holding of report.holdings) if (holding.uuid && !currentHoldings.has(holding.uuid)) currentHoldings.set(holding.uuid, holding);
+  }
   const valid = data.securities.filter(row => Number.isSafeInteger(row.gain)).map(row => {
-    const holding = report.asOf === report.today ? report.holdings.find(item => item.uuid === row.uuid) : null;
+    const holding = currentHoldings.get(row.uuid);
     const brokerDay = holding ? brokerDayPerformance(holding) : null;
     if (brokerDay && Number.isSafeInteger(brokerDay.gain)) return { ...row, gain: brokerDay.gain, rate: brokerDay.rate };
     const adjustment = report.asOf === report.today ? adjustments.get(row.uuid) || 0 : 0;
@@ -840,16 +872,17 @@ function renderDailyPerformers(adjustments) {
   }).filter(row => Number.isSafeInteger(row.gain));
   const unavailable = data.securities.length - valid.length;
   const compare = direction => (a, b) => direction * (a.gain - b.gain) || a.name.localeCompare(b.name) || a.uuid.localeCompare(b.uuid);
-  const gainers = valid.filter(row => row.gain > 0).sort(compare(-1)).slice(0, 5);
-  const losers = valid.filter(row => row.gain < 0).sort(compare(1)).slice(0, 5);
+  const gainers = valid.filter(row => row.gain > 0).sort(compare(-1)).slice(0, 3);
+  const losers = valid.filter(row => row.gain < 0).sort(compare(1)).slice(0, 3);
   const filters = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '';
   const key = JSON.stringify([report.asOf, report.currency, report.scope?.excluded, gainers, losers, unavailable, filters]);
   const panel = byId('daily-performers-panel');
-  const message = `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)} · Five largest gains and losses in ${report.currency}, including currency moves. ${report.asOf === report.today ? 'Mapped IBKR holdings use the broker’s previous closes and current quotes for price and FX; the Fundsmith holding uses its dated published NAV when newer than the saved price. Saved time-weighted returns are used where source prices are unavailable. See today’s performance for quote age.' : 'Uses saved historical prices and time-weighted returns.'}${unavailable ? ` ${unavailable} securities unavailable.` : ''}`;
+  const message = `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)} · ${report.currency}, including currency moves. ${report.asOf === report.today ? 'Uses live prices and FX where available, with saved data elsewhere. See Today’s performance for quote freshness.' : 'Uses saved historical prices and time-weighted returns.'}${unavailable ? ` ${unavailable} securities unavailable.` : ''}`;
   if (byId('daily-performers-status').textContent !== message) text('daily-performers-status', message);
   if (panel.dataset.renderKey === key) return;
   panel.dataset.renderKey = key;
   const focused = panel.contains(document.activeElement) ? document.activeElement.dataset.security : null;
+  const maxGain = Math.max(1, ...gainers.map(item => item.gain), ...losers.map(item => -item.gain));
   for (const [id, rows, empty] of [['daily-gainers-body', gainers, 'No gains in this period.'], ['daily-losers-body', losers, 'No losses in this period.']]) {
     const body = byId(id); body.replaceChildren();
     for (const item of rows) {
@@ -861,28 +894,17 @@ function renderDailyPerformers(adjustments) {
       if (Number.isFinite(item.rate) && item.rate !== 0) row.lastElementChild.classList.add(item.rate > 0 ? 'positive' : 'negative');
       cell(row, money(item.gain, true), true);
       row.lastElementChild.classList.add(item.gain > 0 ? 'positive' : 'negative');
+      const bar = document.createElement('span');
+      bar.className = 'daily-move-bar';
+      bar.style.width = `${Math.abs(item.gain) / maxGain * 100}%`;
+      bar.setAttribute('aria-hidden', 'true');
+      row.lastElementChild.append(bar);
       body.append(row);
     }
     if (!rows.length) emptyRow(body, 3, empty);
   }
   if (focused) [...panel.querySelectorAll('a[data-security]')].find(link => link.dataset.security === focused)?.focus({ preventScroll: true });
 }
-
-byId('daily-performers-toggle').addEventListener('click', async () => {
-  dailyPerformersOpen = !dailyPerformersOpen;
-  byId('daily-performers-toggle').setAttribute('aria-expanded', String(dailyPerformersOpen));
-  byId('daily-performers-toggle').textContent = `Top & bottom performers ${dailyPerformersOpen ? '▴' : '▾'}`;
-  showRoute();
-  if (dailyPerformersOpen) {
-    dailyPerformersError = '';
-    renderOverviewLive();
-    const result = await load(byId('from').value, byId('to').value);
-    if (!result && dailyPerformersOpen) {
-      dailyPerformersError = 'Daily performers could not be loaded. Close and reopen the panel to retry.';
-      text('daily-performers-status', dailyPerformersError);
-    }
-  }
-});
 
 function renderHoldingsLive() {
   if (!report || currentRoute !== 'holdings') return;
@@ -1036,6 +1058,7 @@ function renderAllocationTimeline() {
   slider.setAttribute('aria-valuetext', dateLabel(allocationDate));
   text('allocation-start', dateLabel(report.inceptionDate)); text('allocation-end', dateLabel(report.today));
   text('allocation-date-status', `Showing allocation at ${dateLabel(report.asOf)}`);
+  text('allocation-context', `As of ${dateLabel(report.asOf)}`);
 }
 function selectAllocationDate(date, immediate = false, playback = false) {
   if (!playback) stopAllocationPlayback();
@@ -2063,7 +2086,7 @@ async function load(from, to, silent = false) {
     if (excludedGroups.size) params.set('exclude', [...excludedGroups].sort().join(','));
     if (selectedInstrument) params.set('instrument', selectedInstrument);
     if (currentRoute === 'performers') params.set('rankings', 'true');
-    if (currentRoute === 'overview' && dailyPerformersOpen || currentRoute === 'allocation' && allocationPerformanceMode()) params.set('rankings', 'day');
+    if (currentRoute === 'overview' || currentRoute === 'allocation' && allocationPerformanceMode()) params.set('rankings', 'day');
     if (currentRoute === 'waterfall') params.set('waterfall', waterfallMode);
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]);
     const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal });
@@ -2150,6 +2173,16 @@ byId('refresh-prices').addEventListener('click', async () => {
     renderMarket();
   }
 });
+function monthsBefore(date, months) {
+  const start = new Date(date + 'T12:00:00Z');
+  const day = start.getUTCDate();
+  start.setUTCDate(1);
+  start.setUTCMonth(start.getUTCMonth() - months);
+  const lastDay = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).getUTCDate();
+  start.setUTCDate(Math.min(day, lastDay));
+  return start;
+}
+
 for (const button of document.querySelectorAll('[data-period]')) {
   button.addEventListener('click', () => {
     if (!report) return;
@@ -2161,12 +2194,8 @@ for (const button of document.querySelectorAll('[data-period]')) {
     else if (activePreset === 'MAX') start = new Date(Math.min(Date.parse(report.inceptionDate + 'T12:00:00Z'), end.getTime() - 86400000));
     else if (activePreset === 'MTD') start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 0, 12));
     else {
-      start = new Date(end);
       const months = Number(activePreset.slice(0, -1)) * (activePreset.endsWith('Y') ? 12 : 1);
-      const day = start.getUTCDate();
-      start.setUTCDate(1); start.setUTCMonth(start.getUTCMonth() - months);
-      const lastDay = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).getUTCDate();
-      start.setUTCDate(Math.min(day, lastDay));
+      start = monthsBefore(report.asOf, months);
     }
     byId('from').value = iso(start); byId('to').value = iso(end);
     byId('instrument-date-menu').open = false;

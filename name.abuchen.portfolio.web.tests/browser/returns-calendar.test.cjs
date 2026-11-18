@@ -42,6 +42,7 @@ async function main() {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'heatmap scrolls internally');
     await page.waitForTimeout(250);
     await page.locator('#returns-calendar .table-scroll').evaluate(element => { element.scrollLeft = 300; });
+    await page.locator('#section-toggle').click();
     await page.locator('[data-route="overview"]').click();
     await page.locator('#total-value').waitFor({ state: 'visible' });
     await page.goBack();
