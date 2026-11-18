@@ -18,7 +18,7 @@ async function main() {
     await page.route(`${base}/app.css`, route => route.fulfill({ status: 200, contentType: 'text/css', body: readFileSync(resolve(assets, 'app.css')) }));
     await page.route('**/api/dashboard**', async route => {
       const url = new URL(route.request().url());
-      const fixtureUrl = new URL(url); fixtureUrl.searchParams.delete('view'); fixtureUrl.searchParams.delete('currency');
+      const fixtureUrl = new URL(url); fixtureUrl.searchParams.delete('view');
       const response = await route.fetch({ url: fixtureUrl.toString() }), data = await response.json();
       data.views = ['primary', 'secondary', 'combined'];
       if (url.searchParams.has('instrument') && data.instrument) {
@@ -79,6 +79,7 @@ async function main() {
     assert.equal(broker.primary.value, 110);
     assert.deepEqual(broker.prior, broker.secondaryPrior, 'both source lines use the same broker previous close');
     assert.equal(broker.prior.value, 100);
+    assert(broker.first && broker.second, 'both source holdings have broker day performance in CHF');
     assert.equal(broker.first.rate, broker.second.rate, 'source quote dates do not change the broker day return');
     assert.equal(broker.second.gain, broker.first.gain * 2, 'gain uses each source quantity');
     await page.locator('[data-instrument-currency="portfolio"]').click();
