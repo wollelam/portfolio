@@ -139,11 +139,15 @@ main {
   max-width:1800px;
 }
 .topbar {
-  height:78px;
+  min-height:78px;
   border-bottom:1px solid var(--border);
   display:flex;
   align-items:center;
   justify-content:space-between;
+  flex-wrap:wrap;
+  gap:8px;
+  padding:8px 0;
+  position:relative;
   font-size:10px;
   letter-spacing:1.6px;
   color:var(--muted);
@@ -690,7 +694,7 @@ footer {
     padding:0 16px 18px;
   }
   .topbar {
-    height:50px;
+    min-height:50px;
     font-size:8px;
     letter-spacing:1px;
   }
@@ -1052,7 +1056,7 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
   stroke-width:1;
 }
 
-.topbar-actions { display:flex; align-items:center; gap:8px; }
+.topbar-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; max-width:100%; margin-left:auto; }
 .view-selector { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; font-weight:650; }
 .view-selector select { min-height:36px; max-width:155px; padding:0 28px 0 10px; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--ink); font:inherit; }
 .currency-selector select { min-width:82px; }
@@ -1082,7 +1086,13 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .market-menu-content .panel-heading h2 { font-size:16px; }
 .market-menu-content .market-grid { padding:8px 0; grid-template-columns:1fr; gap:8px; }
 .market-menu-content .panel-note { padding:0; }
-@media (max-width:760px) { .topbar > span:first-child { display:none; } .topbar { justify-content:flex-end; } }
+@media (max-width:1050px) {
+  .topbar-menu { position:static; }
+  .topbar-popover { max-width:100%; }
+}
+@media (max-width:760px) {
+  .topbar > span:first-child, .snapshot-badge { display:none; }
+}
 .instrument-price-status { display:inline-flex; align-items:center; gap:5px; border:1px solid #d7e0e8; border-radius:12px; padding:3px 7px; color:#657485; font-size:11px; white-space:nowrap; }
 .instrument-price-status::before { content:''; width:7px; height:7px; border-radius:50%; background:#8a98a8; }
 .instrument-price-status[data-state="live"]::before { background:#21a274; }

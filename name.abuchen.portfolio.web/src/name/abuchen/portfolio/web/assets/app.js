@@ -1006,10 +1006,7 @@ async function checkLiveQuotes() {
   if (document.hidden || !['live-quotes', 'holdings', 'overview', 'instrument'].includes(currentRoute) || livePollBusy) return;
   livePollBusy = true;
   try {
-    const response = await fetch('/api/price-updates', { cache: 'no-store' });
-    if (!response.ok) throw new Error('Quote feed unavailable');
-    liveConnectionError = false;
-    setMarket(await response.json());
+    await pollMarket();
   } catch {
     liveConnectionError = true;
     if (currentRoute === 'live-quotes') renderLiveQuotes();
@@ -1757,13 +1754,13 @@ function renderMarket() {
   const quotes = market?.quotes;
   const fx = market?.fx;
   const showTime = value => new Date(value).toLocaleString();
+  byId('refresh-prices').disabled = priceRequestPending || marketConnectionError || !quotes?.canRequest;
   if (quotes) {
     let status = quotes.lastSuccessAt ? `Last confirmed run: ${showTime(quotes.lastSuccessAt)}` : 'No confirmed quote run is available yet.';
     if (quotes.state === 'queued') status = 'Quote update queued for the existing updater.';
     if (quotes.state === 'running') status = 'The existing quote updater is running…';
     text('quote-status', status);
     text('quote-schedule', quotes.schedule || 'Existing updater schedule');
-    byId('refresh-prices').disabled = busy || priceRequestPending || marketConnectionError || !quotes.canRequest;
     if (priceRequestPending) {
       text('price-action', 'Requesting a guarded price update…');
     } else if (marketConnectionError) {
@@ -1794,13 +1791,26 @@ function renderMarket() {
   renderNotifications();
 }
 
+let marketRequest;
+function pollMarket() {
+  marketRequest ??= fetch('/api/price-updates', { cache: 'no-store', signal: AbortSignal.timeout(10000) })
+    .then(response => {
+      if (!response.ok) throw new Error('Price status unavailable');
+      return response.json();
+    })
+    .then(data => {
+      liveConnectionError = false;
+      setMarket(data);
+      return data;
+    })
+    .finally(() => { marketRequest = null; });
+  return marketRequest;
+}
+
 async function checkMarket() {
   if (document.hidden) return;
   try {
-    const response = await fetch('/api/price-updates', { cache: 'no-store' });
-    if (!response.ok) throw new Error('Price status unavailable');
-    const data = await response.json();
-    setMarket(data);
+    const data = await pollMarket();
     if (currentRoute !== 'live-quotes' && report && data.fx && report.fxVersion !== data.fx.version) load(report.period.openingDate, report.period.closingDate, true);
   } catch {
     marketConnectionError = true;
@@ -2041,7 +2051,7 @@ async function load(from, to, silent = false) {
     byId('error').hidden = true;
     text('status', 'Calculating portfolio…');
     byId('dashboard').setAttribute('aria-busy', 'true');
-    document.querySelectorAll('button, input[type=date], #benchmark').forEach(element => { if (element.id !== 'allocation-play' || !allocationPlaying) element.disabled = true; });
+    document.querySelectorAll('#dates button, #dates input, [data-period], #benchmark').forEach(element => { element.disabled = true; });
   }
   try {
     const params = new URLSearchParams();
@@ -2055,7 +2065,8 @@ async function load(from, to, silent = false) {
     if (currentRoute === 'performers') params.set('rankings', 'true');
     if (currentRoute === 'overview' && dailyPerformersOpen || currentRoute === 'allocation' && allocationPerformanceMode()) params.set('rankings', 'day');
     if (currentRoute === 'waterfall') params.set('waterfall', waterfallMode);
-    const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal: controller.signal });
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]);
+    const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Could not load portfolio.');
     if (requestController !== controller) return null;
@@ -2094,7 +2105,7 @@ async function load(from, to, silent = false) {
     if (requestController === controller) {
       busy = false;
       byId('dashboard').setAttribute('aria-busy', 'false');
-      document.querySelectorAll('button, input[type=date], #benchmark').forEach(element => { element.disabled = false; });
+      document.querySelectorAll('#dates button, #dates input, [data-period], #benchmark').forEach(element => { element.disabled = false; });
       renderMarket();
       if (selectedInstrument) { renderActivityTable('dividends'); renderActivityTable('transactions'); }
       if (currentRoute === 'live-quotes') renderLiveQuotes();
