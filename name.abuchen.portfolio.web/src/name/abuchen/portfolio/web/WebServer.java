@@ -194,6 +194,8 @@ final class WebServer implements AutoCloseable
                         dashboard.add("dailyAttribution", gson.toJsonTree(service.dailyAttribution(report.day())));
                     if (params.containsKey("exposure"))
                         dashboard.add("exposure", gson.toJsonTree(service.exposure(to, params.get("exposure"))));
+                    if ("asset-class".equals(params.get("exposure")))
+                        dashboard.add("allocationTargets", gson.toJsonTree(service.allocationTargets()));
                     if ("true".equals(params.get("income")))
                         dashboard.add("dividendIncome", gson.toJsonTree(service.trailingDividendIncome(report)));
                     if (secondaryPortfolios != null && !view.equals("combined"))

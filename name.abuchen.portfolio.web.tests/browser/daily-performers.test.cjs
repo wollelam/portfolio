@@ -40,14 +40,14 @@ async function main() {
     assert.equal(await page.locator('#daily-gainers-body tr').count(), 5);
     assert.equal(await page.locator('#daily-losers-body tr').count(), 5);
     assert.equal(await panel.locator('.daily-move-bar').first().evaluate(bar => bar.style.width), '100%');
-    assert.equal(await page.locator('#daily-gainers-body tr').first().locator('td').last().innerText(),
+    assert.equal(await page.locator('#daily-gainers-body tr').first().locator('td').nth(2).innerText(),
       await page.evaluate(() => money(1300, true)));
     assert.equal(await page.locator('#daily-gainers-body tr').first().locator('td').nth(1).innerText(), await page.evaluate(() => percent(.13)));
     assert.match(await page.locator('#daily-performers-status').innerText(), /saved data elsewhere/);
     assert.match(await page.locator('#daily-performers-status').innerText(), /1 securities unavailable/);
     price = 50;
     await page.locator('#daily-losers-body tr').first().getByRole('link', { name: 'Alpha' }).waitFor();
-    assert.equal(await page.locator('#daily-losers-body tr').first().locator('td').last().innerText(),
+    assert.equal(await page.locator('#daily-losers-body tr').first().locator('td').nth(2).innerText(),
       await page.evaluate(() => money(-4700, true)));
     assert.equal(await page.locator('#daily-losers-body tr').first().locator('td').nth(1).innerText(), await page.evaluate(() => percent(-.47)), 'daily return follows live quotes');
     assert.equal(dailyRequests, 1, 'ticks reuse the native daily baseline');
@@ -56,7 +56,7 @@ async function main() {
     assert.match(await page.locator('#daily-losers-body').innerText(), /Alpha/, 'stale last quote remains in use');
     await page.evaluate(() => { report.asOf = '2000-01-01'; renderOverviewLive(); });
     assert.match(await page.locator('#daily-performers-status').innerText(), /saved historical prices/);
-    assert.equal(await page.locator('#daily-gainers-body tr').filter({ hasText: 'Alpha' }).locator('td').last().innerText(),
+    assert.equal(await page.locator('#daily-gainers-body tr').filter({ hasText: 'Alpha' }).locator('td').nth(2).innerText(),
       await page.evaluate(() => money(300, true)));
     await page.locator('#daily-gainers-body').getByRole('link', { name: 'Alpha' }).click();
     await page.locator('#instrument-name').waitFor({ state: 'visible' });

@@ -53,6 +53,8 @@ let mode = 'return';
 const chartModes = ['return', 'value', 'relative'];
 const percentagePointNumber = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2, signDisplay: 'exceptZero' });
 const percentagePoints = value => Number.isFinite(value) ? `${percentagePointNumber.format(value * 100)} pp` : 'Unavailable';
+const portfolioImpact = (gain, totalGain, portfolioReturn) => Number.isFinite(gain) && Number.isFinite(totalGain)
+  && totalGain !== 0 && Number.isFinite(portfolioReturn) ? gain / totalGain * portfolioReturn : null;
 let selected = 0;
 let instrumentSelected = 0;
 let instrumentCurrency = 'native';
@@ -70,6 +72,7 @@ let instrumentChart;
 let activePreset = '1Y';
 let busy = false;
 let requestController;
+let savedViewRequest;
 let refreshConnectionError;
 let selectedBenchmark = '';
 let selectedInstrument = '';
@@ -150,8 +153,8 @@ const originalAmount = field => row => [row.currency, row[field]];
 const sortColumns = {
   'holdings-body': ['name', 'value', 'weight', 'quoteDate'],
   'dividends-body': ['date', 'security', 'gross', 'taxes', 'fees', 'net'],
-  'gainers-body': ['name', 'rate', 'gain'],
-  'decliners-body': ['name', 'rate', 'gain'],
+  'gainers-body': ['name', 'rate', 'gain', 'impact'],
+  'decliners-body': ['name', 'rate', 'gain', 'impact'],
   'security-dividends-body': ['date', originalAmount('gross'), originalAmount('taxes'), originalAmount('fees'), originalAmount('net'), 'reportingNet'],
   'security-transactions-body': ['date', row => `${row.type} ${row.owner}`, 'shares', originalAmount('amount'), originalAmount('taxes'), originalAmount('fees'), 'reportingAmount'],
   'live-quotes-body': [row => row.quote.name, row => row.quote.currency, row => [row.quote.currency, row.quote.last], row => liveDailyChange(row.quote), row => [row.quote.currency, row.quote.bid], row => [row.quote.currency, row.quote.ask], row => [row.quote.currency, row.quote.dayHigh], row => [row.quote.currency, row.quote.dayLow], row => row.quote.receivedAt, row => row.quote.marketDataType],
@@ -341,6 +344,7 @@ async function enterRoute() {
   const key = `${location.hash}|${history.state?.entryId || ''}`;
   if (key === currentRouteKey) return;
   currentRouteKey = key;
+  savedViewRequest?.abort();
   const generation = ++routeGeneration;
   const saved = history.state || {};
   const restore = saved.routeKey === location.hash ? Number(saved.scrollY || 0) : 0;
@@ -1012,10 +1016,15 @@ function renderOverviewLive() {
   text('total-date', covered || fundsmithCovered || fxCovered
     ? `${covered} IBKR position${covered === 1 ? '' : 's'} and ${fundsmithCovered} Fundsmith position${fundsmithCovered === 1 ? '' : 's'} repriced · ${delayed ? `${delayed} delayed / frozen · ` : ''}${fxCovered ? `${fxCovered} positions with IBKR FX midpoint${delayedFx ? ' (includes delayed)' : ''}; saved FX elsewhere` : 'saved FX'}; stored prices for remaining positions. Charts and longer-period performance use saved prices.`
     : `As of ${dateLabel(report.asOf)} · stored prices`);
-  renderDailyPerformers(dailyAdjustments);
+  renderDailyPerformers(dailyAdjustments, gain, rate);
 }
 
-function renderDailyPerformers(adjustments) {
+function impactCell(row, impact) {
+  cell(row, percentagePoints(impact), true);
+  if (Number.isFinite(impact) && impact !== 0) row.lastElementChild.classList.add(impact > 0 ? 'positive' : 'negative');
+}
+
+function renderDailyPerformers(adjustments, totalGain, portfolioReturn) {
   if (currentRoute !== 'overview' || !report) return;
   const data = report.dailyRankings;
   if (!data) {
@@ -1042,7 +1051,7 @@ function renderDailyPerformers(adjustments) {
   const gainers = valid.filter(row => row.gain > 0).sort(compare(-1)).slice(0, 5);
   const losers = valid.filter(row => row.gain < 0).sort(compare(1)).slice(0, 5);
   const filters = location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : '';
-  const key = JSON.stringify([report.asOf, report.currency, report.scope?.excluded, gainers, losers, unavailable, filters]);
+  const key = JSON.stringify([report.asOf, report.currency, report.scope?.excluded, gainers, losers, unavailable, filters, totalGain, portfolioReturn]);
   const panel = byId('daily-performers-panel');
   const message = `${dateLabel(report.day.openingDate)} → ${dateLabel(report.day.closingDate)} · ${report.currency}, including currency moves. ${report.asOf === report.today ? 'Uses live prices and FX where available, with saved data elsewhere. See Today’s performance for quote freshness.' : 'Uses saved historical prices and time-weighted returns.'}${unavailable ? ` ${unavailable} securities unavailable.` : ''}`;
   if (byId('daily-performers-status').textContent !== message) text('daily-performers-status', message);
@@ -1066,9 +1075,10 @@ function renderDailyPerformers(adjustments) {
       bar.style.width = `${Math.abs(item.gain) / maxGain * 100}%`;
       bar.setAttribute('aria-hidden', 'true');
       row.lastElementChild.append(bar);
+      impactCell(row, portfolioImpact(item.gain, totalGain, portfolioReturn));
       body.append(row);
     }
-    if (!rows.length) emptyRow(body, 3, empty);
+    if (!rows.length) emptyRow(body, 4, empty);
   }
   if (focused) [...panel.querySelectorAll('a[data-security]')].find(link => link.dataset.security === focused)?.focus({ preventScroll: true });
 }
@@ -1446,22 +1456,95 @@ function renderAllocationLabel(group, defs, tile, index, share) {
   group.append(labels);
 }
 
+function appendExposureMembers(row, entries, groupId) {
+  const list = document.createElement('ul'); list.className = 'exposure-members';
+  const members = entries.slice().sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name));
+  for (const [index, holding] of members.entries()) {
+    const item = document.createElement('li'), label = document.createElement(holding.uuid ? 'a' : 'span');
+    label.textContent = holding.name;
+    if (holding.uuid) {
+      label.className = 'instrument-link';
+      label.href = allocationTarget(`instrument/${encodeURIComponent(holding.uuid)}`);
+      label.dataset.exposureFocus = `${groupId}:${index}`;
+    }
+    const value = document.createElement('span'); value.textContent = money(holding.value);
+    item.append(label, value); list.append(item);
+  }
+  if (!members.length) {
+    const empty = document.createElement('li');
+    empty.textContent = 'No holdings in this class at the selected date.';
+    list.append(empty);
+  }
+  row.append(list);
+}
+
+function renderAllocationDrift(groups) {
+  const container = byId('allocation-drift-rows');
+  const targets = report.allocationTargets;
+  const open = new Set([...container.querySelectorAll('details[open]')].map(row => row.dataset.group));
+  const focused = container.contains(document.activeElement) ? document.activeElement.dataset.exposureFocus : null;
+  container.replaceChildren();
+  if (!targets?.categories?.length) {
+    text('allocation-drift-status', targets?.message || 'Saved targets are unavailable.');
+    return;
+  }
+  const net = group => group ? group.positive - group.negative : 0;
+  const classified = [...groups.values()].filter(group => group.id !== 'unclassified').reduce((sum, group) => sum + net(group), 0);
+  text('allocation-drift-status', classified > 0
+    ? `Actual weights use ${money(classified)} of classified net value. Unclassified holdings are excluded from the weights. Targets come from the saved plan and stay fixed when you change dates or filters.`
+    : 'Actual weights are unavailable because classified net value is zero or negative.');
+  const rows = targets.categories.map(target => {
+    const group = groups.get(target.group);
+    const actual = classified > 0 ? net(group) / classified : null;
+    return { ...target, members: group?.members || [], actual, gap: actual === null ? null : actual - target.weight };
+  }).sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap) || a.label.localeCompare(b.label));
+  for (const target of rows) {
+    const row = document.createElement('details'), summary = document.createElement('summary');
+    const name = document.createElement('span'), metrics = document.createElement('dl');
+    const id = target.group;
+    row.className = 'exposure-row';
+    row.dataset.group = id;
+    row.open = open.has(id);
+    summary.className = 'allocation-drift-row';
+    summary.dataset.exposureFocus = id;
+    name.textContent = target.label;
+    for (const [key, label, value] of [['target', 'Target', weight(target.weight)], ['actual', 'Actual', weight(target.actual)],
+      ['gap', 'Drift', percentagePoints(target.gap)]]) {
+      const metric = document.createElement('div'), term = document.createElement('dt'), amount = document.createElement('dd');
+      term.textContent = label;
+      amount.textContent = value;
+      metric.dataset.driftMetric = key;
+      metric.append(term, amount);
+      metrics.append(metric);
+    }
+    summary.append(name, metrics);
+    row.append(summary);
+    appendExposureMembers(row, target.members, id);
+    container.append(row);
+  }
+  if (focused) [...container.querySelectorAll('summary, a')].find(element => element.dataset.exposureFocus === focused)?.focus({ preventScroll: true });
+}
+
 function renderRankedExposure(positions) {
   byId('allocation-grouping').value = allocationGrouping;
   const container = byId('exposure-rows');
   const grouped = allocationGrouping !== 'position';
+  const assetClasses = allocationGrouping === 'asset-class';
+  byId('allocation-drift').hidden = !assetClasses;
   const description = 'Bars and percentages use gross exposure (the sum of absolute values). Amounts are signed net values. Red marks negative exposure.';
   if (grouped && report.exposureGrouping !== allocationGrouping) {
     text('exposure-description', 'Loading exposure for the selected grouping…');
     container.replaceChildren();
     delete container.dataset.renderKey;
+    byId('allocation-drift-rows').replaceChildren();
+    text('allocation-drift-status', 'Loading saved targets…');
     return;
   }
 
   const slices = grouped ? report.exposure || [] : positions.map(item => ({
     group: item.id || item.uuid || item.name, label: item.name, name: item.name, uuid: item.uuid, value: item.value
   }));
-  const key = JSON.stringify([allocationGrouping, report.currency, report.asOf, slices, routeUrl()]);
+  const key = JSON.stringify([allocationGrouping, report.currency, report.asOf, slices, report.allocationTargets, routeUrl()]);
   if (key === container.dataset.renderKey) return;
   const scrollTop = container.scrollTop;
   const expanded = new Set([...container.querySelectorAll('details[open]')].map(item => item.dataset.group));
@@ -1479,6 +1562,7 @@ function renderRankedExposure(positions) {
     group.negative += Math.max(0, -slice.value);
     gross += Math.abs(slice.value);
   }
+  if (assetClasses) renderAllocationDrift(groups);
   text('exposure-description', gross ? `Gross exposure ${money(gross)} · Net portfolio value ${money(report.totalValue)}. ${description}`
     : 'No non-zero exposure at this valuation date.');
   const magnitude = group => group.positive + group.negative;
@@ -1517,20 +1601,7 @@ function renderRankedExposure(positions) {
     row.append(heading);
     if (grouped) {
       row.open = expanded.has(group.id);
-      const list = document.createElement('ul'); list.className = 'exposure-members';
-      const members = group.members.slice().sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name));
-      for (const [index, holding] of members.entries()) {
-        const item = document.createElement('li'), label = document.createElement(holding.uuid ? 'a' : 'span');
-        label.textContent = holding.name;
-        if (holding.uuid) {
-          label.className = 'instrument-link';
-          label.href = allocationTarget(`instrument/${encodeURIComponent(holding.uuid)}`);
-          label.dataset.exposureFocus = `${group.id}:${index}`;
-        }
-        const value = document.createElement('span'); value.textContent = money(holding.value);
-        item.append(label, value); list.append(item);
-      }
-      row.append(list);
+      appendExposureMembers(row, group.members, group.id);
     }
     container.append(row);
   }
@@ -1985,14 +2056,15 @@ function matchesSecurity(row) { return !securitySearch || (row.name || '').toLoc
 
 function renderRankings(rankings) {
   const key = rankingBasis;
-  const rows = (rankings?.securities || []).filter(matchesSecurity);
+  const items = (rankings?.securities || []).map(row => ({ ...row, impact: portfolioImpact(row.gain, report.period.gain, report.period.rate) }));
+  const rows = items.filter(matchesSecurity);
   const valid = rows.filter(row => Number.isFinite(row[key]));
   const compare = direction => (a, b) => direction * (a[key] - b[key])
     || (a.name || '').localeCompare(b.name || '') || a.uuid.localeCompare(b.uuid);
   const fill = (id, items, empty) => {
     const body = byId(id);
     body.replaceChildren();
-    if (!items.length) { emptyRow(body, 3, empty); return; }
+    if (!items.length) { emptyRow(body, 4, empty); return; }
     for (const item of sortedRows(id, items)) {
       const row = document.createElement('tr');
       const name = document.createElement('td');
@@ -2005,6 +2077,7 @@ function renderRankings(rankings) {
       row.append(name);
       cell(row, percent(item.rate), true);
       cell(row, item.gain == null ? 'Unavailable' : money(item.gain, true), true);
+      impactCell(row, item.impact);
       body.append(row);
     }
   };
@@ -2012,10 +2085,21 @@ function renderRankings(rankings) {
     `No positive ${key === 'rate' ? 'returns' : 'gains'} in this period.`);
   fill('decliners-body', valid.filter(row => row[key] < 0).sort(compare(1)).slice(0, rankingLimit === 'all' ? undefined : Number(rankingLimit)),
     `No negative ${key === 'rate' ? 'returns' : 'gains'} in this period.`);
+  if (currentRoute === 'performance' && byId('performance-impact').open) {
+    const largest = items.filter(row => Number.isFinite(row.gain) && row.gain !== 0)
+      .sort((a, b) => Math.abs(b.gain) - Math.abs(a.gain) || (a.name || '').localeCompare(b.name || '')).slice(0, 10);
+    fill('performance-impact-body', largest, rankings ? 'No non-zero security contributions in this period.' : 'Loading security contributions…');
+  }
   const neutral = valid.filter(row => row[key] === 0).length;
   text('ranking-summary', `${dateLabel(report.period.openingDate)} → ${dateLabel(report.period.closingDate)} · Showing ${Math.min(valid.filter(row => row[key] > 0).length, rankingLimit === 'all' ? Infinity : Number(rankingLimit))} gainers and ${Math.min(valid.filter(row => row[key] < 0).length, rankingLimit === 'all' ? Infinity : Number(rankingLimit))} decliners · ${valid.length} securities with results · ${rows.length - valid.length} unavailable for this measure · ${neutral} unchanged`);
   for (const heading of document.querySelectorAll('[data-ranking-currency]')) sortLabel(heading, `Gain / loss (${report.currency})`);
 }
+
+byId('performance-impact').addEventListener('toggle', () => {
+  if (currentRoute !== 'performance' || !byId('performance-impact').open || !report) return;
+  renderRankings(report.rankings);
+  if (!report.rankings || busy) load(report.period.openingDate, report.period.closingDate);
+});
 
 function originalMoney(value, currency) {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value / 100);
@@ -2585,6 +2669,7 @@ async function load(from, to, silent = false) {
   const controller = new AbortController();
   requestController = controller;
   busy = true;
+  if (byId('saved-views').open) updateSavedViewOptions();
   if (!silent) {
     byId('error').hidden = true;
     text('status', 'Calculating portfolio…');
@@ -2600,7 +2685,7 @@ async function load(from, to, silent = false) {
     if (selectedBenchmark) params.set('benchmark', selectedBenchmark);
     if (excludedGroups.size) params.set('exclude', [...excludedGroups].sort().join(','));
     if (selectedInstrument) params.set('instrument', selectedInstrument);
-    if (currentRoute === 'performers') params.set('rankings', 'true');
+    if (currentRoute === 'performers' || currentRoute === 'performance' && byId('performance-impact').open) params.set('rankings', 'true');
     if (currentRoute === 'overview' || currentRoute === 'allocation' && allocationPerformanceMode()) params.set('rankings', 'day');
     if (currentRoute === 'overview') params.set('attribution', 'true');
     if (currentRoute === 'waterfall') params.set('waterfall', waterfallMode);
@@ -2616,6 +2701,7 @@ async function load(from, to, silent = false) {
     const unchanged = silent && report && report.revision === data.revision && report.loadedAt === data.loadedAt
       && report.period.openingDate === data.period.openingDate && report.period.closingDate === data.period.closingDate
       && report.benchmark?.uuid === data.benchmark?.uuid && report.fxVersion === data.fxVersion
+      && Boolean(report.rankings) === Boolean(data.rankings)
       && report.currency === data.currency && report.dividendIncome?.closingDate === data.dividendIncome?.closingDate
       && report.instrument?.uuid === data.instrument?.uuid
       && JSON.stringify(report.scope?.excluded) === JSON.stringify(data.scope?.excluded);
@@ -2646,6 +2732,7 @@ async function load(from, to, silent = false) {
   } finally {
     if (requestController === controller) {
       busy = false;
+      if (byId('saved-views').open) updateSavedViewOptions();
       byId('dashboard').setAttribute('aria-busy', 'false');
       document.querySelectorAll('#dates button, #dates input, [data-period], #benchmark').forEach(element => { element.disabled = false; });
       renderMarket();
@@ -2702,24 +2789,161 @@ function monthsBefore(date, months) {
   return start;
 }
 
+function presetOpeningDate(preset, date, context) {
+  const end = new Date(date + 'T12:00:00Z');
+  switch (preset) {
+    case 'YTD': return iso(new Date(Date.UTC(end.getUTCFullYear() - 1, 11, 31, 12)));
+    case 'MTD': return iso(new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 0, 12)));
+    case '1D': return context.day.openingDate;
+    case 'MAX': return iso(new Date(Math.min(Date.parse(context.inceptionDate + 'T12:00:00Z'), end.getTime() - 86400000)));
+    default: return iso(monthsBefore(date, Number(preset.slice(0, -1)) * (preset.endsWith('Y') ? 12 : 1)));
+  }
+}
+
+const savedViewsStorageKey = 'portfolio.savedViews';
+const savedViewPresets = new Set([...document.querySelectorAll('[data-period]')].map(button => button.dataset.period));
+function readSavedViews() {
+  try {
+    const entries = JSON.parse(localStorage.getItem(savedViewsStorageKey) || '[]');
+    return Array.isArray(entries) ? entries.filter(entry => entry && typeof entry.name === 'string'
+      && typeof entry.hash === 'string' && entry.hash.startsWith('#/')) : [];
+  } catch { return []; }
+}
+let savedViews = readSavedViews();
+
+function rollingSavedViewPreset() {
+  if (!report || currentRoute === 'live-quotes') return null;
+  if (currentRoute === 'allocation') return report.asOf === report.today ? 'today' : null;
+  if (savedViewPresets.has(activePreset)) return activePreset;
+  const { openingDate, closingDate } = report.period;
+  return openingDate === presetOpeningDate('1Y', closingDate, report) ? '1Y' : null;
+}
+
+function updateSavedViewOptions(reset = false) {
+  const preset = rollingSavedViewPreset();
+  const dates = byId('saved-view-dates');
+  byId('saved-view-date-option').hidden = !preset;
+  dates.options[0].textContent = currentRoute === 'overview' ? 'Keep opening date' : 'Keep exact dates';
+  if (reset || !preset) dates.value = preset ? 'rolling' : 'fixed';
+  byId('save-view-button').disabled = !report || busy || !byId('error').hidden;
+}
+
+function renderSavedViews() {
+  const list = byId('saved-view-list');
+  list.replaceChildren();
+  if (!savedViews.length) {
+    const empty = document.createElement('li');
+    empty.textContent = 'No saved views yet.';
+    list.append(empty);
+  }
+  for (const view of savedViews) {
+    const row = document.createElement('li');
+    const open = document.createElement('button'), remove = document.createElement('button');
+    open.type = remove.type = 'button';
+    open.className = 'saved-view-open';
+    open.textContent = view.name;
+    if (view.preset) {
+      const preset = document.createElement('small');
+      preset.textContent = view.preset === 'today' ? 'Latest valuation' : `${view.preset} · rolling`;
+      open.append(preset);
+    }
+    open.addEventListener('click', () => openSavedView(view));
+    remove.className = 'button secondary';
+    remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', `Remove ${view.name}`);
+    remove.addEventListener('click', () => {
+      savedViewRequest?.abort();
+      savedViews = savedViews.filter(item => item !== view);
+      persistSavedViews('View removed.');
+      byId('saved-view-name').focus();
+    });
+    row.append(open, remove);
+    list.append(row);
+  }
+}
+
+function persistSavedViews(message) {
+  try { localStorage.setItem(savedViewsStorageKey, JSON.stringify(savedViews)); }
+  catch { message += ' Browser storage is unavailable. Changes apply to this tab only.'; }
+  renderSavedViews();
+  text('saved-view-status', message);
+}
+
+async function openSavedView(view) {
+  savedViewRequest?.abort();
+  const menu = byId('saved-views');
+  if (view.preset !== 'today' && !savedViewPresets.has(view.preset)) {
+    menu.open = false;
+    menu.querySelector('summary').focus();
+    navigate(view.hash);
+    return;
+  }
+
+  const controller = new AbortController();
+  savedViewRequest = controller;
+  const [path, query] = view.hash.split('?');
+  const params = new URLSearchParams(query);
+  const contextParams = new URLSearchParams();
+  for (const key of ['view', 'currency', 'exclude']) if (params.has(key)) contextParams.set(key, params.get(key));
+  text('saved-view-status', 'Updating the saved date range…');
+  try {
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]);
+    const response = await fetch(`/api/dashboard?${contextParams}`, { cache: 'no-store', signal });
+    const context = await response.json();
+    if (controller.signal.aborted) return;
+    if (!response.ok) throw new Error(context.message || 'Saved view unavailable.');
+    if (view.preset === 'today') params.set('asof', context.today);
+    else {
+      params.set('from', presetOpeningDate(view.preset, context.today, context));
+      params.set('to', context.today);
+      params.set('preset', view.preset);
+    }
+    savedViewRequest = null;
+    menu.open = false;
+    menu.querySelector('summary').focus();
+    navigate(`${path}?${params}`);
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    text('saved-view-status', error.name === 'TimeoutError' ? 'The saved view request timed out.' : error.message);
+  }
+}
+
+byId('saved-views').addEventListener('toggle', event => {
+  if (event.currentTarget.open) {
+    renderSavedViews();
+    updateSavedViewOptions(true);
+    text('saved-view-status', '');
+  }
+});
+byId('save-view').addEventListener('submit', event => {
+  event.preventDefault();
+  if (byId('save-view-button').disabled) return;
+  const input = byId('saved-view-name'), name = input.value.trim();
+  if (!name || savedViews.some(view => view.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+    text('saved-view-status', name ? 'A saved view already has this name.' : 'Enter a name for the current view.');
+    input.focus();
+    return;
+  }
+  const preset = byId('saved-view-dates').value === 'rolling' ? rollingSavedViewPreset() : null;
+  savedViews.push({ name, hash: routeUrl(), preset });
+  input.value = '';
+  persistSavedViews('View saved.');
+});
+window.addEventListener('storage', event => {
+  if (event.key !== savedViewsStorageKey) return;
+  savedViews = readSavedViews();
+  if (byId('saved-views').open) renderSavedViews();
+});
+
 for (const button of document.querySelectorAll('[data-period]')) {
   button.addEventListener('click', () => {
     if (!report) return;
     activePreset = button.dataset.period;
-    const end = new Date(report.asOf + 'T12:00:00Z');
-    let start;
-    if (activePreset === 'YTD') start = new Date(Date.UTC(end.getUTCFullYear() - 1, 11, 31, 12));
-    else if (activePreset === '1D') start = new Date(report.day.openingDate + 'T12:00:00Z');
-    else if (activePreset === 'MAX') start = new Date(Math.min(Date.parse(report.inceptionDate + 'T12:00:00Z'), end.getTime() - 86400000));
-    else if (activePreset === 'MTD') start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 0, 12));
-    else {
-      const months = Number(activePreset.slice(0, -1)) * (activePreset.endsWith('Y') ? 12 : 1);
-      start = monthsBefore(report.asOf, months);
-    }
-    byId('from').value = iso(start); byId('to').value = iso(end);
+    const end = report.asOf, start = presetOpeningDate(activePreset, end, report);
+    byId('from').value = start; byId('to').value = end;
     byId('instrument-date-menu').open = false;
     syncRouteUrl();
-    load(iso(start), iso(end));
+    load(start, end);
   });
 }
 for (const button of document.querySelectorAll('[data-ranking-basis]')) button.addEventListener('click', () => { rankingBasis = button.dataset.rankingBasis; updateChoiceButtons(); syncRouteUrl(); renderRankings(report?.rankings); });

@@ -72,6 +72,8 @@ public class PortfolioScopeTest
         var root = new Classification("asset-class-root", "Asset Classes");
         var equity = new Classification(root, "equity", "Equity");
         var alternatives = new Classification(root, "alternatives", "Alternatives");
+        equity.setWeight(7000);
+        alternatives.setWeight(3000);
         var equityAssignment = new Classification.Assignment(security);
         equityAssignment.setWeight(7000);
         equity.addAssignment(equityAssignment);
@@ -87,6 +89,8 @@ public class PortfolioScopeTest
                         Values.Amount.factorize(60000), null, AccountTransaction.Type.REMOVAL));
 
         var service = new DashboardService(loaded, clock, List.of());
+        assertEquals(List.of(new AllocationExposure.Target("class:Alternatives", "Alternatives", .3),
+                        new AllocationExposure.Target("class:Equity", "Equity", .7)), service.allocationTargets().categories());
         var report = service.dashboard(today.minusDays(1), today);
         var assets = service.exposure(today, "asset-class");
         assertEquals(report.totalValue(), assets.stream().mapToLong(AllocationExposure.Slice::value).sum());
@@ -101,6 +105,7 @@ public class PortfolioScopeTest
         assertTrue(accounts.stream().anyMatch(slice -> slice.label().equals("Pension cash") && slice.value() < 0));
 
         var filtered = service.excluding(PortfolioScope.classificationId(taxonomy, equity));
+        assertEquals(service.allocationTargets(), filtered.allocationTargets());
         var filteredReport = filtered.dashboard(today.minusDays(1), today);
         var filteredClasses = filtered.exposure(today, "asset-class");
         assertEquals(filteredReport.totalValue(), filteredClasses.stream().mapToLong(AllocationExposure.Slice::value).sum());
@@ -110,6 +115,8 @@ public class PortfolioScopeTest
             assertEquals(frame.totalValue(), frame.exposure().stream().mapToLong(AllocationExposure.Slice::value).sum());
 
         var combined = DashboardService.combined(service, new DashboardService(DemoPortfolio.create(today), clock, List.of()));
+        assertTrue(combined.allocationTargets().categories().isEmpty());
+        assertTrue(combined.allocationTargets().message().contains("matching"));
         var combinedTotal = combined.dashboard(today.minusDays(1), today).totalValue();
         var combinedAccounts = combined.exposure(today, "account");
         assertEquals(combinedTotal, combinedAccounts.stream().mapToLong(AllocationExposure.Slice::value).sum());

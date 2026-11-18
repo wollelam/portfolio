@@ -441,6 +441,18 @@ final class DashboardService
         return exposure(ClientSnapshot.create(portfolio.client(), converter, date), grouping);
     }
 
+    AllocationExposure.Targets allocationTargets()
+    {
+        if (combinedPrimary == null)
+            return AllocationExposure.targets(scope);
+        var primary = combinedPrimary.allocationTargets();
+        var secondary = combinedSecondary.allocationTargets();
+        if (primary.message() == null && primary.equals(secondary))
+            return primary;
+        return new AllocationExposure.Targets(List.of(),
+                        "Combined drift requires matching Asset Classes targets. Select Primary or Secondary to inspect its own plan.");
+    }
+
     private List<AllocationExposure.Slice> exposure(ClientSnapshot snapshot, String grouping)
     {
         if (grouping == null)

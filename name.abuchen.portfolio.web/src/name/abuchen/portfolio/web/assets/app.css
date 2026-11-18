@@ -1099,10 +1099,12 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 #daily-performers-panel .panel-heading { padding-bottom:4px; }
 #daily-performers-panel table { min-width:0; table-layout:fixed; }
 #daily-performers-panel th, #daily-performers-panel td { padding:9px 10px; }
-#daily-performers-panel th:nth-child(2) { width:23%; }
-#daily-performers-panel th:last-child { width:37%; }
+#daily-performers-panel th { white-space:normal; }
+#daily-performers-panel th:nth-child(2) { width:18%; }
+#daily-performers-panel th:nth-child(3) { width:30%; }
+#daily-performers-panel th:last-child { width:24%; }
 #daily-performers-panel td:first-child { overflow-wrap:anywhere; }
-#daily-performers-panel td:last-child { white-space:nowrap; font-variant-numeric:tabular-nums; }
+#daily-performers-panel td.numeric { overflow-wrap:anywhere; }
 .daily-move-bar {
   display:block;
   height:4px;
@@ -1372,4 +1374,60 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
   #monthly-bridge-months { padding-inline:14px; }
   #monthly-bridge-months li { grid-template-columns:minmax(0,1fr); }
   #monthly-bridge-months dl { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+
+#saved-view-list { list-style:none; margin:0 0 12px; padding:0; }
+#saved-view-list li { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; }
+.saved-view-open {
+  display:grid;
+  gap:2px;
+  padding:7px 0;
+  border:0;
+  background:transparent;
+  color:var(--green);
+  font:inherit;
+  text-align:left;
+  overflow-wrap:anywhere;
+}
+.saved-view-open:hover { text-decoration:underline; }
+.saved-view-open small { color:var(--muted); }
+#save-view { display:grid; gap:8px; padding-top:12px; border-top:1px solid var(--border); }
+#save-view label:not([hidden]) { display:grid; gap:4px; }
+#save-view input, #save-view select {
+  min-width:0;
+  width:100%;
+  padding:7px 8px;
+  border:1px solid var(--border);
+  border-radius:6px;
+  background:white;
+  font:inherit;
+}
+#save-view-button { justify-self:start; }
+#saved-view-status:empty { display:none; }
+
+#performance-impact { margin:14px 24px 20px; padding-top:12px; border-top:1px solid var(--border); }
+#performance-impact summary { cursor:pointer; font-weight:650; font-size:14px; }
+#performance-impact table { min-width:0; }
+#performance-impact th { white-space:normal; }
+#performance-impact th, #performance-impact td { padding:9px 8px; overflow-wrap:anywhere; }
+@media (max-width:760px) {
+  #performance-impact { margin-inline:12px; }
+}
+
+#allocation-drift { margin:0 24px 18px; padding:14px; border:1px solid var(--border); border-radius:8px; }
+.allocation-drift-row {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,2fr);
+  gap:8px 16px;
+  padding:9px 10px;
+  align-items:center;
+  overflow-wrap:anywhere;
+  font-size:13px;
+}
+.allocation-drift-row dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:0; }
+.allocation-drift-row dt { color:var(--muted); font-size:11px; }
+.allocation-drift-row dd { margin:3px 0 0; font-variant-numeric:tabular-nums; font-weight:650; }
+@media (max-width:760px) {
+  #allocation-drift { margin-inline:12px; padding:10px; }
+  .allocation-drift-row { grid-template-columns:minmax(0,1fr); }
 }

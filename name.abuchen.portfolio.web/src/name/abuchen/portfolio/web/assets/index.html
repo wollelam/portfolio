@@ -42,6 +42,20 @@
       <label id="currency-selector-label" class="view-selector currency-selector" hidden>Currency <select id="currency-selector" aria-label="Reporting currency"><option value="CHF">CHF</option><option value="DKK">DKK</option><option value="THB">THB</option><option value="USD">USD</option></select></label>
       <details id="portfolio-scope" class="topbar-menu portfolio-scope"><summary id="scope-summary" class="icon-button" aria-label="Portfolio filters" title="Portfolio filters"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.5 7.5V19l-3 1v-7.5z"/></svg><span id="scope-context">All groups</span></summary><div class="topbar-popover"><h3>Portfolio filters</h3><p class="subtle">Checked groups are excluded from portfolio calculations. Asset class choices use the portfolio file’s classifications, including partial assignments. Overlapping groups are excluded once.</p><div id="scope-options"></div><button id="scope-reset" class="button secondary" type="button">Include all groups</button></div></details>
       <span id="demo-badge" class="demo-badge" hidden>SYNTHETIC DEMO</span>
+      <details id="saved-views" class="topbar-menu">
+        <summary class="icon-button" aria-label="Saved views" title="Saved views"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12v16l-6-4-6 4z"/></svg></summary>
+        <div class="topbar-popover">
+          <h3>Saved views</h3>
+          <ul id="saved-view-list"></ul>
+          <form id="save-view">
+            <label>Current view name <input id="saved-view-name" required maxlength="80" placeholder="e.g. Combined · CHF · YTD"></label>
+            <label id="saved-view-date-option">Dates <select id="saved-view-dates"><option value="fixed">Keep exact dates</option><option value="rolling">Roll forward when opened</option></select></label>
+            <button id="save-view-button" type="submit" class="button secondary">Save current view</button>
+          </form>
+          <p id="saved-view-status" class="subtle" role="status"></p>
+          <p class="subtle">Saved in this browser.</p>
+        </div>
+      </details>
       <button id="refresh" class="icon-button" type="button" aria-label="Refresh dashboard" title="Refresh dashboard"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2 6M20 4v7h-7"/></svg></button>
       <details id="market-menu" class="topbar-menu" hidden><summary class="icon-button" aria-label="Market data" title="Market data"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h16M5 15l4-5 4 3 6-8"/></svg></summary><div class="topbar-popover market-popover"><section class="market-menu-content" aria-label="Market data freshness"><div class="panel-heading"><div><p class="eyebrow">PRICE &amp; EXCHANGE-RATE FRESHNESS</p><h2>Market data</h2></div><button id="refresh-prices" class="button secondary" type="button" disabled>Refresh prices</button></div><div class="market-grid"><div><h3>Security quotes</h3><p id="quote-status">Checking updater…</p><p id="quote-schedule" class="subtle"></p><p id="quote-coverage" class="subtle"></p></div><div><h3>Exchange rates</h3><p id="fx-status">Using saved rates</p><p id="fx-coverage" class="subtle"></p></div></div><p id="price-action" class="panel-note" role="status"></p></section></div></details>
       <details id="warnings" class="topbar-menu"><summary class="icon-button" aria-label="Notifications" title="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-2 7-2 9h16c0-2-2-2-2-9M10 20h4"/></svg><span id="warning-indicator" class="menu-dot" hidden></span></summary><div class="topbar-popover notification-panel"><h3>Notifications</h3><p id="warning-summary" class="subtle"></p><ul id="warning-list"></ul><button id="mark-warnings-read" class="button secondary" type="button">Mark all as read</button></div></details>
@@ -76,8 +90,8 @@
           <details><summary>How this is calculated</summary><p>Estimates use unchanged quantities and cash balances with usable values at both ends of the day. Price moves are valued at the opening exchange rate. Currency moves use closing prices, so they include the interaction between price and exchange-rate changes. Other / unallocated includes trading, dividends, fees, rounding and holdings with missing inputs.</p></details>
         </section>
         <div class="ranking-grid">
-          <div><h3>Largest gains</h3><div class="table-scroll"><table><thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Daily change</th><th scope="col" class="numeric">Daily gain / loss</th></tr></thead><tbody id="daily-gainers-body"></tbody></table></div></div>
-          <div><h3>Largest losses</h3><div class="table-scroll"><table><thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Daily change</th><th scope="col" class="numeric">Daily gain / loss</th></tr></thead><tbody id="daily-losers-body"></tbody></table></div></div>
+          <div><h3>Largest gains</h3><div class="table-scroll"><table><thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Daily change</th><th scope="col" class="numeric">Daily gain / loss</th><th scope="col" class="numeric">Portfolio impact</th></tr></thead><tbody id="daily-gainers-body"></tbody></table></div></div>
+          <div><h3>Largest losses</h3><div class="table-scroll"><table><thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Daily change</th><th scope="col" class="numeric">Daily gain / loss</th><th scope="col" class="numeric">Portfolio impact</th></tr></thead><tbody id="daily-losers-body"></tbody></table></div></div>
         </div>
       </section>
       <section data-page="performance" id="performance" class="panel chart-panel">
@@ -91,6 +105,11 @@
         <p id="chart-detail" class="chart-explorer"></p>
         <p id="chart-explanation" class="panel-note">Time-weighted return (TTWROR) adjusts for deposits and withdrawals. Currency gains exclude net external flows.</p>
         <div class="reconciliation"><span>Value change <strong id="value-change"></strong></span><span>Net deposits / withdrawals <strong id="net-flows"></strong></span><span>Investment gain / loss <strong id="investment-gain"></strong></span></div>
+        <details id="performance-impact">
+          <summary>Security impact on portfolio return</summary>
+          <p class="subtle">Largest gains and losses for the selected period. Impact is in percentage points. It uses each security’s share of total currency gain or loss, multiplied by portfolio return.</p>
+          <div class="table-scroll"><table><thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Return</th><th scope="col" class="numeric">Gain / loss</th><th scope="col" class="numeric">Portfolio impact</th></tr></thead><tbody id="performance-impact-body"></tbody></table></div>
+        </details>
       </section>
       <section data-page="drawdown" id="drawdown" class="panel chart-panel">
         <div class="instrument-metrics">
@@ -151,6 +170,11 @@
           <p id="exposure-description" class="subtle"></p>
           <div id="exposure-rows"></div>
         </section>
+        <section id="allocation-drift" aria-labelledby="allocation-drift-heading" hidden>
+          <h2 id="allocation-drift-heading">Allocation drift</h2>
+          <p id="allocation-drift-status" class="subtle"></p>
+          <div id="allocation-drift-rows"></div>
+        </section>
         <div class="allocation-timeline">
           <div class="allocation-date-row"><label for="allocation-date">As of <input id="allocation-date" type="date" required></label><button id="allocation-today" class="button secondary" type="button">Today</button><button id="allocation-play" class="button secondary" type="button" aria-pressed="false">▶ Play</button><label for="allocation-pace">Advance by <select id="allocation-pace"><option value="day" selected>Day</option><option value="month">Month</option><option value="year">Year</option></select></label><label for="allocation-speed">Speed <select id="allocation-speed"><option value="250">4 steps / second</option><option value="100" selected>10 steps / second</option><option value="50">20 steps / second</option></select></label></div>
           <label class="subtle" for="allocation-position">Explore allocation over time</label>
@@ -197,15 +221,15 @@
         <p id="ranking-summary" class="panel-note"></p>
         <div class="ranking-grid">
           <div><h3>Top gainers</h3><div class="table-scroll"><table>
-            <thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Return</th><th scope="col" class="numeric" data-ranking-currency>Gain / loss</th></tr></thead>
+            <thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Return</th><th scope="col" class="numeric" data-ranking-currency>Gain / loss</th><th scope="col" class="numeric">Portfolio impact</th></tr></thead>
             <tbody id="gainers-body"></tbody>
           </table></div></div>
           <div><h3>Top decliners</h3><div class="table-scroll"><table>
-            <thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Return</th><th scope="col" class="numeric" data-ranking-currency>Gain / loss</th></tr></thead>
+            <thead><tr><th scope="col">Security</th><th scope="col" class="numeric">Return</th><th scope="col" class="numeric" data-ranking-currency>Gain / loss</th><th scope="col" class="numeric">Portfolio impact</th></tr></thead>
             <tbody id="decliners-body"></tbody>
           </table></div></div>
         </div>
-        <p class="panel-note">Gain / loss accounts for the security’s value change, trades, net dividends, taxes and fees in the portfolio’s reporting currency. Return is time weighted. Missing prices or calculation errors are excluded from the affected ranking.</p>
+        <p class="panel-note">Gain / loss accounts for the security’s value change, trades, net dividends, taxes and fees in the portfolio’s reporting currency. Return is time weighted. Portfolio impact is shown in percentage points using each security’s share of total currency gain or loss. Missing prices or calculation errors are excluded from the affected ranking.</p>
       </section>
       <section data-page="instrument" id="instrument-panel" class="panel" hidden aria-live="polite">
         <h3>Instrument chart · <span id="instrument-currency"></span></h3>

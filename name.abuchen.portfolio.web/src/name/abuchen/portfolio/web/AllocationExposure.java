@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import name.abuchen.portfolio.model.Account;
 import name.abuchen.portfolio.model.Classification;
@@ -23,6 +24,14 @@ final class AllocationExposure
     {
     }
 
+    record Target(String group, String label, double weight)
+    {
+    }
+
+    record Targets(List<Target> categories, String message)
+    {
+    }
+
     private record Category(String id, String name)
     {
     }
@@ -34,14 +43,39 @@ final class AllocationExposure
     {
     }
 
+    private static Optional<Taxonomy> assetClassTaxonomy(PortfolioScope scope)
+    {
+        return scope.client.getTaxonomies().stream().filter(PortfolioScope::isAssetClass).findFirst();
+    }
+
+    static Targets targets(PortfolioScope scope)
+    {
+        var classes = assetClassTaxonomy(scope).map(taxonomy -> taxonomy.getRoot().getChildren().stream()
+                        .filter(classification -> !Classification.UNASSIGNED_ID.equals(classification.getId())).toList())
+                        .orElse(List.of());
+        if (classes.isEmpty() || classes.stream().noneMatch(classification -> classification.getWeight() > 0))
+            return new Targets(List.of(), "No Asset Classes targets are saved in this portfolio.");
+        if (classes.stream().anyMatch(classification -> classification.getWeight() < 0)
+                        || classes.stream().mapToInt(Classification::getWeight).sum() != FULL_WEIGHT
+                        || classes.stream().map(Classification::getName).distinct().count() != classes.size())
+            return new Targets(List.of(), "Asset Classes targets must total 100% and use distinct class names.");
+        return new Targets(classes.stream().sorted(Comparator.comparing(Classification::getName))
+                        .map(classification -> new Target(category(classification).id(), classification.getName(),
+                                        classification.getWeight() / (double) FULL_WEIGHT)).toList(), null);
+    }
+
+    private static Category category(Classification classification)
+    {
+        return new Category("class:" + classification.getName(), classification.getName());
+    }
+
     static List<Slice> byAssetClass(ClientSnapshot snapshot, PortfolioScope scope, List<String> exclusions)
     {
         var assignments = new LinkedHashMap<String, Map<Category, Integer>>();
-        scope.client.getTaxonomies().stream().filter(PortfolioScope::isAssetClass).findFirst().ifPresent(taxonomy -> {
+        assetClassTaxonomy(scope).ifPresent(taxonomy -> {
             for (var classification : taxonomy.getRoot().getChildren())
             {
-                var category = new Category("class:" + classification.getName(), classification.getName());
-                collectAssignments(taxonomy, classification, category, exclusions, assignments);
+                collectAssignments(taxonomy, classification, category(classification), exclusions, assignments);
             }
         });
 
