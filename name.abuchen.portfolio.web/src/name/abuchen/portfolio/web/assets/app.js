@@ -62,6 +62,8 @@ let allocationColor = 'allocation';
 const exposureGroupings = ['position', 'asset-class', 'account'];
 let allocationGrouping = 'position';
 let drawdownSelected = 0;
+let drawdownEpisodeKey = null;
+let drawdownContributionRequest;
 let drawdownChart;
 let hasChartSelection = false;
 let instrumentChart;
@@ -204,6 +206,7 @@ const routeMeta = {
   performance: 'Portfolio performance',
   drawdown: 'Portfolio drawdown',
   returns: 'Returns calendar',
+  'monthly-bridge': 'Monthly portfolio bridge',
   waterfall: 'Performance waterfall',
   allocation: 'Allocation & concentration',
   holdings: 'Holdings & cash',
@@ -245,7 +248,7 @@ function saveEntryState() {
     const id = scroller.querySelector('tbody[id], svg[id]')?.id;
     if (id && scroller.scrollLeft) tableScrolls[id] = scroller.scrollLeft;
   }
-  history.replaceState({ ...history.state, routeKey: location.hash, scrollY: window.scrollY, selected, instrumentSelected, drawdownSelected, tableScrolls, activityPages: { ...activityPages } }, '', location.href);
+  history.replaceState({ ...history.state, routeKey: location.hash, scrollY: window.scrollY, selected, instrumentSelected, drawdownSelected, drawdownEpisodeKey, tableScrolls, activityPages: { ...activityPages } }, '', location.href);
 }
 
 function syncRouteUrl() {
@@ -253,7 +256,7 @@ function syncRouteUrl() {
   history.replaceState({ ...history.state, appEntry: true, routeKey: url,
     scrollY: restoringScroll ? (history.state?.scrollY || 0) : window.scrollY, selected, instrumentSelected, drawdownSelected }, '', url);
   const filters = url.includes('?') ? url.slice(url.indexOf('?')) : '';
-  for (const anchor of document.querySelectorAll('a[href^="#/"]')) anchor.setAttribute('href', anchor.hash.split('?')[0] + filters);
+  for (const anchor of document.querySelectorAll('a[href^="#/"]:not([data-fixed-period])')) anchor.setAttribute('href', anchor.hash.split('?')[0] + filters);
   if (report) {
     periodLink('week-link', 'performance', report.week.openingDate, report.week.closingDate);
     const yearStart = iso(monthsBefore(report.today, 12));
@@ -325,7 +328,7 @@ function showRoute() {
 }
 
 function parseRoute() {
-  const match = location.hash.match(/^#\/(overview|performance|holdings|allocation|dividends|performers|waterfall|returns|drawdown|live-quotes|instrument\/([^?]+))(?:\?(.*))?$/);
+  const match = location.hash.match(/^#\/(overview|performance|holdings|allocation|dividends|performers|waterfall|returns|monthly-bridge|drawdown|live-quotes|instrument\/([^?]+))(?:\?(.*))?$/);
   if (!match) return { page: 'overview', instrument: '', params: new URLSearchParams() };
   const page = match[1].startsWith('instrument/') ? 'instrument' : match[1];
   let instrument = '';
@@ -350,6 +353,7 @@ async function enterRoute() {
   reportingCurrency = reportingCurrencies.includes(route.params.get('currency')) ? route.params.get('currency') : null;
   updateCurrencyOptions();
   currentRoute = route.page; selectedInstrument = route.instrument;
+  if (currentRoute !== 'drawdown') drawdownContributionRequest?.controller.abort();
   allocationColor = route.params.get('allocationColor') === 'performance' ? 'performance' : 'allocation';
   const grouping = route.params.get('group');
   allocationGrouping = currentRoute === 'allocation' && exposureGroupings.includes(grouping) ? grouping : 'position';
@@ -387,6 +391,7 @@ async function enterRoute() {
   if (Number.isInteger(saved.selected)) { selected = saved.selected; hasChartSelection = true; }
   instrumentSelected = Number.isInteger(saved.instrumentSelected) ? saved.instrumentSelected : instrumentSelected;
   drawdownSelected = Number.isInteger(saved.drawdownSelected) ? saved.drawdownSelected : drawdownSelected;
+  drawdownEpisodeKey = saved.drawdownEpisodeKey ?? null;
   setSectionMenu(false);
   showRoute();
   const data = await load(from || byId('from').value, to || byId('to').value);
@@ -521,6 +526,7 @@ function render() {
   renderRankings(report.rankings);
   renderWaterfall(report.waterfall);
   renderReturnsCalendar();
+  if (currentRoute === 'monthly-bridge') renderMonthlyBridge();
   renderDrawdown();
   renderAllocation();
   if (currentRoute === 'dividends') renderDividendIncome(dividends);
@@ -533,7 +539,7 @@ function render() {
   showRoute();
 }
 
-function dividendMonthLabel(month, format = 'short') {
+function monthLabel(month, format = 'short') {
   return new Date(month + '-01T12:00:00Z').toLocaleDateString(undefined, { month: format, year: format === 'short' ? '2-digit' : 'numeric', timeZone: 'UTC' });
 }
 
@@ -585,13 +591,13 @@ function renderDividendMonths(monthly, openingDate, closingDate) {
   date.setUTCDate(1);
   for (let month = iso(date).slice(0, 7); month <= closingDate.slice(0, 7); month = iso(date).slice(0, 7)) {
     const amount = monthly.get(month) ?? 0;
-    const label = dividendMonthLabel(month);
+    const label = monthLabel(month);
     const button = document.createElement('button'), plot = document.createElement('span');
     const bar = document.createElement('span'), caption = document.createElement('span');
     button.type = 'button';
     button.dataset.month = month;
     button.disabled = !monthly.has(month);
-    const detail = `${dividendMonthLabel(month, 'long')} · ${button.disabled ? 'No payments' : money(amount)}`;
+    const detail = `${monthLabel(month, 'long')} · ${button.disabled ? 'No payments' : money(amount)}`;
     button.title = detail;
     button.setAttribute('aria-label', detail);
     plot.className = 'dividend-plot';
@@ -649,7 +655,7 @@ function renderDividendLedger() {
     income.append(row);
   }
   if (!payments.length) emptyRow(income, 6, report.dividends.length ? 'No payments match these filters.' : 'No dividend payments in this period.');
-  const filters = [dividendMonth && dividendMonthLabel(dividendMonth, 'long'), dividendPayer].filter(Boolean);
+  const filters = [dividendMonth && monthLabel(dividendMonth, 'long'), dividendPayer].filter(Boolean);
   const selection = filters.length ? ` · ${filters.join(' · ')} · ${money(payments.reduce((sum, payment) => sum + payment.net, 0))} net` : '';
   text('dividend-payment-summary', `${payments.length} of ${report.dividends.length} payments${selection}`);
   byId('dividend-clear').hidden = !filters.length;
@@ -1610,6 +1616,161 @@ function renderAllocation() {
   });
 }
 
+function drawdownEpisodes(points) {
+  const episodes = [];
+  let peak = null, episode = null, gap = false;
+  for (const [index, point] of points.entries()) {
+    if (!Number.isFinite(point.value)) {
+      gap = true;
+      if (episode) episode.gap = true;
+      continue;
+    }
+    if (point.value >= 0) {
+      if (episode) {
+        episode.recovery = index;
+        episodes.push(episode);
+        episode = null;
+      }
+      peak = index;
+      gap = false;
+      continue;
+    }
+    episode ??= { key: point.date, first: index, peak, trough: index, end: index, recovery: null, gap };
+    if (point.value < points[episode.trough].value) episode.trough = index;
+    episode.end = index;
+  }
+  if (episode) episodes.push(episode);
+  return episodes.sort((a, b) => points[a.trough].value - points[b.trough].value || a.first - b.first);
+}
+
+function highlightDrawdownEpisode(episode) {
+  const chart = drawdownChart;
+  chart.svg.querySelector('.drawdown-episode-band')?.remove();
+  if (!episode) return;
+  const first = chart.x(chart.timeMap[episode.peak ?? episode.first]);
+  const last = chart.x(chart.timeMap[episode.recovery ?? episode.end]);
+  const left = first === last ? Math.max(chart.left, first - 2) : first;
+  const width = first === last ? Math.min(chart.right - left, 4) : last - first;
+  chart.svg.insertBefore(svgElement('rect', {
+    x: left, y: chart.top, width, height: chart.bottom - chart.top, class: 'drawdown-episode-band',
+    'aria-hidden': true
+  }), chart.svg.querySelector('.grid-line'));
+}
+
+async function showDrawdownContributions(episode, points) {
+  const panel = byId('drawdown-contributions');
+  panel.hidden = !episode;
+  if (!episode) {
+    drawdownContributionRequest?.controller.abort();
+    drawdownContributionRequest = null;
+    return;
+  }
+  const from = points[episode.peak]?.date, to = points[episode.trough].date;
+  const params = new URLSearchParams({ view: portfolioView, from, to, waterfall: 'contributions' });
+  if (reportingCurrencies.includes(reportingCurrency)) params.set('currency', reportingCurrency);
+  if (excludedGroups.size) params.set('exclude', [...excludedGroups].sort().join(','));
+  const key = JSON.stringify([report.revision, report.loadedAt, report.fxVersion, params.toString()]);
+  if (drawdownContributionRequest?.key === key && !drawdownContributionRequest.controller.signal.aborted) return;
+  drawdownContributionRequest?.controller.abort();
+  const controller = new AbortController();
+  drawdownContributionRequest = { key, controller };
+
+  const losses = byId('drawdown-loss-contributions'), gains = byId('drawdown-gain-contributions');
+  losses.replaceChildren();
+  gains.replaceChildren();
+  const lists = panel.querySelector('.drawdown-contribution-lists');
+  lists.hidden = true;
+  const link = byId('drawdown-waterfall-link');
+  link.hidden = !from;
+  if (!from) {
+    text('drawdown-contributions-status', 'The peak date is unavailable for this episode.');
+    return;
+  }
+  link.href = `#/waterfall?${params}`;
+  const dates = `${dateLabel(from)} – ${dateLabel(to)}`;
+  text('drawdown-contributions-status', `${dates} · Calculating contributions…`);
+  try {
+    const response = await fetch(`/api/dashboard?${params}`, { cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]) });
+    const data = await response.json();
+    if (controller.signal.aborted) return;
+    if (!response.ok || !data.waterfall?.entries) throw new Error(data.message || data.waterfall?.message || 'Contributions are unavailable.');
+    if (data.revision !== report.revision || data.loadedAt !== report.loadedAt || data.fxVersion !== report.fxVersion)
+      throw new Error('The portfolio changed. Refresh this page or open the full waterfall.');
+    const changes = data.waterfall.entries.filter(entry => entry.kind === 'CHANGE' && entry.amount !== 0);
+    for (const [list, sign] of [[losses, -1], [gains, 1]]) {
+      const top = changes.filter(entry => Math.sign(entry.amount) === sign)
+        .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0, 5);
+      for (const entry of top) {
+        const row = document.createElement('li'), name = document.createElement('span'), amount = document.createElement('strong');
+        name.textContent = entry.label;
+        amount.textContent = money(entry.amount, true);
+        amount.className = sign < 0 ? 'negative' : 'positive';
+        row.append(name, amount);
+        list.append(row);
+      }
+      if (!top.length) {
+        const row = document.createElement('li');
+        row.textContent = 'None in this period.';
+        list.append(row);
+      }
+    }
+    lists.hidden = !changes.length;
+    text('drawdown-contributions-status', `${dates} · ${data.waterfall.message || (changes.length ? report.currency : 'No contributions in this period.')}`);
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    drawdownContributionRequest = null;
+    text('drawdown-contributions-status', `${dates} · ${error.name === 'TimeoutError' ? 'Contribution request timed out.' : error.message}`);
+  }
+}
+
+function renderDrawdownEpisodes(points) {
+  const body = byId('drawdown-episodes-body');
+  const scroll = body.closest('.table-scroll');
+  const scrollTop = scroll.scrollTop;
+  const episodes = drawdownEpisodes(points);
+  const focusedKey = body.contains(document.activeElement) ? document.activeElement.dataset.episode : null;
+  body.replaceChildren();
+  const selectedEpisode = episodes.find(episode => episode.key === drawdownEpisodeKey);
+  if (!selectedEpisode) drawdownEpisodeKey = null;
+  highlightDrawdownEpisode(selectedEpisode);
+  showDrawdownContributions(selectedEpisode, points);
+  const label = index => index == null ? 'Not observed' : dateLabel(points[index].date);
+  const days = (start, end) => (seriesTime(points[end].date) - seriesTime(points[start].date)) / 86400000;
+  const duration = count => `${count} day${count === 1 ? '' : 's'}`;
+  for (const episode of episodes) {
+    const row = document.createElement('tr'), loss = document.createElement('td'), button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'drawdown-episode-button negative';
+    button.dataset.episode = episode.key;
+    button.textContent = percent(points[episode.trough].value);
+    button.setAttribute('aria-label', `Highlight ${button.textContent} drawdown · trough ${label(episode.trough)}`);
+    button.setAttribute('aria-pressed', String(episode === selectedEpisode));
+    loss.append(button);
+    row.append(loss);
+    cell(row, label(episode.peak));
+    cell(row, label(episode.trough));
+    const ongoing = episode.recovery == null && episode.end === points.length - 1;
+    cell(row, episode.recovery != null ? label(episode.recovery) : ongoing ? 'Still below peak' : 'Status unavailable');
+    cell(row, episode.gap ? 'Uncertain · data gap' : episode.recovery != null
+      ? duration(days(episode.trough, episode.recovery)) : ongoing ? `${duration(days(episode.trough, episode.end))} so far` : 'Unavailable');
+    row.addEventListener('click', () => {
+      drawdownEpisodeKey = drawdownEpisodeKey === episode.key ? null : episode.key;
+      for (const choice of body.querySelectorAll('button')) choice.setAttribute('aria-pressed', String(choice.dataset.episode === drawdownEpisodeKey));
+      highlightDrawdownEpisode(drawdownEpisodeKey ? episode : null);
+      showDrawdownContributions(drawdownEpisodeKey ? episode : null, points);
+      if (drawdownEpisodeKey) {
+        drawdownChart.select(episode.trough);
+        drawdownChart.svg.scrollIntoView({ block: 'nearest' });
+      } else saveEntryState();
+    });
+    body.append(row);
+    if (episode.key === focusedKey) button.focus({ preventScroll: true });
+  }
+  if (!episodes.length) emptyRow(body, 5, points.some(point => Number.isFinite(point.value))
+    ? 'No drawdown episodes in this period.' : 'No drawdown data available.');
+  scroll.scrollTop = scrollTop;
+}
+
 function renderDrawdown() {
   const data = report.drawdown;
   text('drawdown-maximum', data?.maximum == null ? 'Unavailable' : percent(-data.maximum));
@@ -1619,11 +1780,13 @@ function renderDrawdown() {
   text('drawdown-summary', !data ? 'Drawdown unavailable for this period.' : data.maximum === 0
     ? 'No decline from a high within the selected period.'
     : `Largest decline: peak ${dateLabel(data.peakDate)} → trough ${dateLabel(data.troughDate)}. Both dates are inside the selected period.`);
+  const points = (data?.series || []).map(point => ({ date: point.date, value: point.rate }));
   drawdownChart = new TimeSeriesChart(byId('drawdown-chart'));
-  drawdownChart.draw({ points: (data?.series || []).map(point => ({ date: point.date, value: point.rate })),
+  drawdownChart.draw({ points,
     format: percent, includeZero: true, area: true, areaBaseline: 0, output: byId('drawdown-detail'), selected: drawdownSelected,
     title: 'Portfolio time-weighted drawdown', empty: 'No drawdown data available.',
     onSelect: index => { drawdownSelected = index; saveEntryState(); } });
+  if (currentRoute === 'drawdown') renderDrawdownEpisodes(points);
 }
 
 // Compounding cumulative native TTWROR endpoints preserves the engine's flow adjustment.
@@ -1632,17 +1795,77 @@ function intervalReturn(opening, closing) {
   const value = (1 + closing.rate) / (1 + opening.rate) - 1;
   return Number.isFinite(value) ? value : null;
 }
+function calendarPeriods(points, keyLength) {
+  const periods = new Map();
+  for (let i = 1; i < points.length; i++) {
+    const point = points[i], key = point.date.slice(0, keyLength);
+    if (!periods.has(key)) periods.set(key, { opening: points[i - 1], closing: point });
+    else periods.get(key).closing = point;
+  }
+  return periods;
+}
+
+function isPartialMonth(key, opening, closing) {
+  const [year, month] = key.split('-').map(Number);
+  return opening.date !== iso(new Date(Date.UTC(year, month - 1, 0)))
+    || closing.date !== iso(new Date(Date.UTC(year, month, 0)));
+}
+
+function renderMonthlyBridge() {
+  const list = byId('monthly-bridge-months');
+  const months = [...calendarPeriods(report.series || [], 7)].reverse().map(([key, { opening, closing }]) => {
+    const flows = closing.investedCapital - opening.investedCapital;
+    const gain = closing.value - opening.value - flows;
+    const available = [opening.value, closing.value, opening.investedCapital, closing.investedCapital, flows, gain].every(Number.isSafeInteger);
+    return { key, opening, closing, flows: available ? flows : null, gain: available ? gain : null };
+  });
+  list.replaceChildren();
+  text('monthly-bridge-summary', months.length
+    ? `${months.length} month${months.length === 1 ? '' : 's'} · ${report.currency}`
+    : 'No monthly valuation intervals in this period.');
+  const maximum = Math.max(1, ...months.flatMap(month => [Math.abs(month.flows), Math.abs(month.gain)]));
+  for (const { key, opening, closing, flows, gain } of months) {
+    const row = document.createElement('li'), heading = document.createElement('h2'), link = document.createElement('a');
+    const valuations = document.createElement('dl');
+    const partial = isPartialMonth(key, opening, closing);
+    const params = new URLSearchParams(routeUrl().split('?')[1] || '');
+    params.set('from', opening.date); params.set('to', closing.date);
+    params.delete('preset'); params.delete('waterfall');
+    link.href = `#/waterfall?${params}`;
+    link.dataset.fixedPeriod = '';
+    link.textContent = monthLabel(key, 'long') + (partial ? '*' : '');
+    link.title = `${dateLabel(opening.date)} – ${dateLabel(closing.date)} · Open waterfall`;
+    heading.append(link);
+    for (const [kind, label, amount] of [['opening', 'Opening value', opening.value], ['closing', 'Closing value', closing.value],
+      ['flows', 'Net contributions', flows], ['gain', 'Investment gain / loss', gain]]) {
+      const metric = document.createElement('div'), term = document.createElement('dt'), value = document.createElement('dd');
+      metric.dataset.bridgeMetric = kind;
+      const movement = kind === 'flows' || kind === 'gain';
+      term.textContent = label;
+      value.textContent = Number.isSafeInteger(amount) ? money(amount, movement) : 'Unavailable';
+      metric.append(term, value);
+      if (movement && Number.isSafeInteger(amount)) {
+        const track = document.createElement('span'), bar = document.createElement('span');
+        track.className = 'monthly-bridge-track';
+        track.setAttribute('aria-hidden', 'true');
+        bar.className = amount < 0 ? 'negative' : 'positive';
+        const size = Math.abs(amount) / maximum * 50;
+        bar.style.width = `${size}%`;
+        bar.style.left = `${amount < 0 ? 50 - size : 50}%`;
+        track.append(bar);
+        metric.append(track);
+      }
+      valuations.append(metric);
+    }
+    row.append(heading, valuations);
+    list.append(row);
+  }
+}
+
 function renderReturnsCalendar() {
   const points = report.series || [], body = byId('returns-body');
   body.replaceChildren();
-  const months = new Map(), years = new Map();
-  for (let i = 1; i < points.length; i++) {
-    const point = points[i], month = point.date.slice(0, 7), year = point.date.slice(0, 4);
-    if (!months.has(month)) months.set(month, { opening: points[i - 1], closing: point });
-    else months.get(month).closing = point;
-    if (!years.has(year)) years.set(year, { opening: points[i - 1], closing: point });
-    else years.get(year).closing = point;
-  }
+  const months = calendarPeriods(points, 7), years = calendarPeriods(points, 4);
   const result = intervalReturn(points[0], points.at(-1));
   const available = [...months.values()].map(period => intervalReturn(period.opening, period.closing)).filter(Number.isFinite);
   const positive = available.filter(value => value > 0).length;
@@ -1651,10 +1874,8 @@ function renderReturnsCalendar() {
     const td = document.createElement('td');
     if (!period) { td.textContent = '—'; td.className = 'return-outside'; row.append(td); return; }
     const value = intervalReturn(period.opening, period.closing);
-    const [year, month] = key.split('-').map(Number);
-    const expectedStart = annual ? `${year - 1}-12-31` : iso(new Date(Date.UTC(year, month - 1, 0)));
-    const expectedEnd = annual ? `${year}-12-31` : iso(new Date(Date.UTC(year, month, 0)));
-    const partial = period.opening.date !== expectedStart || period.closing.date !== expectedEnd;
+    const partial = annual ? period.opening.date !== `${Number(key) - 1}-12-31` || period.closing.date !== `${key}-12-31`
+      : isPartialMonth(key, period.opening, period.closing);
     const button = document.createElement('button'); button.type = 'button'; button.className = 'return-cell';
     button.textContent = value == null ? 'N/A' : `${percent(value)}${partial ? '*' : ''}`;
     button.title = `${key}: ${period.opening.date} → ${period.closing.date}${partial ? ' (partial period)' : ''}. Open performance chart.`;
@@ -2503,7 +2724,12 @@ for (const button of document.querySelectorAll('[data-period]')) {
 }
 for (const button of document.querySelectorAll('[data-ranking-basis]')) button.addEventListener('click', () => { rankingBasis = button.dataset.rankingBasis; updateChoiceButtons(); syncRouteUrl(); renderRankings(report?.rankings); });
 for (const measure of chartModes) byId('mode-' + measure).addEventListener('click', () => { mode = measure; syncRouteUrl(); drawChart(); });
-window.matchMedia('(max-width:760px)').addEventListener('change', () => { drawChart(); if (currentRoute === 'live-quotes') renderLiveQuotes(); if (currentRoute === 'allocation') renderAllocation(); });
+window.matchMedia('(max-width:760px)').addEventListener('change', () => {
+  drawChart();
+  if (currentRoute === 'drawdown' && report) renderDrawdown();
+  if (currentRoute === 'live-quotes') renderLiveQuotes();
+  if (currentRoute === 'allocation') renderAllocation();
+});
 function checkForUpdates() {
   if (allocationPlaying) return;
   if (report && !document.hidden && currentRoute !== 'live-quotes' && !allocationPlaying) load(report.period.openingDate, report.period.closingDate, true);

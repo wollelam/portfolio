@@ -20,6 +20,7 @@
       <div class="performance-nav" role="group" aria-label="Performance analysis">
         <a data-route="drawdown" href="#/drawdown"><span aria-hidden="true">⌁</span> Drawdown</a>
         <a data-route="returns" href="#/returns"><span aria-hidden="true">▦</span> Returns calendar</a>
+        <a data-route="monthly-bridge" href="#/monthly-bridge"><span aria-hidden="true">≋</span> Monthly bridge</a>
         <a data-route="waterfall" href="#/waterfall"><span aria-hidden="true">▥</span> Waterfall</a>
       </div>
       <a data-route="allocation" href="#/allocation"><span aria-hidden="true">▧</span> Allocation</a>
@@ -101,6 +102,24 @@
         <svg id="drawdown-chart" class="time-series-chart" viewBox="0 0 1000 300" role="img" aria-label="Portfolio time-weighted drawdown"></svg>
         <p id="drawdown-detail" class="chart-explorer"></p>
         <p class="panel-note">The decline from the highest time-weighted return reached within the selected period, calculated by the native engine. External deposits and withdrawals are adjusted for. Zero means at the period’s high; a negative value means below it. Peaks before the opening date are outside this view. Hover, touch or use arrow keys to inspect a date.</p>
+        <section class="drawdown-episodes" aria-labelledby="drawdown-episodes-heading">
+          <h2 id="drawdown-episodes-heading">Drawdown episodes</h2>
+          <p class="subtle">Deepest declines first. Select a row to highlight its dates on the chart. Recovery time runs from the trough to the first return to the peak.</p>
+          <div class="table-scroll"><table aria-labelledby="drawdown-episodes-heading">
+            <thead><tr><th scope="col">Max loss</th><th scope="col">Peak</th><th scope="col">Trough</th><th scope="col">Recovered</th><th scope="col">Recovery time</th></tr></thead>
+            <tbody id="drawdown-episodes-body"></tbody>
+          </table></div>
+          <section id="drawdown-contributions" aria-labelledby="drawdown-contributions-heading" hidden>
+            <h3 id="drawdown-contributions-heading">Peak-to-trough contributions</h3>
+            <p id="drawdown-contributions-status" class="subtle" role="status"></p>
+            <p class="subtle">Amounts are contributions to investment gain or loss in the reporting currency. The chart measures time-weighted drawdown.</p>
+            <div class="drawdown-contribution-lists">
+              <div><h4>Largest losses</h4><ul id="drawdown-loss-contributions"></ul></div>
+              <div><h4>Largest offsets</h4><ul id="drawdown-gain-contributions"></ul></div>
+            </div>
+            <a id="drawdown-waterfall-link" class="button secondary" href="#/waterfall" data-fixed-period>Open full contribution waterfall</a>
+          </section>
+        </section>
       </section>
       <section data-page="returns" id="returns-calendar" class="panel">
         <div class="panel-heading"><span class="subtle">Time-weighted · after taxes &amp; fees</span></div>
@@ -108,6 +127,11 @@
         <div class="returns-legend"><span class="negative">Loss</span><span class="return-swatch loss"></span><span class="return-swatch flat"></span><span class="return-swatch profit"></span><span class="positive">Gain</span><span>· * Partial period</span></div>
         <div class="table-scroll"><table class="returns-table"><thead><tr><th scope="col">Year</th><th scope="col">Jan</th><th scope="col">Feb</th><th scope="col">Mar</th><th scope="col">Apr</th><th scope="col">May</th><th scope="col">Jun</th><th scope="col">Jul</th><th scope="col">Aug</th><th scope="col">Sep</th><th scope="col">Oct</th><th scope="col">Nov</th><th scope="col">Dec</th><th scope="col">Period</th></tr></thead><tbody id="returns-body"></tbody></table></div>
         <p class="panel-note">Each cell compounds the native daily TTWROR for that month inside the selected date range. Deposits and withdrawals are adjusted for. Partial months and years carry an asterisk; months outside the range are blank. Select a month to inspect its performance chart, then use Back to return here.</p>
+      </section>
+      <section data-page="monthly-bridge" id="monthly-bridge" class="panel">
+        <p id="monthly-bridge-summary" class="panel-note"></p>
+        <ol id="monthly-bridge-months" aria-label="Monthly portfolio changes, newest first"></ol>
+        <p class="panel-note">Net contributions include external deposits, withdrawals, and securities delivered in or out. Investment gain or loss is the remaining value change. Bars share a scale and extend left of zero for negative values. * Partial month. Select a month to open its waterfall.</p>
       </section>
       <section data-page="waterfall" id="waterfall" class="panel">
         <div class="panel-heading"><div id="waterfall-mode" class="segmented" role="group" aria-label="Waterfall breakdown"><button type="button" data-waterfall-mode="calculation" aria-pressed="true">Value bridge</button><button type="button" data-waterfall-mode="contributions" aria-pressed="false">Security contributions</button></div></div>
