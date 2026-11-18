@@ -108,7 +108,14 @@
         <details><summary>View exact amounts</summary><div class="table-scroll"><table><thead><tr><th scope="col">Component</th><th scope="col" class="numeric">Amount</th></tr></thead><tbody id="waterfall-body"></tbody></table></div></details>
       </section>
       <section data-page="allocation" id="allocation" class="panel">
-        <div class="panel-heading"><a id="allocation-holdings" class="button secondary" href="#/holdings">Holdings details →</a></div>
+        <section class="exposure-breakdown" aria-labelledby="exposure-heading">
+          <div class="exposure-heading">
+            <h2 id="exposure-heading">Ranked exposure</h2>
+            <div class="exposure-actions"><label>Group by <select id="allocation-grouping"><option value="position">Position</option><option value="asset-class">Asset class</option><option value="account">Account</option></select></label><a id="allocation-holdings" class="button secondary" href="#/holdings">Holdings details →</a></div>
+          </div>
+          <p id="exposure-description" class="subtle"></p>
+          <div id="exposure-rows"></div>
+        </section>
         <div class="allocation-timeline">
           <div class="allocation-date-row"><label for="allocation-date">As of <input id="allocation-date" type="date" required></label><button id="allocation-today" class="button secondary" type="button">Today</button><button id="allocation-play" class="button secondary" type="button" aria-pressed="false">▶ Play</button><label for="allocation-pace">Advance by <select id="allocation-pace"><option value="day" selected>Day</option><option value="month">Month</option><option value="year">Year</option></select></label><label for="allocation-speed">Speed <select id="allocation-speed"><option value="250">4 steps / second</option><option value="100" selected>10 steps / second</option><option value="50">20 steps / second</option></select></label></div>
           <label class="subtle" for="allocation-position">Explore allocation over time</label>
@@ -121,13 +128,15 @@
           <div><span>Top five positions · gross exposure</span><strong id="allocation-top-five"></strong><small class="subtle">Sum of absolute position values</small></div>
           <div><span>Cash · net value</span><strong id="allocation-cash"></strong><small id="allocation-cash-weight" class="subtle"></small></div>
         </div>
-        <div class="segmented allocation-color" role="group" aria-label="Color by"><button type="button" data-allocation-color="allocation" aria-pressed="true">Allocation</button><button type="button" data-allocation-color="performance" aria-pressed="false">Daily performance</button></div>
-        <p id="allocation-summary" class="panel-note"></p>
-        <div id="allocation-category-legend" class="allocation-legend"><span class="allocation-key securities"></span>Securities <span class="allocation-key cash"></span>Cash <span class="allocation-key negative"></span>Negative positions</div>
-        <div id="allocation-performance-legend" class="allocation-legend" hidden><span class="heatmap-loss">−3% or less</span> · −2% · −1% · 0% · +1% · +2% · <span class="heatmap-gain">+3% or more</span> · Gray: unavailable / cash. Today’s mapped holdings use IBKR previous close and current quote, including FX; others use saved daily returns. Size: absolute position value.</div>
-        <div class="table-scroll allocation-map"><svg id="allocation-chart" role="group" aria-label="Position allocation by absolute closing value"></svg></div>
-        <p id="allocation-detail" class="chart-explorer" role="status"></p>
-        <p class="panel-note">Tile area shows absolute position value at the selected closing date, including cash. It measures exposure, not performance. In Allocation mode, negative values have a red striped background; net portfolio weights retain their sign. Allocation mode groups positions beyond the largest 20 by sign and asset type. Daily performance mode shows every position individually. Hover or focus a tile for its exact value and weight; select a security to open its details.</p>
+        <div id="allocation-treemap">
+          <div class="segmented allocation-color" role="group" aria-label="Color by"><button type="button" data-allocation-color="allocation" aria-pressed="true">Allocation</button><button type="button" data-allocation-color="performance" aria-pressed="false">Daily performance</button></div>
+          <p id="allocation-summary" class="panel-note"></p>
+          <div id="allocation-category-legend" class="allocation-legend"><span class="allocation-key securities"></span>Securities <span class="allocation-key cash"></span>Cash <span class="allocation-key negative"></span>Negative positions</div>
+          <div id="allocation-performance-legend" class="allocation-legend" hidden><span class="heatmap-loss">−3% or less</span> · −2% · −1% · 0% · +1% · +2% · <span class="heatmap-gain">+3% or more</span> · Gray: unavailable / cash. Today’s mapped holdings use IBKR previous close and current quote, including FX; others use saved daily returns. Size: absolute position value.</div>
+          <div class="table-scroll allocation-map"><svg id="allocation-chart" role="group" aria-label="Position allocation by absolute closing value"></svg></div>
+          <p id="allocation-detail" class="chart-explorer" role="status"></p>
+          <p class="panel-note">Tile area shows absolute position value at the selected closing date, including cash. It measures exposure, not performance. In Allocation mode, negative values have a red striped background; net portfolio weights retain their sign. Allocation mode groups positions beyond the largest 20 by sign and asset type. Daily performance mode shows every position individually. Hover or focus a tile for its exact value and weight; select a security to open its details.</p>
+        </div>
       </section>
       <section data-page="holdings" id="holdings" class="panel"><div class="panel-heading"><span id="holding-count" class="subtle"></span></div><div class="table-scroll"><table><thead><tr><th scope="col">Asset</th><th scope="col" class="numeric">Value</th><th scope="col" class="numeric">Weight</th><th scope="col">Quote date</th><th scope="col" class="numeric">Current source price</th><th scope="col" class="numeric">Current source position value</th></tr></thead><tbody id="holdings-body"></tbody></table></div><p class="panel-note">Quote dates refer to the latest saved price on or before the valuation date. Cash has no quote date. Current source prices show explicitly mapped IBKR quotes or Fundsmith’s dated published NAV for today’s holdings, in each instrument’s currency. Position value uses the held quantity from this portfolio file; FX, taxes and fees are not included. Saved valuations and performance retain their stored prices.</p><p id="holdings-live-status" class="panel-note" role="status"></p></section>
       <section data-page="live-quotes" id="live-quotes" class="panel">

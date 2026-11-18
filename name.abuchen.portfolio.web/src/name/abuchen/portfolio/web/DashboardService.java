@@ -366,7 +366,7 @@ final class DashboardService
         return result;
     }
 
-    record AllocationFrame(String date, long totalValue, List<Holding> holdings)
+    record AllocationFrame(String date, long totalValue, List<Holding> holdings, List<AllocationExposure.Slice> exposure)
     {
     }
 
@@ -376,14 +376,19 @@ final class DashboardService
 
     synchronized AllocationFrames allocationFrames(LocalDate from, LocalDate to)
     {
+        return allocationFrames(from, to, null);
+    }
+
+    synchronized AllocationFrames allocationFrames(LocalDate from, LocalDate to, String grouping)
+    {
         if (from.isBefore(inceptionDate) || to.isAfter(defaultClosingDate()) || to.isBefore(from)
                         || java.time.temporal.ChronoUnit.DAYS.between(from, to) > 92)
             throw new IllegalArgumentException("Choose at most 93 recorded allocation dates");
         validateReportingRates(from, to);
         if (combinedPrimary != null)
         {
-            var primaryFrames = sourceAllocationFrames(combinedPrimary, from, to);
-            var secondaryFrames = sourceAllocationFrames(combinedSecondary, from, to);
+            var primaryFrames = sourceAllocationFrames(combinedPrimary, from, to, grouping);
+            var secondaryFrames = sourceAllocationFrames(combinedSecondary, from, to, grouping);
             if (primaryFrames.size() != secondaryFrames.size())
                 throw new IllegalArgumentException("Source allocation ranges do not align");
             var frames = new ArrayList<AllocationFrame>();
@@ -394,7 +399,8 @@ final class DashboardService
                 if (!primaryFrame.date().equals(secondaryFrame.date()))
                     throw new IllegalArgumentException("Source allocation dates do not align");
                 frames.add(new AllocationFrame(primaryFrame.date(), primaryFrame.totalValue() + secondaryFrame.totalValue(),
-                                combinedHoldings(primaryFrame.holdings(), secondaryFrame.holdings())));
+                                combinedHoldings(primaryFrame.holdings(), secondaryFrame.holdings()),
+                                combinedExposure(grouping, primaryFrame.exposure(), secondaryFrame.exposure())));
             }
             return new AllocationFrames(portfolio.revision(), fxVersion(), converter.getTermCurrency(), scope.selection(exclusions), List.copyOf(frames));
         }
@@ -403,19 +409,52 @@ final class DashboardService
         {
             var snapshot = ClientSnapshot.create(portfolio.client(), converter, date);
             frames.add(new AllocationFrame(date.toString(), snapshot.getMonetaryAssets().getAmount(),
-                            holdings(snapshot, date, new LinkedHashSet<>())));
+                            holdings(snapshot, date, new LinkedHashSet<>()), exposure(snapshot, grouping)));
         }
         return new AllocationFrames(portfolio.revision(), fxVersion(), converter.getTermCurrency(), scope.selection(exclusions), List.copyOf(frames));
     }
 
-    private List<AllocationFrame> sourceAllocationFrames(DashboardService service, LocalDate from, LocalDate to)
+    synchronized List<AllocationExposure.Slice> exposure(LocalDate date, String grouping)
+    {
+        if (combinedPrimary != null)
+            return combinedExposure(grouping, combinedPrimary.exposure(date, grouping), combinedSecondary.exposure(date, grouping));
+        return exposure(ClientSnapshot.create(portfolio.client(), converter, date), grouping);
+    }
+
+    private List<AllocationExposure.Slice> exposure(ClientSnapshot snapshot, String grouping)
+    {
+        if (grouping == null)
+            return null;
+        return grouping.equals("account") ? AllocationExposure.byAccount(snapshot)
+                        : AllocationExposure.byAssetClass(snapshot, scope, exclusions);
+    }
+
+    private List<AllocationExposure.Slice> combinedExposure(String grouping, List<AllocationExposure.Slice> primary,
+                    List<AllocationExposure.Slice> secondary)
+    {
+        if (grouping == null)
+            return null;
+        return Stream.concat(sourcedExposure(primary, grouping, "Primary"), sourcedExposure(secondary, grouping, "Secondary"))
+                        .toList();
+    }
+
+    private Stream<AllocationExposure.Slice> sourcedExposure(List<AllocationExposure.Slice> slices, String grouping, String source)
+    {
+        boolean accounts = grouping.equals("account");
+        return slices.stream().map(slice -> new AllocationExposure.Slice(accounts ? source + ":" + slice.group() : slice.group(),
+                        accounts ? slice.label() + " · " + source : slice.label(),
+                        accounts ? slice.name() : slice.name() + " · " + source,
+                        slice.uuid() == null ? null : canonicalSecurityIds.getOrDefault(slice.uuid(), slice.uuid()), slice.value()));
+    }
+
+    private List<AllocationFrame> sourceAllocationFrames(DashboardService service, LocalDate from, LocalDate to, String grouping)
     {
         var frames = new ArrayList<AllocationFrame>();
         var firstRecorded = service.inceptionDate.isAfter(from) ? service.inceptionDate : from;
         for (var date = from; date.isBefore(firstRecorded) && !date.isAfter(to); date = date.plusDays(1))
-            frames.add(new AllocationFrame(date.toString(), 0, List.of()));
+            frames.add(new AllocationFrame(date.toString(), 0, List.of(), grouping == null ? null : List.of()));
         if (!firstRecorded.isAfter(to))
-            frames.addAll(service.allocationFrames(firstRecorded, to).frames());
+            frames.addAll(service.allocationFrames(firstRecorded, to, grouping).frames());
         return List.copyOf(frames);
     }
 

@@ -59,6 +59,8 @@ let instrumentCurrency = 'native';
 let instrumentChartMode = 'price';
 let selectedInstrumentEvent = '';
 let allocationColor = 'allocation';
+const exposureGroupings = ['position', 'asset-class', 'account'];
+let allocationGrouping = 'position';
 let drawdownSelected = 0;
 let drawdownChart;
 let hasChartSelection = false;
@@ -226,6 +228,7 @@ function routeUrl() {
   if (allocationColor !== 'allocation') params.set('allocationColor', allocationColor);
   if (rankingBasis !== 'rate') params.set('basis', rankingBasis);
   if (currentRoute === 'allocation' && allocationDate) params.set('asof', allocationDate);
+  if (currentRoute === 'allocation' && allocationGrouping !== 'position') params.set('group', allocationGrouping);
   if (securitySearch) params.set('q', securitySearch);
   if (excludedGroups.size) params.set('exclude', [...excludedGroups].sort().join(','));
   if (rankingLimit !== '10') params.set('entries', rankingLimit);
@@ -348,6 +351,8 @@ async function enterRoute() {
   updateCurrencyOptions();
   currentRoute = route.page; selectedInstrument = route.instrument;
   allocationColor = route.params.get('allocationColor') === 'performance' ? 'performance' : 'allocation';
+  const grouping = route.params.get('group');
+  allocationGrouping = currentRoute === 'allocation' && exposureGroupings.includes(grouping) ? grouping : 'position';
   instrumentChartMode = route.params.get('instrumentChart') === 'return' ? 'return' : 'price';
   instrumentCurrency = route.params.get('priceCurrency') === 'portfolio' ? 'portfolio' : 'native';
   if (currentRoute === 'allocation') allocationDate = route.params.get('asof') || allocationDate || route.params.get('to') || report?.today || '';
@@ -1201,7 +1206,7 @@ function selectAllocationDate(date, immediate = false, playback = false) {
   if (immediate) return refresh(); else allocationTimer = setTimeout(refresh, 250);
 }
 function allocationCacheIdentity() {
-  return JSON.stringify([report.revision, report.fxVersion, report.currency, [...excludedGroups].sort()]);
+  return JSON.stringify([report.revision, report.fxVersion, report.currency, [...excludedGroups].sort(), allocationGrouping]);
 }
 async function fetchAllocationFrames(date) {
   const key = allocationCacheIdentity();
@@ -1216,6 +1221,7 @@ async function fetchAllocationFrames(date) {
   const end = iso(new Date(Math.min(Date.parse(report.today + 'T12:00:00Z'), Date.parse(date + 'T12:00:00Z') + 30 * 86400000)));
   const params = new URLSearchParams({ frames: 'true', from: date, to: end });
   params.set('view', portfolioView);
+  if (allocationGrouping !== 'position') params.set('exposure', allocationGrouping);
   if (reportingCurrencies.includes(reportingCurrency)) params.set('currency', reportingCurrency);
   if (excludedGroups.size) params.set('exclude', [...excludedGroups].sort().join(','));
   const pending = (async () => {
@@ -1245,7 +1251,8 @@ async function showBufferedAllocation(date) {
     const frame = await fetchAllocationFrames(date);
     if (!allocationPlaying || generation !== allocationPlaybackGeneration || currentRoute !== 'allocation') return null;
     if (!frame) throw new Error('Allocation date unavailable.');
-    report = { ...report, asOf: frame.date, totalValue: frame.totalValue, holdings: frame.holdings };
+    report = { ...report, asOf: frame.date, totalValue: frame.totalValue, holdings: frame.holdings,
+      exposure: frame.exposure, exposureGrouping: allocationGrouping };
     allocationTransition = Number(byId('allocation-speed').value);
     renderAllocation(); allocationTransition = 0;
     // Keep a window of daily native valuations ahead of the player.
@@ -1305,7 +1312,15 @@ byId('allocation-position').addEventListener('change', () => { if (allocationTim
 byId('allocation-date').addEventListener('change', event => { if (event.target.checkValidity()) selectAllocationDate(event.target.value, true); });
 byId('allocation-today').addEventListener('click', () => selectAllocationDate(report.today, true));
 
-function allocationPerformanceMode() { return allocationColor === 'performance'; }
+byId('allocation-grouping').addEventListener('change', event => {
+  stopAllocationPlayback();
+  allocationGrouping = event.target.value;
+  syncRouteUrl();
+  renderAllocation();
+  if (allocationGrouping !== 'position' || allocationPerformanceMode()) load();
+});
+
+function allocationPerformanceMode() { return allocationGrouping === 'position' && allocationColor === 'performance'; }
 function allocationPerformanceColor(rate) {
   if (!Number.isFinite(rate)) return '#526479';
   if (rate === 0) return '#414554';
@@ -1395,6 +1410,98 @@ function renderAllocationLabel(group, defs, tile, index, share) {
   group.append(labels);
 }
 
+function renderRankedExposure(positions) {
+  byId('allocation-grouping').value = allocationGrouping;
+  const container = byId('exposure-rows');
+  const grouped = allocationGrouping !== 'position';
+  const description = 'Bars and percentages use gross exposure (the sum of absolute values). Amounts are signed net values. Red marks negative exposure.';
+  if (grouped && report.exposureGrouping !== allocationGrouping) {
+    text('exposure-description', 'Loading exposure for the selected grouping…');
+    container.replaceChildren();
+    delete container.dataset.renderKey;
+    return;
+  }
+
+  const slices = grouped ? report.exposure || [] : positions.map(item => ({
+    group: item.id || item.uuid || item.name, label: item.name, name: item.name, uuid: item.uuid, value: item.value
+  }));
+  const key = JSON.stringify([allocationGrouping, report.currency, report.asOf, slices, routeUrl()]);
+  if (key === container.dataset.renderKey) return;
+  const scrollTop = container.scrollTop;
+  const expanded = new Set([...container.querySelectorAll('details[open]')].map(item => item.dataset.group));
+  const focused = container.contains(document.activeElement) ? document.activeElement.dataset.exposureFocus : null;
+  container.dataset.renderKey = key;
+  container.replaceChildren();
+
+  const groups = new Map();
+  let gross = 0;
+  for (const slice of slices) {
+    if (!groups.has(slice.group)) groups.set(slice.group, { id: slice.group, name: slice.label, members: [], positive: 0, negative: 0 });
+    const group = groups.get(slice.group);
+    group.members.push(slice);
+    group.positive += Math.max(0, slice.value);
+    group.negative += Math.max(0, -slice.value);
+    gross += Math.abs(slice.value);
+  }
+  text('exposure-description', gross ? `Gross exposure ${money(gross)} · Net portfolio value ${money(report.totalValue)}. ${description}`
+    : 'No non-zero exposure at this valuation date.');
+  const magnitude = group => group.positive + group.negative;
+  const ranked = [...groups.values()].sort((a, b) => magnitude(b) - magnitude(a) || a.name.localeCompare(b.name));
+  const maximum = ranked.length ? magnitude(ranked[0]) : 1;
+  for (const group of ranked) {
+    const member = group.members[0];
+    const row = document.createElement(grouped ? 'details' : 'div');
+    row.className = 'exposure-row';
+    row.dataset.group = group.id;
+    const heading = document.createElement(grouped ? 'summary' : 'div');
+    heading.className = 'exposure-row-heading';
+    heading.dataset.exposureFocus = group.id;
+    const name = document.createElement(!grouped && member.uuid ? 'a' : 'span');
+    name.textContent = group.name;
+    if (name.tagName === 'A') {
+      name.className = 'instrument-link';
+      name.href = allocationTarget(`instrument/${encodeURIComponent(member.uuid)}`);
+      name.dataset.exposureFocus = group.id;
+    }
+    const amount = document.createElement('span');
+    amount.className = 'exposure-amount';
+    const net = group.positive - group.negative;
+    amount.textContent = `${money(net)} · ${weight(magnitude(group) / gross)}`;
+    if (group.positive && group.negative) amount.title = `Gross exposure ${money(magnitude(group))}`;
+    const track = document.createElement('span');
+    track.className = 'exposure-track';
+    track.setAttribute('aria-hidden', 'true');
+    for (const [kind, value] of [['positive', group.positive], ['negative', group.negative]]) {
+      const bar = document.createElement('span');
+      bar.className = kind;
+      bar.style.width = `${value / maximum * 100}%`;
+      track.append(bar);
+    }
+    heading.append(name, amount, track);
+    row.append(heading);
+    if (grouped) {
+      row.open = expanded.has(group.id);
+      const list = document.createElement('ul'); list.className = 'exposure-members';
+      const members = group.members.slice().sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name));
+      for (const [index, holding] of members.entries()) {
+        const item = document.createElement('li'), label = document.createElement(holding.uuid ? 'a' : 'span');
+        label.textContent = holding.name;
+        if (holding.uuid) {
+          label.className = 'instrument-link';
+          label.href = allocationTarget(`instrument/${encodeURIComponent(holding.uuid)}`);
+          label.dataset.exposureFocus = `${group.id}:${index}`;
+        }
+        const value = document.createElement('span'); value.textContent = money(holding.value);
+        item.append(label, value); list.append(item);
+      }
+      row.append(list);
+    }
+    container.append(row);
+  }
+  container.scrollTop = scrollTop;
+  if (focused) [...container.querySelectorAll('summary, a')].find(element => element.dataset.exposureFocus === focused)?.focus({ preventScroll: true });
+}
+
 function renderAllocation() {
   renderAllocationTimeline();
   const performanceMode = allocationPerformanceMode();
@@ -1409,6 +1516,10 @@ function renderAllocation() {
         dailySource: brokerDay ? 'IBKR previous close' : 'saved prices' };
     }).sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name));
   const gross = positions.reduce((sum, item) => sum + Math.abs(item.value), 0);
+  if (currentRoute === 'allocation') {
+    renderRankedExposure(positions);
+    byId('allocation-treemap').hidden = allocationGrouping !== 'position';
+  }
   const cash = positions.filter(item => item.type === 'cash').reduce((sum, item) => sum + item.value, 0);
   const largest = positions[0];
   text('allocation-largest', largest?.name || 'No positions');
@@ -1417,6 +1528,7 @@ function renderAllocation() {
   text('allocation-cash', money(cash));
   text('allocation-cash-weight', report.totalValue === 0 ? 'Net portfolio weight unavailable at zero value' : `${weight(cash / report.totalValue)} of net portfolio value`);
   text('allocation-summary', `${dateLabel(report.asOf)} · ${positions.length} non-zero positions · Gross exposure ${money(gross)} · Net portfolio value ${money(report.totalValue)}`);
+  if (currentRoute === 'allocation' && allocationGrouping !== 'position') return;
   const svg = byId('allocation-chart');
   const previousTiles = new Map([...svg.querySelectorAll('.allocation-tile')].map(group => {
     const rect = group.querySelector('rect');
@@ -2240,6 +2352,7 @@ async function load(from, to, silent = false) {
     if (currentRoute === 'performers') params.set('rankings', 'true');
     if (currentRoute === 'overview' || currentRoute === 'allocation' && allocationPerformanceMode()) params.set('rankings', 'day');
     if (currentRoute === 'waterfall') params.set('waterfall', waterfallMode);
+    if (currentRoute === 'allocation' && allocationGrouping !== 'position') params.set('exposure', allocationGrouping);
     if (currentRoute === 'dividends') params.set('income', 'true');
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]);
     const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal });
@@ -2257,6 +2370,7 @@ async function load(from, to, silent = false) {
 
     refreshConnectionError = null;
     if (currentRoute === 'overview' && requestedClosingDate && requestedClosingDate !== data.today) activePreset = null;
+    data.exposureGrouping = params.get('exposure');
     report = data;
     const inferredCurrency = !reportingCurrency && reportingCurrencies.includes(data.currency);
     if (!reportingCurrency) reportingCurrency = inferredCurrency ? data.currency : null;

@@ -64,6 +64,61 @@ public class PortfolioScopeTest
     }
 
     @Test
+    public void rankedExposureReconcilesSplitClassesAndAccountsAfterExclusions()
+    {
+        var loaded = fixture();
+        var security = loaded.client().getSecurities().getFirst();
+        var taxonomy = new Taxonomy("Asset Classes");
+        var root = new Classification("asset-class-root", "Asset Classes");
+        var equity = new Classification(root, "equity", "Equity");
+        var alternatives = new Classification(root, "alternatives", "Alternatives");
+        var equityAssignment = new Classification.Assignment(security);
+        equityAssignment.setWeight(7000);
+        equity.addAssignment(equityAssignment);
+        var alternativeAssignment = new Classification.Assignment(security);
+        alternativeAssignment.setWeight(2000);
+        alternatives.addAssignment(alternativeAssignment);
+        root.addChild(equity);
+        root.addChild(alternatives);
+        taxonomy.setRootNode(root);
+        loaded.client().addTaxonomy(taxonomy);
+        var pensionCash = loaded.client().getAccounts().getLast();
+        pensionCash.addTransaction(new AccountTransaction(today.atTime(9, 0), "EUR",
+                        Values.Amount.factorize(60000), null, AccountTransaction.Type.REMOVAL));
+
+        var service = new DashboardService(loaded, clock, List.of());
+        var report = service.dashboard(today.minusDays(1), today);
+        var assets = service.exposure(today, "asset-class");
+        assertEquals(report.totalValue(), assets.stream().mapToLong(AllocationExposure.Slice::value).sum());
+        var securityValue = report.holdings().stream().filter(holding -> security.getUUID().equals(holding.uuid()))
+                        .findFirst().orElseThrow().value();
+        assertEquals(Math.round(securityValue * .7), assets.stream().filter(slice -> slice.label().equals("Equity"))
+                        .findFirst().orElseThrow().value());
+        assertTrue(assets.stream().anyMatch(slice -> slice.label().equals("Unclassified") && slice.value() < 0));
+        var accounts = service.exposure(today, "account");
+        assertEquals(report.totalValue(), accounts.stream().mapToLong(AllocationExposure.Slice::value).sum());
+        assertEquals(2, accounts.stream().filter(slice -> security.getUUID().equals(slice.uuid())).count());
+        assertTrue(accounts.stream().anyMatch(slice -> slice.label().equals("Pension cash") && slice.value() < 0));
+
+        var filtered = service.excluding(PortfolioScope.classificationId(taxonomy, equity));
+        var filteredReport = filtered.dashboard(today.minusDays(1), today);
+        var filteredClasses = filtered.exposure(today, "asset-class");
+        assertEquals(filteredReport.totalValue(), filteredClasses.stream().mapToLong(AllocationExposure.Slice::value).sum());
+        assertTrue(filteredClasses.stream().noneMatch(slice -> slice.label().equals("Equity")));
+        var filteredFrames = filtered.allocationFrames(today.minusDays(1), today, "account");
+        for (var frame : filteredFrames.frames())
+            assertEquals(frame.totalValue(), frame.exposure().stream().mapToLong(AllocationExposure.Slice::value).sum());
+
+        var combined = DashboardService.combined(service, new DashboardService(DemoPortfolio.create(today), clock, List.of()));
+        var combinedTotal = combined.dashboard(today.minusDays(1), today).totalValue();
+        var combinedAccounts = combined.exposure(today, "account");
+        assertEquals(combinedTotal, combinedAccounts.stream().mapToLong(AllocationExposure.Slice::value).sum());
+        assertTrue(combinedAccounts.stream().anyMatch(slice -> slice.label().endsWith(" · Primary")));
+        assertTrue(combinedAccounts.stream().anyMatch(slice -> slice.label().endsWith(" · Secondary")));
+        assertEquals(combinedTotal, combined.exposure(today, "asset-class").stream().mapToLong(AllocationExposure.Slice::value).sum());
+    }
+
+    @Test
     public void assetClassPensionCanBeExcludedWithoutRemovingOtherAssets()
     {
         var loaded = DemoPortfolio.create(today);

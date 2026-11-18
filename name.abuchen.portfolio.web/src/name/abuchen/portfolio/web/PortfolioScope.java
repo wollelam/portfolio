@@ -15,6 +15,7 @@ import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.ConfigurationSet.WellKnownConfigurationSets;
 import name.abuchen.portfolio.model.InvestmentVehicle;
 import name.abuchen.portfolio.model.Security;
+import name.abuchen.portfolio.model.Taxonomy;
 import name.abuchen.portfolio.snapshot.filter.ClientClassificationFilter;
 import name.abuchen.portfolio.snapshot.filter.PortfolioClientFilter;
 import name.abuchen.portfolio.snapshot.filter.ReadOnlyAccount;
@@ -76,19 +77,14 @@ final class PortfolioScope
                         Map.of(p, Classification.ONE_HUNDRED_PERCENT)));
         client.getAccounts().forEach(a -> add("a-" + a.getUUID(), a.getName(), "Cash accounts",
                         Map.of(a, Classification.ONE_HUNDRED_PERCENT)));
-        client.getTaxonomies().stream().filter(t -> t.getName() != null
-                        && t.getName().toLowerCase(java.util.Locale.ROOT).startsWith("asset class"))
+        client.getTaxonomies().stream().filter(PortfolioScope::isAssetClass)
                         .forEach(taxonomy -> {
             for (var classification : taxonomy.getAllClassifications())
             {
                 if (classification == taxonomy.getRoot() || Classification.UNASSIGNED_ID.equals(classification.getId()))
                     continue;
-                var path = new ArrayList<String>();
-                for (var node = classification; node != null && node != taxonomy.getRoot(); node = node.getParent())
-                    path.addFirst(node.getName());
-                var label = String.join(" / ", path);
-                var id = "t-" + UUID.nameUUIDFromBytes((taxonomy.getName().toLowerCase(java.util.Locale.ROOT) + "/" + label)
-                                .getBytes(StandardCharsets.UTF_8));
+                var label = classificationPath(taxonomy, classification);
+                var id = classificationId(taxonomy, label);
                 var members = classifications.computeIfAbsent(id, ignored -> new HashMap<>());
                 for (var assignment : classification.flattenAssignments().getAssignments())
                 {
@@ -100,6 +96,38 @@ final class PortfolioScope
                     options.add(new Option(id, label, taxonomy.getName()));
             }
         });
+    }
+
+    static boolean isAssetClass(Taxonomy taxonomy)
+    {
+        return taxonomy.getName() != null && taxonomy.getName().toLowerCase(java.util.Locale.ROOT).startsWith("asset class");
+    }
+
+    private static String classificationPath(Taxonomy taxonomy, Classification classification)
+    {
+        var path = new ArrayList<String>();
+        for (var node = classification; node != null && node != taxonomy.getRoot(); node = node.getParent())
+            path.addFirst(node.getName());
+        return String.join(" / ", path);
+    }
+
+    static String classificationId(Taxonomy taxonomy, Classification classification)
+    {
+        return classificationId(taxonomy, classificationPath(taxonomy, classification));
+    }
+
+    private static String classificationId(Taxonomy taxonomy, String path)
+    {
+        return "t-" + UUID.nameUUIDFromBytes((taxonomy.getName().toLowerCase(java.util.Locale.ROOT) + "/" + path)
+                        .getBytes(StandardCharsets.UTF_8));
+    }
+
+    Map<InvestmentVehicle, Integer> excludedClassWeights(List<String> excluded)
+    {
+        var weights = new HashMap<InvestmentVehicle, Integer>();
+        excluded.stream().filter(classifications::containsKey).forEach(id -> classifications.get(id)
+                        .forEach((vehicle, weight) -> weights.merge(vehicle, weight, Math::max)));
+        return weights;
     }
 
     private void add(String id, String name, String type, Map<Object, Integer> members)
@@ -144,12 +172,9 @@ final class PortfolioScope
                 remainingWeights.put(element, Classification.ONE_HUNDRED_PERCENT - weight);
         });
         var filtered = new PortfolioClientFilter(portfolios, accounts, remainingWeights).filter(client);
-        var taxonomyIds = excluded.stream().filter(classifications::containsKey).toList();
-        if (taxonomyIds.isEmpty())
+        var excludedVehicles = excludedClassWeights(excluded);
+        if (excludedVehicles.isEmpty())
             return filtered;
-        var excludedVehicles = new HashMap<InvestmentVehicle, Integer>();
-        taxonomyIds.forEach(id -> classifications.get(id).forEach((vehicle, weight) ->
-                        excludedVehicles.merge(vehicle, weight, Math::max)));
         var kept = new Classification("asset-class-remainder", "Remaining asset classes");
         for (var security : filtered.getSecurities())
         {
