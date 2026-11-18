@@ -36,7 +36,7 @@ function updateViewOptions(views) {
   const available = Array.isArray(views) ? views.filter(view => Object.hasOwn(viewTitles, view)) : ['primary'];
   const selector = byId('view-selector'), label = byId('view-selector-label');
   selector.replaceChildren(...available.map(view => new Option(viewTitles[view], view)));
-  label.hidden = false;
+  label.hidden = currentRoute === 'portfolio-comparison';
   selector.disabled = available.length < 2;
   if (!available.includes(portfolioView)) portfolioView = available[0] || 'primary';
   selector.value = portfolioView;
@@ -210,6 +210,7 @@ const routeMeta = {
   drawdown: 'Portfolio drawdown',
   returns: 'Returns calendar',
   'monthly-bridge': 'Monthly portfolio bridge',
+  'portfolio-comparison': 'Portfolio comparison',
   waterfall: 'Performance waterfall',
   allocation: 'Allocation & concentration',
   holdings: 'Holdings & cash',
@@ -288,6 +289,7 @@ byId('section-toggle').addEventListener('click', event => setSectionMenu(event.c
 function showRoute() {
   hideWaterfallTooltip();
   const quotePage = currentRoute === 'live-quotes';
+  if (currentRoute === 'portfolio-comparison') byId('view-selector-label').hidden = true;
   byId('portfolio-scope').hidden = quotePage;
   byId('warnings').hidden = quotePage;
   byId('instrument-icon').hidden = currentRoute !== 'instrument';
@@ -331,7 +333,7 @@ function showRoute() {
 }
 
 function parseRoute() {
-  const match = location.hash.match(/^#\/(overview|performance|holdings|allocation|dividends|performers|waterfall|returns|monthly-bridge|drawdown|live-quotes|instrument\/([^?]+))(?:\?(.*))?$/);
+  const match = location.hash.match(/^#\/(overview|performance|holdings|allocation|dividends|performers|waterfall|returns|monthly-bridge|portfolio-comparison|drawdown|live-quotes|instrument\/([^?]+))(?:\?(.*))?$/);
   if (!match) return { page: 'overview', instrument: '', params: new URLSearchParams() };
   const page = match[1].startsWith('instrument/') ? 'instrument' : match[1];
   let instrument = '';
@@ -353,6 +355,7 @@ async function enterRoute() {
   restoringScroll = true;
   const route = parseRoute();
   portfolioView = ['primary', 'secondary', 'combined'].includes(route.params.get('view')) ? route.params.get('view') : 'primary';
+  if (route.page === 'portfolio-comparison') portfolioView = !report || report.views?.includes('combined') ? 'combined' : 'primary';
   byId('view-selector').value = portfolioView;
   reportingCurrency = reportingCurrencies.includes(route.params.get('currency')) ? route.params.get('currency') : null;
   updateCurrencyOptions();
@@ -531,6 +534,7 @@ function render() {
   renderWaterfall(report.waterfall);
   renderReturnsCalendar();
   if (currentRoute === 'monthly-bridge') renderMonthlyBridge();
+  if (currentRoute === 'portfolio-comparison') renderPortfolioComparison();
   renderDrawdown();
   renderAllocation();
   if (currentRoute === 'dividends') renderDividendIncome(dividends);
@@ -1933,6 +1937,38 @@ function renderMonthlyBridge() {
   }
 }
 
+function renderPortfolioComparison() {
+  const body = byId('portfolio-comparison-body');
+  body.replaceChildren();
+  const columns = ['primary', 'secondary', 'combined'].map(view => report.comparison?.find(item => item.view === view));
+  const available = columns.every(Boolean);
+  byId('portfolio-comparison-results').hidden = !available;
+  text('portfolio-comparison-status', available
+    ? `${dateLabel(report.period.openingDate)} – ${dateLabel(report.period.closingDate)} · ${report.currency}`
+    : 'Portfolio comparison requires both a Primary and a Secondary portfolio.');
+  if (!available) return;
+
+  const measures = [
+    ['Opening value', item => item.openingValue, value => money(value)],
+    ['Closing value', item => item.closingValue, value => money(value)],
+    ['Investment gain / loss', item => item.period.gain, value => money(value, true), true],
+    ['Net contributions', item => item.period.netFlows, value => money(value, true)],
+    ['Return', item => item.period.rate, percent, true],
+    ['Maximum drawdown', item => item.maximumDrawdown == null ? null : -item.maximumDrawdown, percent, true]
+  ];
+  for (const [label, read, format, signed] of measures) {
+    const row = document.createElement('tr'), heading = document.createElement('th');
+    heading.scope = 'row'; heading.textContent = label;
+    row.append(heading);
+    for (const column of columns) {
+      const value = read(column);
+      cell(row, Number.isFinite(value) ? format(value) : 'Unavailable', true);
+      if (signed && value) row.lastElementChild.classList.add(value > 0 ? 'positive' : 'negative');
+    }
+    body.append(row);
+  }
+}
+
 function renderReturnsCalendar() {
   const points = report.series || [], body = byId('returns-body');
   body.replaceChildren();
@@ -2689,6 +2725,7 @@ async function load(from, to, silent = false) {
     if (currentRoute === 'overview' || currentRoute === 'allocation' && allocationPerformanceMode()) params.set('rankings', 'day');
     if (currentRoute === 'overview') params.set('attribution', 'true');
     if (currentRoute === 'waterfall') params.set('waterfall', waterfallMode);
+    if (currentRoute === 'portfolio-comparison') params.set('comparison', 'true');
     if (currentRoute === 'allocation' && allocationGrouping !== 'position') params.set('exposure', allocationGrouping);
     if (currentRoute === 'dividends') params.set('income', 'true');
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]);

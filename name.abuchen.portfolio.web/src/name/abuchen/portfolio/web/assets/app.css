@@ -1431,3 +1431,12 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
   #allocation-drift { margin-inline:12px; padding:10px; }
   .allocation-drift-row { grid-template-columns:minmax(0,1fr); }
 }
+
+#portfolio-comparison table { min-width:0; table-layout:fixed; }
+#portfolio-comparison th, #portfolio-comparison td { padding:12px; overflow-wrap:anywhere; white-space:normal; }
+#portfolio-comparison thead th:first-child { width:28%; }
+#portfolio-comparison tbody th { text-align:left; background:none; }
+#portfolio-comparison tr > :last-child { background:#edf5f1; }
+@media (max-width:760px) {
+  #portfolio-comparison th, #portfolio-comparison td { padding:8px 5px; }
+}

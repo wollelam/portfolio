@@ -21,6 +21,7 @@
         <a data-route="drawdown" href="#/drawdown"><span aria-hidden="true">⌁</span> Drawdown</a>
         <a data-route="returns" href="#/returns"><span aria-hidden="true">▦</span> Returns calendar</a>
         <a data-route="monthly-bridge" href="#/monthly-bridge"><span aria-hidden="true">≋</span> Monthly bridge</a>
+        <a data-route="portfolio-comparison" href="#/portfolio-comparison"><span aria-hidden="true">⇄</span> Portfolio comparison</a>
         <a data-route="waterfall" href="#/waterfall"><span aria-hidden="true">▥</span> Waterfall</a>
       </div>
       <a data-route="allocation" href="#/allocation"><span aria-hidden="true">▧</span> Allocation</a>
@@ -151,6 +152,16 @@
         <p id="monthly-bridge-summary" class="panel-note"></p>
         <ol id="monthly-bridge-months" aria-label="Monthly portfolio changes, newest first"></ol>
         <p class="panel-note">Net contributions include external deposits, withdrawals, and securities delivered in or out. Investment gain or loss is the remaining value change. Bars share a scale and extend left of zero for negative values. * Partial month. Select a month to open its waterfall.</p>
+      </section>
+      <section data-page="portfolio-comparison" id="portfolio-comparison" class="panel">
+        <p id="portfolio-comparison-status" class="panel-note"></p>
+        <div id="portfolio-comparison-results" class="table-scroll" hidden>
+          <table aria-label="Primary, Secondary and Combined portfolio comparison">
+            <thead><tr><th scope="col">Measure</th><th scope="col" class="numeric">Primary</th><th scope="col" class="numeric">Secondary</th><th scope="col" class="numeric">Combined</th></tr></thead>
+            <tbody id="portfolio-comparison-body"></tbody>
+          </table>
+          <p class="panel-note">All columns use saved valuations. Return is time weighted. Combined return and drawdown are calculated from the pooled portfolio.</p>
+        </div>
       </section>
       <section data-page="waterfall" id="waterfall" class="panel">
         <div class="panel-heading"><div id="waterfall-mode" class="segmented" role="group" aria-label="Waterfall breakdown"><button type="button" data-waterfall-mode="calculation" aria-pressed="true">Value bridge</button><button type="button" data-waterfall-mode="contributions" aria-pressed="false">Security contributions</button></div></div>

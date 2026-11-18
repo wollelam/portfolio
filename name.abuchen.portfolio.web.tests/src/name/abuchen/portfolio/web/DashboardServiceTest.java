@@ -104,6 +104,15 @@ public class DashboardServiceTest
         var combined = combinedService.dashboard(today.minusYears(1), today);
 
         assertEquals(primary.totalValue() + secondary.totalValue(), combined.totalValue());
+        var comparison = combined.comparison();
+        assertEquals(List.of("primary", "secondary", "combined"), comparison.stream().map(DashboardService.Comparison::view).toList());
+        assertEquals(primary.period(), comparison.get(0).period());
+        assertEquals(secondary.period(), comparison.get(1).period());
+        assertEquals(combined.period(), comparison.get(2).period());
+        assertEquals(primary.drawdown().maximum(), comparison.get(0).maximumDrawdown());
+        assertEquals(secondary.drawdown().maximum(), comparison.get(1).maximumDrawdown());
+        assertEquals(comparison.get(0).openingValue() + comparison.get(1).openingValue(), comparison.get(2).openingValue());
+        assertEquals(comparison.get(0).closingValue() + comparison.get(1).closingValue(), comparison.get(2).closingValue());
         var sourceHoldingValue = java.util.stream.Stream.concat(primary.holdings().stream(), secondary.holdings().stream())
                         .filter(h -> "security".equals(h.type())).mapToLong(DashboardService.Holding::value).sum();
         assertEquals(sourceHoldingValue, combined.holdings().stream().filter(h -> "security".equals(h.type()))

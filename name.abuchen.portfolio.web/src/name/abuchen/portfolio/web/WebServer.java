@@ -174,7 +174,9 @@ final class WebServer implements AutoCloseable
                 try
                 {
                     var params = query(exchange.getRequestURI().getRawQuery());
-                    var view = params.getOrDefault("view", "primary");
+                    var view = "true".equals(params.get("comparison"))
+                                    ? (secondaryPortfolios == null ? "primary" : "combined")
+                                    : params.getOrDefault("view", "primary");
                     if (!validView(view))
                         throw new IllegalArgumentException("Unknown portfolio view");
                     var snapshot = snapshot(view);
@@ -249,10 +251,12 @@ final class WebServer implements AutoCloseable
         {
             var parts = pair.split("=", 2);
             var key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
-            if (!(key.equals("exclude") || key.equals("attribution") || key.equals("exposure") || key.equals("income") || key.equals("frames") || key.equals("from") || key.equals("to") || key.equals("benchmark") || key.equals("instrument") || key.equals("rankings") || key.equals("waterfall") || key.equals("view") || key.equals("currency") || key.equals("id") || key.equals("v")) || parts.length != 2
+            if (!(key.equals("exclude") || key.equals("comparison") || key.equals("attribution") || key.equals("exposure") || key.equals("income") || key.equals("frames") || key.equals("from") || key.equals("to") || key.equals("benchmark") || key.equals("instrument") || key.equals("rankings") || key.equals("waterfall") || key.equals("view") || key.equals("currency") || key.equals("id") || key.equals("v")) || parts.length != 2
                             || params.putIfAbsent(key, URLDecoder.decode(parts[1], StandardCharsets.UTF_8)) != null)
                 throw new IllegalArgumentException("Unknown or duplicate parameter");
         }
+        if (params.containsKey("comparison") && !params.get("comparison").equals("true"))
+            throw new IllegalArgumentException("Invalid portfolio comparison flag");
         if (params.containsKey("attribution") && !params.get("attribution").equals("true"))
             throw new IllegalArgumentException("Invalid daily attribution flag");
         if (params.containsKey("exposure") && !java.util.Set.of("asset-class", "account").contains(params.get("exposure")))

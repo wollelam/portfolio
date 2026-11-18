@@ -85,11 +85,15 @@ final class DashboardService
     {
     }
 
+    record Comparison(String view, long openingValue, long closingValue, Period period, Double maximumDrawdown)
+    {
+    }
+
     record Dashboard(String label, String revision, String loadedAt, boolean demo, String currency, String asOf,
                     long totalValue, Period day, Period week, Period period, List<Point> series, List<Holding> holdings,
                     List<Dividend> dividends, List<String> warnings, List<BenchmarkService.Option> benchmarks,
                     BenchmarkService.Result benchmark, PriceCoverage priceCoverage, String fxVersion, Instrument instrument,
-                    SecurityRankingService.Rankings rankings, SecurityRankingService.Rankings dailyRankings, Waterfall waterfall, Drawdown drawdown, String inceptionDate, String today, Map<String, String> icons, PortfolioScope.Selection scope, Map<String, List<String>> quoteKeys)
+                    SecurityRankingService.Rankings rankings, SecurityRankingService.Rankings dailyRankings, Waterfall waterfall, Drawdown drawdown, String inceptionDate, String today, Map<String, String> icons, PortfolioScope.Selection scope, Map<String, List<String>> quoteKeys, List<Comparison> comparison)
     {
     }
 
@@ -643,7 +647,7 @@ final class DashboardService
                         BenchmarkService.calculate(scope.client, converter, openingDate, closingDate, benchmark),
                         coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate), rankings, dailyRankings,
                         waterfallMode == null ? null : waterfall(openingDate, closingDate, waterfallMode,
-                                        limitWaterfallContributions), drawdown(index), inceptionDate.toString(), defaultClosingDate().toString(), iconUrls, scope.selection(exclusions), quoteKeys);
+                                        limitWaterfallContributions), drawdown(index), inceptionDate.toString(), defaultClosingDate().toString(), iconUrls, scope.selection(exclusions), quoteKeys, List.of());
     }
 
     synchronized DividendIncome trailingDividendIncome(Dashboard dashboard)
@@ -919,7 +923,9 @@ final class DashboardService
         var warnings = new LinkedHashSet<String>();
         warnings.addAll(primaryDashboard.warnings());
         warnings.addAll(secondaryDashboard.warnings());
-        var index = combinedIndex(openingDate, closingDate, warnings);
+        var primaryIndex = index(combinedPrimary, openingDate, closingDate, warnings);
+        var secondaryIndex = index(combinedSecondary, openingDate, closingDate, warnings);
+        var index = combinedIndex(primaryIndex, secondaryIndex);
         var dayIndex = combinedIndex(index(combinedPrimary, previousTradingDay(closingDate), closingDate, warnings),
                         index(combinedSecondary, previousTradingDay(closingDate), closingDate, warnings));
         var weekIndex = combinedIndex(index(combinedPrimary, closingDate.minusWeeks(1), closingDate, warnings),
@@ -949,13 +955,18 @@ final class DashboardService
                         : String.valueOf(primaryDashboard.fxVersion()) + ":" + String.valueOf(secondaryDashboard.fxVersion());
         var rankings = includeRankings ? combinedRankings(openingDate, closingDate) : null;
         var dailyRankings = includeDailyRankings ? combinedRankings(previousTradingDay(closingDate), closingDate) : null;
+        var period = combinedPeriod(index);
+        var drawdown = combinedDrawdown(points);
+        var comparison = List.of(comparison("primary", primaryIndex), comparison("secondary", secondaryIndex),
+                        new Comparison("combined", index.totals()[0], index.totals()[index.totals().length - 1], period,
+                                        drawdown.maximum()));
         return new Dashboard(portfolio.label(), portfolio.revision(), portfolio.loadedAt().toString(),
                         primaryDashboard.demo() && secondaryDashboard.demo(), converter.getTermCurrency(), closingDate.toString(), total,
                         combinedPeriod(dayIndex), combinedPeriod(weekIndex),
-                        combinedPeriod(index), List.copyOf(points), holdings, List.copyOf(dividends), List.copyOf(warnings),
+                        period, List.copyOf(points), holdings, List.copyOf(dividends), List.copyOf(warnings),
                         benchmarks, benchmarkResult, coverage, combinedFxVersion, instrument, rankings, dailyRankings, combinedWaterfall,
-                        combinedDrawdown(points), inception.toString(), defaultClosingDate().toString(), iconUrls,
-                        scope.selection(exclusions), quoteKeys);
+                        drawdown, inception.toString(), defaultClosingDate().toString(), iconUrls,
+                        scope.selection(exclusions), quoteKeys, comparison);
     }
 
     private String sourceSecurity(DashboardService service, List<String> ids)
@@ -1176,9 +1187,11 @@ final class DashboardService
         return result;
     }
 
-    private CombinedIndex combinedIndex(LocalDate from, LocalDate to, Set<String> warnings)
+    private Comparison comparison(String view, PerformanceIndex index)
     {
-        return combinedIndex(index(combinedPrimary, from, to, warnings), index(combinedSecondary, from, to, warnings));
+        var totals = index.getTotals();
+        return new Comparison(view, totals[0], totals[totals.length - 1], period(index),
+                        finite(index.getDrawdown().getMaxDrawdown()));
     }
 
     private PerformanceIndex index(DashboardService service, LocalDate from, LocalDate to, Set<String> warnings)
