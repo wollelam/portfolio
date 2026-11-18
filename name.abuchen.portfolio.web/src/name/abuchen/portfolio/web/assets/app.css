@@ -1154,3 +1154,83 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 @media (max-width:350px) {
   .metric { padding-inline:8px; }
 }
+
+.dividend-summary, .dividend-breakdown {
+  display:grid;
+  grid-template-columns:minmax(0, 2fr) minmax(0, 1fr);
+  gap:24px;
+  padding:18px 24px;
+}
+.dividend-summary { background:#f5f8f7; border-bottom:1px solid var(--border); }
+.dividend-summary > div { display:grid; gap:5px; }
+.dividend-summary span, .dividend-summary small { color:var(--muted); font-size:12px; }
+.dividend-summary strong { font-size:23px; overflow-wrap:anywhere; }
+.dividend-breakdown > section { min-width:0; }
+#dividend-months {
+  display:flex;
+  overflow-x:auto;
+  padding:4px 0 8px;
+  color:var(--muted);
+  font-size:12px;
+}
+#dividend-months button {
+  flex:1 0 47px;
+  min-width:0;
+  max-width:100px;
+  border:0;
+  padding:3px 0;
+  background:transparent;
+  color:var(--muted);
+  font:inherit;
+  cursor:pointer;
+}
+#dividend-months button:disabled { cursor:default; }
+.dividend-plot { display:block; position:relative; height:120px; margin-bottom:7px; }
+.dividend-plot::before {
+  content:"";
+  position:absolute;
+  inset:var(--dividend-zero) 0 auto;
+  border-top:1px solid #a6b3bf;
+}
+.dividend-bar {
+  position:absolute;
+  inset-inline:24%;
+  min-height:2px;
+  background:var(--green);
+}
+.dividend-bar.negative { background:#b52d3b; }
+#dividend-payers { display:grid; gap:5px; padding:0; list-style:none; color:var(--muted); font-size:12px; }
+#dividend-payers button {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  width:100%;
+  border:1px solid var(--border);
+  border-radius:6px;
+  padding:8px 10px;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  text-align:left;
+  overflow-wrap:anywhere;
+  cursor:pointer;
+}
+#dividend-payers button strong { flex-shrink:0; }
+#dividend-months button[aria-pressed="true"], #dividend-payers button[aria-pressed="true"] {
+  color:var(--green);
+  background:#e6f2ec;
+}
+#dividend-months button:focus-visible { outline-offset:-2px; }
+.dividend-ledger-heading { flex-wrap:wrap; }
+.dividend-ledger-heading #income-currency { margin-left:auto; }
+#dividend-payment-summary { margin:4px 0 0; }
+@media (max-width:760px) {
+  .dividend-summary, .dividend-breakdown { gap:14px; padding:14px; }
+  .dividend-summary { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .dividend-summary strong { font-size:18px; }
+  .dividend-breakdown { grid-template-columns:minmax(0, 1fr); }
+  #dividend-months button { flex-basis:25px; font-size:10px; }
+  #dividend-months button > span:last-child { display:block; max-width:26px; margin:auto; }
+  .dividend-plot { height:90px; }
+}

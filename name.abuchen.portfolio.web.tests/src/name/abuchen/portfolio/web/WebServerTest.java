@@ -1,6 +1,7 @@
 package name.abuchen.portfolio.web;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.math.BigDecimal;
@@ -16,6 +17,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.StreamSupport;
 
 import org.junit.Test;
 import org.junit.Rule;
@@ -176,6 +178,19 @@ public class WebServerTest
             assertTrue(JsonParser.parseString(dashboard.body()).getAsJsonObject().getAsJsonArray("series").size() > 300);
             assertEquals("no-store", dashboard.headers().firstValue("Cache-Control").orElseThrow());
             var body = JsonParser.parseString(dashboard.body()).getAsJsonObject();
+            assertFalse(body.has("dividendIncome"));
+            assertEquals(400, get(client, base + "/api/dashboard?income=no").statusCode());
+            var incomeResponse = get(client, base + "/api/dashboard?income=true&from=" + today.minusDays(7) + "&to=" + today);
+            assertEquals(200, incomeResponse.statusCode());
+            var shortPeriod = JsonParser.parseString(incomeResponse.body()).getAsJsonObject();
+            assertEquals(0, shortPeriod.getAsJsonArray("dividends").size());
+            var income = shortPeriod.getAsJsonObject("dividendIncome");
+            assertEquals(today.minusYears(1).toString(), income.get("openingDate").getAsString());
+            assertEquals(today.toString(), income.get("closingDate").getAsString());
+            long expectedNet = StreamSupport.stream(body.getAsJsonArray("dividends").spliterator(), false)
+                            .mapToLong(payment -> payment.getAsJsonObject().get("net").getAsLong()).sum();
+            assertTrue(expectedNet > 0);
+            assertEquals(expectedNet, income.get("net").getAsLong());
             var benchmarkId = body.getAsJsonArray("benchmarks").get(0).getAsJsonObject().get("uuid").getAsString();
             var comparison = JsonParser.parseString(get(client, base + "/api/dashboard?benchmark=" + benchmarkId).body()).getAsJsonObject();
             assertEquals(benchmarkId, comparison.getAsJsonObject("benchmark").get("uuid").getAsString());

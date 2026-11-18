@@ -74,6 +74,9 @@ let rankingLimit = '10';
 let waterfallMode = 'calculation';
 let tableSorts = {};
 let securitySearch = '';
+let dividendMonth = '';
+let dividendPayer = '';
+let dividendRange = '';
 let securityActivity;
 let activityKey = '';
 const activityPages = { dividends: 0, transactions: 0 };
@@ -186,7 +189,9 @@ for (const [id, columns] of Object.entries(sortColumns)) {
       tableSorts[id] = { column, direction: previous?.column === column && previous.direction === 'asc' ? 'desc' : 'asc' };
       if (id.startsWith('security-')) activityPages[id.includes('transactions') ? 'transactions' : 'dividends'] = 0;
       syncRouteUrl(); updateSortHeaders();
-      if (id === 'live-quotes-body') renderLiveQuotes(); else if (report) render();
+      if (id === 'live-quotes-body') renderLiveQuotes();
+      else if (id === 'dividends-body') renderDividendLedger();
+      else if (report) render();
     });
     heading.replaceChildren(button);
   });
@@ -513,17 +518,7 @@ function render() {
   renderReturnsCalendar();
   renderDrawdown();
   renderAllocation();
-  const income = byId('dividends-body');
-  income.replaceChildren();
-  text('income-currency', `All amounts in ${report.currency}`);
-  for (const dividend of sortedRows('dividends-body', report.dividends)) {
-    const row = document.createElement('tr');
-    cell(row, dateLabel(dividend.date), false, dividend.account);
-    cell(row, dividend.security, false, dividend.originalCurrency !== report.currency ? `Original net: ${new Intl.NumberFormat(undefined, { style: 'currency', currency: dividend.originalCurrency }).format(dividend.originalNet / 100)}` : null);
-    for (const field of ['gross', 'taxes', 'fees', 'net']) cell(row, money(dividend[field]), true);
-    income.append(row);
-  }
-  if (!report.dividends.length) emptyRow(income, 6, 'No dividend payments in this period.');
+  if (currentRoute === 'dividends') renderDividendIncome(dividends);
   text('revision', `Snapshot ${report.revision.slice(0, 12)} · loaded ${new Date(report.loadedAt).toLocaleString()}`);
   renderBenchmarkOptions();
   renderFreshness();
@@ -532,6 +527,136 @@ function render() {
   byId('dashboard').hidden = false;
   showRoute();
 }
+
+function dividendMonthLabel(month, format = 'short') {
+  return new Date(month + '-01T12:00:00Z').toLocaleDateString(undefined, { month: format, year: format === 'short' ? '2-digit' : 'numeric', timeZone: 'UTC' });
+}
+
+function renderDividendIncome(total) {
+  const { openingDate, closingDate } = report.period;
+  const range = JSON.stringify([portfolioView, report.currency, openingDate, closingDate, report.scope?.excluded]);
+  if (range !== dividendRange) {
+    dividendRange = range;
+    dividendMonth = dividendPayer = '';
+  }
+
+  text('dividend-period-net', money(total));
+  text('dividend-period-payments', `${report.dividends.length} booked payments`);
+  const trailing = report.dividendIncome;
+  text('dividend-trailing-net', Number.isFinite(trailing?.net) ? money(trailing.net) : 'Unavailable');
+  text('dividend-trailing-dates', trailing ? `${dateLabel(trailing.openingDate)} – ${dateLabel(trailing.closingDate)}` : '');
+
+  const monthly = new Map(), payers = new Map();
+  for (const payment of report.dividends) {
+    const month = payment.date.slice(0, 7);
+    monthly.set(month, (monthly.get(month) || 0) + payment.net);
+    payers.set(payment.security, (payers.get(payment.security) || 0) + payment.net);
+  }
+  if (!monthly.has(dividendMonth)) dividendMonth = '';
+  if (!payers.has(dividendPayer)) dividendPayer = '';
+  renderDividendMonths(monthly, openingDate, closingDate);
+  renderDividendPayers(payers);
+  renderDividendLedger();
+}
+
+function renderDividendMonths(monthly, openingDate, closingDate) {
+  const chart = byId('dividend-months');
+  const previousScroll = chart.scrollLeft;
+  chart.replaceChildren();
+  if (!monthly.size) {
+    text('dividend-month-scale', '');
+    chart.textContent = 'No payments in this period.';
+    return;
+  }
+
+  const values = [...monthly.values()];
+  const low = Math.min(0, ...values), high = Math.max(0, ...values);
+  text('dividend-month-scale', `${money(low)} to ${money(high)}`);
+  const scale = high - low || 1;
+  const zero = high === low ? 100 : high / scale * 100;
+  chart.style.setProperty('--dividend-zero', `${zero}%`);
+  const date = new Date(openingDate + 'T12:00:00Z');
+  date.setUTCDate(date.getUTCDate() + 1);
+  date.setUTCDate(1);
+  for (let month = iso(date).slice(0, 7); month <= closingDate.slice(0, 7); month = iso(date).slice(0, 7)) {
+    const amount = monthly.get(month) ?? 0;
+    const label = dividendMonthLabel(month);
+    const button = document.createElement('button'), plot = document.createElement('span');
+    const bar = document.createElement('span'), caption = document.createElement('span');
+    button.type = 'button';
+    button.dataset.month = month;
+    button.disabled = !monthly.has(month);
+    const detail = `${dividendMonthLabel(month, 'long')} · ${button.disabled ? 'No payments' : money(amount)}`;
+    button.title = detail;
+    button.setAttribute('aria-label', detail);
+    plot.className = 'dividend-plot';
+    bar.className = amount < 0 ? 'dividend-bar negative' : 'dividend-bar';
+    bar.style.top = `${amount > 0 ? zero - amount / scale * 100 : zero}%`;
+    bar.style.height = `${Math.abs(amount) / scale * 100}%`;
+    if (!button.disabled) plot.append(bar);
+    caption.textContent = label;
+    button.append(plot, caption);
+    button.addEventListener('click', () => {
+      dividendMonth = dividendMonth === month ? '' : month;
+      renderDividendLedger();
+    });
+    chart.append(button);
+    date.setUTCMonth(date.getUTCMonth() + 1);
+  }
+  chart.scrollLeft = previousScroll;
+}
+
+function renderDividendPayers(payers) {
+  const list = byId('dividend-payers');
+  list.replaceChildren();
+  const top = [...payers].filter(([, net]) => net > 0)
+    .sort(([name, net], [other, otherNet]) => otherNet - net || name.localeCompare(other)).slice(0, 5);
+  for (const [payer, net] of top) {
+    const item = document.createElement('li'), button = document.createElement('button');
+    const name = document.createElement('span'), amount = document.createElement('strong');
+    button.type = 'button';
+    button.dataset.payer = payer;
+    name.textContent = payer;
+    amount.textContent = money(net);
+    button.append(name, amount);
+    button.addEventListener('click', () => {
+      dividendPayer = dividendPayer === payer ? '' : payer;
+      renderDividendLedger();
+    });
+    item.append(button); list.append(item);
+  }
+  if (!top.length) {
+    const empty = document.createElement('li'); empty.textContent = 'No positive net payments in this period.'; list.append(empty);
+  }
+}
+
+function renderDividendLedger() {
+  const income = byId('dividends-body');
+  income.replaceChildren();
+  text('income-currency', `All amounts in ${report.currency}`);
+  const payments = report.dividends.filter(dividend => (!dividendMonth || dividend.date.startsWith(dividendMonth))
+    && (!dividendPayer || dividend.security === dividendPayer));
+  for (const dividend of sortedRows('dividends-body', payments)) {
+    const row = document.createElement('tr');
+    cell(row, dateLabel(dividend.date), false, dividend.account);
+    cell(row, dividend.security, false, dividend.originalCurrency !== report.currency ? `Original net: ${new Intl.NumberFormat(undefined, { style: 'currency', currency: dividend.originalCurrency }).format(dividend.originalNet / 100)}` : null);
+    for (const field of ['gross', 'taxes', 'fees', 'net']) cell(row, money(dividend[field]), true);
+    income.append(row);
+  }
+  if (!payments.length) emptyRow(income, 6, report.dividends.length ? 'No payments match these filters.' : 'No dividend payments in this period.');
+  const filters = [dividendMonth && dividendMonthLabel(dividendMonth, 'long'), dividendPayer].filter(Boolean);
+  const selection = filters.length ? ` · ${filters.join(' · ')} · ${money(payments.reduce((sum, payment) => sum + payment.net, 0))} net` : '';
+  text('dividend-payment-summary', `${payments.length} of ${report.dividends.length} payments${selection}`);
+  byId('dividend-clear').hidden = !filters.length;
+  for (const button of byId('dividend-months').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.month === dividendMonth));
+  for (const button of byId('dividend-payers').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.payer === dividendPayer));
+}
+
+byId('dividend-clear').addEventListener('click', () => {
+  dividendMonth = dividendPayer = '';
+  renderDividendLedger();
+  byId('dividend-payment-summary').focus();
+});
 
 const liveTime = value => new Date(value).toLocaleTimeString(undefined, { hour12: false });
 // Round presentation only; valuations and returns retain the original quote precision.
@@ -2115,6 +2240,7 @@ async function load(from, to, silent = false) {
     if (currentRoute === 'performers') params.set('rankings', 'true');
     if (currentRoute === 'overview' || currentRoute === 'allocation' && allocationPerformanceMode()) params.set('rankings', 'day');
     if (currentRoute === 'waterfall') params.set('waterfall', waterfallMode);
+    if (currentRoute === 'dividends') params.set('income', 'true');
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]);
     const response = await fetch('/api/dashboard' + (params.size ? '?' + params : ''), { cache: 'no-store', signal });
     const data = await response.json();
@@ -2125,7 +2251,7 @@ async function load(from, to, silent = false) {
     const unchanged = silent && report && report.revision === data.revision && report.loadedAt === data.loadedAt
       && report.period.openingDate === data.period.openingDate && report.period.closingDate === data.period.closingDate
       && report.benchmark?.uuid === data.benchmark?.uuid && report.fxVersion === data.fxVersion
-      && report.currency === data.currency
+      && report.currency === data.currency && report.dividendIncome?.closingDate === data.dividendIncome?.closingDate
       && report.instrument?.uuid === data.instrument?.uuid
       && JSON.stringify(report.scope?.excluded) === JSON.stringify(data.scope?.excluded);
 

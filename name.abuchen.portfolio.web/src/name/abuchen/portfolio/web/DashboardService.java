@@ -81,6 +81,10 @@ final class DashboardService
     {
     }
 
+    record DividendIncome(String openingDate, String closingDate, Long net)
+    {
+    }
+
     record Dashboard(String label, String revision, String loadedAt, boolean demo, String currency, String asOf,
                     long totalValue, Period day, Period week, Period period, List<Point> series, List<Holding> holdings,
                     List<Dividend> dividends, List<String> warnings, List<BenchmarkService.Option> benchmarks,
@@ -524,27 +528,7 @@ final class DashboardService
             series.add(new Point(index.getDates()[ii].toString(), index.getTotals()[ii],
                             finite(index.getAccumulatedPercentage()[ii]), investedCapital[ii]));
 
-        var dividends = new ArrayList<Dividend>();
-        for (var account : portfolio.client().getAccounts())
-        {
-            for (var transaction : account.getTransactions())
-            {
-                var date = transaction.getDateTime().toLocalDate();
-                if (transaction.getType() != AccountTransaction.Type.DIVIDENDS
-                                || NonCashDistributions.isSpinOff(portfolio.client(), account, transaction)
-                                || !date.isAfter(openingDate) || date.isAfter(closingDate))
-                    continue;
-                var gross = transaction.getGrossValue();
-                var taxes = transaction.getUnitSum(Type.TAX);
-                var fees = transaction.getUnitSum(Type.FEE);
-                dividends.add(new Dividend(date.toString(), transaction.getSecurity() == null ? "Unassigned"
-                                : transaction.getSecurity().getName(), account.getName(), transaction.getCurrencyCode(),
-                                transaction.getAmount(), converter.convert(date, gross).getAmount(),
-                                converter.convert(date, taxes).getAmount(), converter.convert(date, fees).getAmount(),
-                                converter.convert(date, transaction.getMonetaryAmount()).getAmount()));
-            }
-        }
-        dividends.sort(Comparator.comparing(Dividend::date).reversed().thenComparing(Dividend::security));
+        var dividends = dividends(openingDate, closingDate);
 
         // The core permits fallback FX rates. Surface gaps across the actual calculation dates,
         // including currencies in historical transactions and accounts that are now empty.
@@ -589,6 +573,58 @@ final class DashboardService
                         coverage, fxVersion(), instrumentId == null ? null : instrument(instrumentId, openingDate, closingDate), rankings, dailyRankings,
                         waterfallMode == null ? null : waterfall(openingDate, closingDate, waterfallMode,
                                         limitWaterfallContributions), drawdown(index), inceptionDate.toString(), defaultClosingDate().toString(), iconUrls, scope.selection(exclusions), quoteKeys);
+    }
+
+    synchronized DividendIncome trailingDividendIncome(Dashboard dashboard)
+    {
+        var closingDate = LocalDate.parse(dashboard.today());
+        var openingDate = closingDate.minusYears(1);
+        var opening = openingDate.toString();
+        var closing = closingDate.toString();
+        try
+        {
+            var payments = dashboard.period().openingDate().compareTo(opening) <= 0
+                            && dashboard.period().closingDate().equals(closing) ? dashboard.dividends()
+                                            : dividends(openingDate, closingDate);
+            var net = payments.stream().filter(payment -> payment.date().compareTo(opening) > 0)
+                            .mapToLong(Dividend::net).sum();
+            return new DividendIncome(opening, closing, net);
+        }
+        catch (MissingReportingRateException e)
+        {
+            return new DividendIncome(opening, closing, null);
+        }
+    }
+
+    private List<Dividend> dividends(LocalDate openingDate, LocalDate closingDate)
+    {
+        if (combinedPrimary != null)
+            return Stream.concat(combinedPrimary.dividends(openingDate, closingDate).stream(),
+                            combinedSecondary.dividends(openingDate, closingDate).stream()).toList();
+
+        var dividends = new ArrayList<Dividend>();
+        for (var account : portfolio.client().getAccounts())
+        {
+            for (var transaction : account.getTransactions())
+            {
+                var date = transaction.getDateTime().toLocalDate();
+                if (transaction.getType() != AccountTransaction.Type.DIVIDENDS
+                                || NonCashDistributions.isSpinOff(portfolio.client(), account, transaction)
+                                || !date.isAfter(openingDate) || date.isAfter(closingDate))
+                    continue;
+                var gross = transaction.getGrossValue();
+                var taxes = transaction.getUnitSum(Type.TAX);
+                var fees = transaction.getUnitSum(Type.FEE);
+                dividends.add(new Dividend(date.toString(), transaction.getSecurity() == null ? "Unassigned"
+                                : transaction.getSecurity().getName(), account.getName(), transaction.getCurrencyCode(),
+                                transaction.getAmount(), converter.convert(date, gross).getAmount(),
+                                converter.convert(date, taxes).getAmount(), converter.convert(date, fees).getAmount(),
+                                converter.convert(date, transaction.getMonetaryAmount()).getAmount()));
+            }
+        }
+        dividends.sort(Comparator.comparing(Dividend::date).reversed().thenComparing(Dividend::security));
+
+        return dividends;
     }
 
     private List<Holding> holdings(ClientSnapshot snapshot, LocalDate closingDate, Set<String> warnings)

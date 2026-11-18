@@ -187,8 +187,11 @@ final class WebServer implements AutoCloseable
                         json(exchange, 200, service.allocationFrames(from, to));
                         return;
                     }
-                    var dashboard = gson.toJsonTree(service.dashboard(from, to, params.get("benchmark"), params.get("instrument"),
-                                    Boolean.parseBoolean(params.getOrDefault("rankings", "false")), params.get("waterfall"), "day".equals(params.get("rankings")))).getAsJsonObject();
+                    var report = service.dashboard(from, to, params.get("benchmark"), params.get("instrument"),
+                                    Boolean.parseBoolean(params.getOrDefault("rankings", "false")), params.get("waterfall"), "day".equals(params.get("rankings")));
+                    var dashboard = gson.toJsonTree(report).getAsJsonObject();
+                    if ("true".equals(params.get("income")))
+                        dashboard.add("dividendIncome", gson.toJsonTree(service.trailingDividendIncome(report)));
                     if (secondaryPortfolios != null && !view.equals("combined"))
                         dashboard.add("quoteKeys", gson.toJsonTree(quoteKeysForView(service)));
                     dashboard.add("fundsmithIds", gson.toJsonTree(service.securityIdsForIsin(FundsmithNav.ISIN)));
@@ -240,10 +243,12 @@ final class WebServer implements AutoCloseable
         {
             var parts = pair.split("=", 2);
             var key = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
-            if (!(key.equals("exclude") || key.equals("frames") || key.equals("from") || key.equals("to") || key.equals("benchmark") || key.equals("instrument") || key.equals("rankings") || key.equals("waterfall") || key.equals("view") || key.equals("currency") || key.equals("id") || key.equals("v")) || parts.length != 2
+            if (!(key.equals("exclude") || key.equals("income") || key.equals("frames") || key.equals("from") || key.equals("to") || key.equals("benchmark") || key.equals("instrument") || key.equals("rankings") || key.equals("waterfall") || key.equals("view") || key.equals("currency") || key.equals("id") || key.equals("v")) || parts.length != 2
                             || params.putIfAbsent(key, URLDecoder.decode(parts[1], StandardCharsets.UTF_8)) != null)
                 throw new IllegalArgumentException("Unknown or duplicate parameter");
         }
+        if (params.containsKey("income") && !params.get("income").equals("true"))
+            throw new IllegalArgumentException("Invalid dividend income flag");
         if (params.containsKey("frames") && !params.get("frames").equals("true"))
             throw new IllegalArgumentException("Invalid allocation frame flag");
         if (params.containsKey("rankings") && !(params.get("rankings").equals("true") || params.get("rankings").equals("false") || params.get("rankings").equals("day")))
