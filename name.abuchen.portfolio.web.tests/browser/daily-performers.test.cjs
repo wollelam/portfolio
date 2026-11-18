@@ -43,7 +43,7 @@ async function main() {
     assert.equal(await page.locator('#daily-gainers-body tr').first().locator('td').last().innerText(),
       await page.evaluate(() => money(1300, true)));
     assert.equal(await page.locator('#daily-gainers-body tr').first().locator('td').nth(1).innerText(), await page.evaluate(() => percent(.13)));
-    assert.match(await page.locator('#daily-performers-status').innerText(), /Daily change is time-weighted return/);
+    assert.match(await page.locator('#daily-performers-status').innerText(), /Saved time-weighted returns are used where source prices are unavailable./);
     assert.match(await page.locator('#daily-performers-status').innerText(), /1 securities unavailable/);
     price = 50;
     await page.locator('#daily-losers-body tr').first().getByRole('link', { name: 'Alpha' }).waitFor();
