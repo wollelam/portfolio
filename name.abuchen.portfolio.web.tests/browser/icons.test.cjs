@@ -26,8 +26,10 @@ async function main() {
     });
     const base = process.env.BASE_URL || 'http://127.0.0.1:8097';
     await page.goto(`${base}/#/holdings`, { waitUntil: 'networkidle' });
-    await page.waitForFunction(() => [...document.querySelectorAll('#holdings-body img')].every(image => image.complete && image.naturalWidth > 0));
-    assert.equal(await page.locator('#holdings-body img').count(), 2, 'security and cash logos');
+    await page.waitForFunction(() => {
+      const images = [...document.querySelectorAll('#holdings-body img')];
+      return images.length === 2 && images.every(image => image.complete && image.naturalWidth > 0);
+    });
     assert.equal(await page.getByRole('link', { name: securityName, exact: true }).count(), 1, 'decorative logo leaves link name intact');
     assert.equal(await page.locator('#holdings-body td').first().innerText(), securityName, 'logos do not alter row text or sorting');
     await page.getByRole('link', { name: securityName, exact: true }).click();
@@ -46,10 +48,12 @@ async function main() {
     mode = 'broken';
     await page.goto(`${base}/#/holdings`, { waitUntil: 'networkidle' });
     await page.locator('#refresh').click();
-    await page.waitForFunction(() => document.querySelectorAll('#holdings-body .asset-icon').length === 2
-      && !document.querySelector('#holdings-body img, #holdings-body .asset-icon.has-logo'));
-    assert.equal(await page.locator('#holdings-body .asset-icon').count(), 2, 'failed images retain initials');
-    assert.equal(await page.locator('#holdings-body .asset-icon.has-logo').count(), 0);
+    await page.waitForFunction(() => {
+      const icons = [...document.querySelectorAll('#holdings-body .asset-icon')];
+      return document.querySelector('#dashboard').getAttribute('aria-busy') === 'false'
+        && icons.length === 2
+        && icons.every(icon => icon.dataset.initials && !icon.matches('.has-logo') && !icon.querySelector('img'));
+    });
     mode = 'missing'; await page.reload({ waitUntil: 'networkidle' });
     assert.equal(await page.locator('#holdings-body img').count(), 0);
     assert.equal(await page.locator('#holdings-body .asset-icon').first().getAttribute('data-initials'), securityName.slice(0, 2).toLocaleUpperCase());
