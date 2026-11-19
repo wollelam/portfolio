@@ -473,8 +473,12 @@ function render() {
   text('total-date', `As of ${dateLabel(report.asOf)}`);
   for (const key of ['day', 'week']) {
     const period = report[key];
-    text(key + '-gain', money(period.gain, true));
-    tone(key + '-gain', period.gain);
+    if (key === 'day') {
+      text('day-gain', money(period.gain, true));
+      tone('day-gain', period.gain);
+    } else {
+      renderWeekGain(period.gain);
+    }
     text(key + '-return', percent(period.rate));
     tone(key + '-return', period.rate);
     text(key + '-dates', `${dateLabel(period.openingDate)} → ${dateLabel(period.closingDate)}`);
@@ -698,11 +702,23 @@ function renderTotalValue(value, animate = false) {
   }
 }
 
+function renderWeekGain(gain) {
+  const cell = byId('week-gain');
+  cell.classList.toggle('value-masked', discreetMode);
+  text('week-gain', discreetMode ? '••••••' : money(gain, true));
+  tone('week-gain', discreetMode ? 0 : gain);
+  if (discreetMode) cell.setAttribute('aria-label', 'Trailing 7 days gain hidden');
+  else cell.removeAttribute('aria-label');
+}
+
 function updateDiscreetMode() {
   const button = byId('discreet-mode');
   button.setAttribute('aria-pressed', String(discreetMode));
   button.title = discreetMode ? 'Show total portfolio value' : 'Hide total portfolio value';
-  if (report) renderOverviewLive();
+  if (report) {
+    renderWeekGain(report.week.gain);
+    renderOverviewLive();
+  }
 }
 
 byId('discreet-mode').addEventListener('click', () => {

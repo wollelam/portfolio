@@ -1120,7 +1120,7 @@ th[aria-sort="descending"] .sort-button::after { content:' ↓'; opacity:1; }
 .discreet-toggle svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
 .discreet-toggle .eye-slash { display:none; }
 .discreet-toggle[aria-pressed="true"] .eye-slash { display:block; }
-#total-value.value-masked { letter-spacing:.12em; }
+.metric .value-masked { letter-spacing:.12em; }
 
 .day-live-status { display:block; margin-top:6px; }
 
